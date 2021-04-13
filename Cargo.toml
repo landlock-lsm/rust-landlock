@@ -1,0 +1,18 @@
+[package]
+name = "landlock"
+version = "0.1.0"
+authors = [
+	"Mickaël Salaün <mic@digikod.net>",
+	"Vincent Dagonneau <vincentdagonneau@gmail.com>"
+]
+edition = "2018"
+description = "Landlock LSM helpers"
+homepage = "https://landlock.io"
+repository = "https://github.com/landlock-lsm/rust-landlock"
+license = "MIT OR Apache-2.0"
+keywords = ["access-control", "linux", "sandbox", "security"]
+exclude = [".gitignore"]
+readme = "README.md"
+
+[dependencies]
+libc = "0.2"
