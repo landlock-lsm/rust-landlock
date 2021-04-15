@@ -79,6 +79,15 @@ impl Ruleset {
             _ => Err(Error::last_os_error()),
         }
     }
+
+    // Eager method, may not fit with all use-cases though.
+    pub fn restrict_self(self) -> Result<(), Error> {
+        // TODO: call prctl?
+        match unsafe { uapi::landlock_restrict_self(self.fd, 0) } {
+            0 => Ok(()),
+            _ => Err(Error::last_os_error()),
+        }
+    }
 }
 
 impl Drop for Ruleset {
