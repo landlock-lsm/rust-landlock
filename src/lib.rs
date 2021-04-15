@@ -5,6 +5,26 @@ use std::os::unix::io::RawFd;
 
 mod uapi;
 
+pub enum Rule {
+    PathBeneath(uapi::landlock_path_beneath_attr),
+}
+
+impl Rule {
+    fn as_ptr(&self) -> *const libc::c_void {
+        match self {
+            Rule::PathBeneath(attr) => attr as *const _ as _,
+        }
+    }
+}
+
+impl Into<uapi::landlock_rule_type> for &Rule {
+    fn into(self) -> uapi::landlock_rule_type {
+        match self {
+            Rule::PathBeneath(_) => uapi::landlock_rule_type_LANDLOCK_RULE_PATH_BENEATH,
+        }
+    }
+}
+
 pub struct Ruleset {
     fd: RawFd,
 }
@@ -20,6 +40,13 @@ impl Ruleset {
 
         match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) } {
             fd if fd >= 0 => Ok(Ruleset { fd }),
+            _ => Err(Error::last_os_error()),
+        }
+    }
+
+    pub fn add_rule(&mut self, rule: &Rule) -> Result<(), Error> {
+        match unsafe { uapi::landlock_add_rule(self.fd, rule.into(), rule.as_ptr(), 0) } {
+            0 => Ok(()),
             _ => Err(Error::last_os_error()),
         }
     }

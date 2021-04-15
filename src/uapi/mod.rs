@@ -5,6 +5,7 @@
 mod landlock;
 
 pub use self::landlock::{
+    landlock_path_beneath_attr,
     landlock_ruleset_attr,
     landlock_rule_type,
     landlock_rule_type_LANDLOCK_RULE_PATH_BENEATH,
