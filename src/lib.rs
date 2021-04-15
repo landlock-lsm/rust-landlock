@@ -26,19 +26,11 @@ bitflags! {
     }
 }
 
-pub enum Rule {
+enum Rule {
     PathBeneath(uapi::landlock_path_beneath_attr),
 }
 
 impl Rule {
-    // We may want to duplicate the FD.
-    pub fn new_path_beneath<T>(fd: T, access: AccessFs) -> Rule where T: AsRawFd {
-        Rule::PathBeneath(uapi::landlock_path_beneath_attr {
-            allowed_access: access.bits,
-            parent_fd: fd.as_raw_fd(),
-        })
-    }
-
     fn as_ptr(&self) -> *const libc::c_void {
         match self {
             Rule::PathBeneath(attr) => attr as *const _ as _,
@@ -84,11 +76,22 @@ impl Ruleset {
         }
     }
 
-    pub fn add_rule(&mut self, rule: &Rule) -> Result<(), Error> {
+    fn add_rule(&mut self, rule: &Rule) -> Result<(), Error> {
         match unsafe { uapi::landlock_add_rule(self.fd, rule.into(), rule.as_ptr(), 0) } {
             0 => Ok(()),
             _ => Err(Error::last_os_error()),
         }
+    }
+
+    // Directly checks and uses the FD.
+    pub fn add_path_beneath_rule<T>(&mut self, parent: T, allowed: AccessFs) -> Result<(), Error>
+    where
+        T: AsRawFd,
+    {
+        self.add_rule(&Rule::PathBeneath(uapi::landlock_path_beneath_attr {
+            allowed_access: allowed.bits,
+            parent_fd: parent.as_raw_fd(),
+        }))
     }
 
     pub fn set_no_new_privs(&mut self, no_new_privs: bool) {
