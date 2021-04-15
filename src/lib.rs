@@ -54,8 +54,16 @@ impl Into<uapi::landlock_rule_type> for &Rule {
     }
 }
 
+fn prctl_set_no_new_privs() -> Result<(), Error> {
+    match unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } {
+        0 => Ok(()),
+        _ => Err(Error::last_os_error()),
+    }
+}
+
 pub struct Ruleset {
     fd: RawFd,
+    no_new_privs: bool,
 }
 
 impl Ruleset {
@@ -68,7 +76,10 @@ impl Ruleset {
         let attr = uapi::landlock_ruleset_attr { handled_access_fs: 0 };
 
         match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) } {
-            fd if fd >= 0 => Ok(Ruleset { fd }),
+            fd if fd >= 0 => Ok(Ruleset {
+                fd: fd,
+                no_new_privs: false,
+            }),
             _ => Err(Error::last_os_error()),
         }
     }
@@ -80,9 +91,15 @@ impl Ruleset {
         }
     }
 
+    pub fn set_no_new_privs(&mut self, no_new_privs: bool) {
+        self.no_new_privs = no_new_privs;
+    }
+
     // Eager method, may not fit with all use-cases though.
     pub fn restrict_self(self) -> Result<(), Error> {
-        // TODO: call prctl?
+        if self.no_new_privs {
+            prctl_set_no_new_privs()?;
+        }
         match unsafe { uapi::landlock_restrict_self(self.fd, 0) } {
             0 => Ok(()),
             _ => Err(Error::last_os_error()),
