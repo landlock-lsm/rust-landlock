@@ -4,6 +4,7 @@
 #[allow(non_upper_case_globals)]
 mod landlock;
 
+#[rustfmt::skip]
 pub use self::landlock::{
     landlock_path_beneath_attr,
     landlock_ruleset_attr,
@@ -24,20 +25,22 @@ pub use self::landlock::{
     LANDLOCK_ACCESS_FS_MAKE_SYM,
 };
 
-use libc::{size_t, __u32, c_int, c_void, syscall};
+use libc::{__u32, c_int, c_void, size_t, syscall};
 
-#[cfg(target_arch="x86_64")]
+#[cfg(target_arch = "x86_64")]
 const __NR_LANDLOCK_CREATE_RULESET: u32 = 444;
-#[cfg(target_arch="x86_64")]
+#[cfg(target_arch = "x86_64")]
 const __NR_LANDLOCK_ADD_RULE: u32 = 445;
-#[cfg(target_arch="x86_64")]
+#[cfg(target_arch = "x86_64")]
 const __NR_LANDLOCK_RESTRICT_SELF: u32 = 446;
 
+#[rustfmt::skip]
 pub unsafe fn landlock_create_ruleset(attr: *const landlock_ruleset_attr, size: size_t,
                                       flags: __u32) -> c_int {
     syscall(__NR_LANDLOCK_CREATE_RULESET as i64, attr, size, flags) as c_int
 }
 
+#[rustfmt::skip]
 pub unsafe fn landlock_add_rule(ruleset_fd: c_int, rule_type: landlock_rule_type,
                                 rule_attr: *const c_void, flags: __u32) -> c_int {
     syscall(__NR_LANDLOCK_ADD_RULE as i64, ruleset_fd, rule_type, rule_attr, flags) as c_int

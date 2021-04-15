@@ -193,8 +193,8 @@ fn bindgen_test_layout_landlock_path_beneath_attr() {
     );
     assert_eq!(
         unsafe {
-            &(*(::std::ptr::null::<landlock_path_beneath_attr>())).allowed_access as *const _ as
-                usize
+            &(*(::std::ptr::null::<landlock_path_beneath_attr>())).allowed_access as *const _
+                as usize
         },
         0usize,
         concat!(

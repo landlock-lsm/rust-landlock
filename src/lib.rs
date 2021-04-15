@@ -65,7 +65,9 @@ impl Ruleset {
         // enum).  It should then not be possible to give an "all-possible-handled-accesses" to the
         // Ruleset builder because this value would be relative to the running kernel.
         // FIXME: Will return -ENOMSG
-        let attr = uapi::landlock_ruleset_attr { handled_access_fs: 0 };
+        let attr = uapi::landlock_ruleset_attr {
+            handled_access_fs: 0,
+        };
 
         match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) } {
             fd if fd >= 0 => Ok(Ruleset {
