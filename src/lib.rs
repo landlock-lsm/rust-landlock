@@ -53,20 +53,41 @@ fn prctl_set_no_new_privs() -> Result<(), Error> {
     }
 }
 
+pub struct RulesetAttr {
+    handled_fs: AccessFs,
+}
+
+impl RulesetAttr {
+    pub fn new() -> Self {
+        // The API should be future-proof: one Rust program or library should have the same
+        // behavior if builded with an old or a newer crate (e.g. with an extended ruleset_attr
+        // enum).  It should then not be possible to give an "all-possible-handled-accesses" to the
+        // Ruleset builder because this value would be relative to the running kernel.
+        RulesetAttr {
+            handled_fs: AccessFs::empty(),
+        }
+    }
+
+    pub fn handle_fs(&mut self, access: AccessFs) -> &mut Self {
+        self.handled_fs = access;
+        self
+    }
+
+    pub fn create(&self) -> Result<Ruleset, Error> {
+        // Without any handle_fs() call, will return -ENOMSG.
+        Ruleset::new(self)
+    }
+}
+
 pub struct Ruleset {
     fd: RawFd,
     no_new_privs: bool,
 }
 
 impl Ruleset {
-    pub fn new() -> Result<Ruleset, Error> {
-        // The API should be future-proof: one Rust program or library should have the same
-        // behavior if builded with an old or a newer crate (e.g. with an extended ruleset_attr
-        // enum).  It should then not be possible to give an "all-possible-handled-accesses" to the
-        // Ruleset builder because this value would be relative to the running kernel.
-        // FIXME: Will return -ENOMSG
+    fn new(attribute: &RulesetAttr) -> Result<Self, Error> {
         let attr = uapi::landlock_ruleset_attr {
-            handled_access_fs: 0,
+            handled_access_fs: attribute.handled_fs.bits,
         };
 
         match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) } {
