@@ -107,18 +107,20 @@ impl Ruleset {
     }
 
     // Directly checks and uses the FD.
-    pub fn add_path_beneath_rule<T>(&mut self, parent: T, allowed: AccessFs) -> Result<(), Error>
+    pub fn add_path_beneath_rule<T>(mut self, parent: T, allowed: AccessFs) -> Result<Self, Error>
     where
         T: AsRawFd,
     {
         self.add_rule(&Rule::PathBeneath(uapi::landlock_path_beneath_attr {
             allowed_access: allowed.bits,
             parent_fd: parent.as_raw_fd(),
-        }))
+        }))?;
+        Ok(self)
     }
 
-    pub fn set_no_new_privs(&mut self, no_new_privs: bool) {
+    pub fn set_no_new_privs(mut self, no_new_privs: bool) -> Self {
         self.no_new_privs = no_new_privs;
+        self
     }
 
     // Eager method, may not fit with all use-cases though.
