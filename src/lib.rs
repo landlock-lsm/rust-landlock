@@ -142,3 +142,24 @@ impl Drop for Ruleset {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+
+    fn ruleset_root() -> Result<(), Error> {
+        RulesetAttr::new()
+            // FIXME: Make it impossible to use AccessFs::all()
+            .handle_fs(AccessFs::all())
+            .create()?
+            .set_no_new_privs(true)
+            .add_path_beneath_rule(File::open("/")?, AccessFs::all())?
+            .restrict_self()
+    }
+
+    #[test]
+    fn allow_root() {
+        ruleset_root().unwrap()
+    }
+}
