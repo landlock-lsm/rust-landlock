@@ -3,6 +3,7 @@ extern crate bitflags;
 
 use libc::close;
 use std::io::Error;
+use std::marker::PhantomData;
 use std::mem::size_of_val;
 use std::os::unix::io::{AsRawFd, RawFd};
 
@@ -26,23 +27,46 @@ bitflags! {
     }
 }
 
-enum Rule {
-    PathBeneath(uapi::landlock_path_beneath_attr),
+pub trait Rule {
+    fn as_ptr(&self) -> *const libc::c_void;
+    fn get_type_id(&self) -> uapi::landlock_rule_type;
+    fn get_flags(&self) -> u32;
 }
 
-impl Rule {
-    fn as_ptr(&self) -> *const libc::c_void {
-        match self {
-            Rule::PathBeneath(attr) => attr as *const _ as _,
+pub struct PathBeneath<'a> {
+    attr: uapi::landlock_path_beneath_attr,
+    // Ties the lifetime of a PathBeneath instance to the litetime of its wrapped attr.parent_fd .
+    _parent_fd: PhantomData<&'a u32>,
+}
+
+impl PathBeneath<'_> {
+    pub fn new<'a, T>(parent: &'a T, allowed: AccessFs) -> Self
+    where
+        T: AsRawFd,
+    {
+        PathBeneath {
+            attr: {
+                uapi::landlock_path_beneath_attr {
+                    allowed_access: allowed.bits,
+                    parent_fd: parent.as_raw_fd(),
+                }
+            },
+            _parent_fd: PhantomData,
         }
     }
 }
 
-impl Into<uapi::landlock_rule_type> for &Rule {
-    fn into(self) -> uapi::landlock_rule_type {
-        match self {
-            Rule::PathBeneath(_) => uapi::landlock_rule_type_LANDLOCK_RULE_PATH_BENEATH,
-        }
+impl Rule for PathBeneath<'_> {
+    fn as_ptr(&self) -> *const libc::c_void {
+        &self.attr as *const _ as _
+    }
+
+    fn get_type_id(&self) -> uapi::landlock_rule_type {
+        uapi::landlock_rule_type_LANDLOCK_RULE_PATH_BENEATH
+    }
+
+    fn get_flags(&self) -> u32 {
+        0
     }
 }
 
@@ -99,23 +123,16 @@ impl Ruleset {
         }
     }
 
-    fn add_rule(&mut self, rule: &Rule) -> Result<(), Error> {
-        match unsafe { uapi::landlock_add_rule(self.fd, rule.into(), rule.as_ptr(), 0) } {
-            0 => Ok(()),
+    pub fn add_rule<T>(self, rule: &T) -> Result<Self, Error>
+    where
+        T: Rule,
+    {
+        match unsafe {
+            uapi::landlock_add_rule(self.fd, rule.get_type_id(), rule.as_ptr(), rule.get_flags())
+        } {
+            0 => Ok(self),
             _ => Err(Error::last_os_error()),
         }
-    }
-
-    // Directly checks and uses the FD.
-    pub fn add_path_beneath_rule<T>(mut self, parent: T, allowed: AccessFs) -> Result<Self, Error>
-    where
-        T: AsRawFd,
-    {
-        self.add_rule(&Rule::PathBeneath(uapi::landlock_path_beneath_attr {
-            allowed_access: allowed.bits,
-            parent_fd: parent.as_raw_fd(),
-        }))?;
-        Ok(self)
     }
 
     pub fn set_no_new_privs(mut self, no_new_privs: bool) -> Self {
@@ -154,7 +171,7 @@ mod tests {
             .handle_fs(AccessFs::all())
             .create()?
             .set_no_new_privs(true)
-            .add_path_beneath_rule(File::open("/")?, AccessFs::all())?
+            .add_rule(&PathBeneath::new(&File::open("/")?, AccessFs::all()))?
             .restrict_self()
     }
 

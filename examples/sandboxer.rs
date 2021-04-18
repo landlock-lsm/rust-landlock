@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail};
-use landlock::{AccessFs, Ruleset, RulesetAttr};
+use landlock::{AccessFs, PathBeneath, Ruleset, RulesetAttr};
 use nix::fcntl::{open, OFlag};
 use nix::sys::stat::{fstat, Mode, SFlag};
 use std::env;
@@ -72,7 +72,7 @@ fn populate_ruleset(
                             };
 
                         Ok(inner_ruleset
-                            .add_path_beneath_rule(parent, actual_access)
+                            .add_rule(&PathBeneath::new(&parent, actual_access))
                             .map_err(|e| {
                                 anyhow!(
                                     "Failed to update ruleset with \"{}\": {}",
