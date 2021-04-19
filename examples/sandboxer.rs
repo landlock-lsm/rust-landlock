@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail};
-use landlock::{AccessFs, PathBeneath, Ruleset, RulesetAttr};
+use landlock::{AccessFs, Compat, PathBeneath, Ruleset, RulesetAttr};
 use nix::fcntl::{open, OFlag};
 use nix::sys::stat::{fstat, Mode, SFlag};
 use std::env;
@@ -45,10 +45,10 @@ const ACCESS_FILE: AccessFs = AccessFs::from_bits_truncate(
 /// * `access` - The set of restrictions to apply to each of the given paths.
 ///
 fn populate_ruleset(
-    ruleset: Ruleset,
+    ruleset: Compat<Ruleset>,
     paths: OsString,
     access: AccessFs,
-) -> Result<Ruleset, anyhow::Error> {
+) -> Result<Compat<Ruleset>, anyhow::Error> {
     if paths.len() == 0 {
         return Ok(ruleset);
     }
@@ -72,7 +72,8 @@ fn populate_ruleset(
                             };
 
                         Ok(inner_ruleset
-                            .add_rule(&PathBeneath::new(&parent, actual_access))
+                            .add_rule(PathBeneath::new(&parent).allow_access(actual_access))
+                            .into_result()
                             .map_err(|e| {
                                 anyhow!(
                                     "Failed to update ruleset with \"{}\": {}",
@@ -126,7 +127,10 @@ fn main() -> Result<(), anyhow::Error> {
 
     let cmd_name = args.get(1).map(|s| s.to_string_lossy()).unwrap();
 
-    let ruleset = RulesetAttr::new().handle_fs(AccessFs::all()).create()?;
+    let ruleset = RulesetAttr::new()
+        .handle_fs(AccessFs::all())
+        .create()
+        .into_result()?;
     let ruleset = populate_ruleset(ruleset, fs_ro, ACCESS_FS_ROUGHLY_READ)?;
     populate_ruleset(
         ruleset,
