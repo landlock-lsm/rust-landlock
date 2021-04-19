@@ -93,7 +93,7 @@ impl Ruleset {
         match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) } {
             fd if fd >= 0 => Ok(Ruleset {
                 fd: fd,
-                no_new_privs: false,
+                no_new_privs: true,
             }),
             _ => Err(Error::last_os_error()),
         }
