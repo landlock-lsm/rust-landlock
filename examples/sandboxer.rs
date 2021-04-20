@@ -1,4 +1,4 @@
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use landlock::{AccessFs, Ruleset, RulesetAttr};
 use nix::fcntl::{open, OFlag};
 use nix::sys::stat::{fstat, Mode, SFlag};
@@ -45,7 +45,7 @@ const ACCESS_FILE: AccessFs = AccessFs::from_bits_truncate(
 /// * `access` - The set of restrictions to apply to each of the given paths.
 ///
 fn populate_ruleset(
-    mut ruleset: Ruleset,
+    ruleset: Ruleset,
     paths: OsString,
     access: AccessFs,
 ) -> Result<Ruleset, anyhow::Error> {
@@ -53,45 +53,40 @@ fn populate_ruleset(
         return Ok(ruleset);
     }
 
-    let individual_paths: Vec<PathBuf> = paths
+    paths
         .into_vec()
         .split(|b| *b == b':')
-        .map(|v| OsStr::from_bytes(v).to_owned().into())
-        .collect();
-
-    for path in individual_paths {
-        match open(&path, OFlag::O_PATH | OFlag::O_CLOEXEC, Mode::empty()) {
-            Err(e) => {
-                bail!("Failed to open \"{}\": {}", path.to_string_lossy(), e);
-            }
-            Ok(parent) => match fstat(parent) {
-                Ok(stat) => {
-                    let actual_access =
-                        if (stat.st_mode & SFlag::S_IFMT.bits()) != SFlag::S_IFDIR.bits() {
-                            access & ACCESS_FILE
-                        } else {
-                            access
-                        };
-
-                    ruleset = match ruleset.add_path_beneath_rule(parent, actual_access) {
-                        Ok(r) => r,
-                        Err(e) => {
-                            bail!(
-                                "Failed to update ruleset with \"{}\": {}",
-                                path.to_string_lossy(),
-                                e
-                            );
-                        }
-                    };
-                }
+        .try_fold(ruleset, |inner_ruleset, path| {
+            let path: PathBuf = OsStr::from_bytes(path).to_owned().into();
+            match open(&path, OFlag::O_PATH | OFlag::O_CLOEXEC, Mode::empty()) {
                 Err(e) => {
-                    bail!("Failed to stat \"{}\": {}", path.to_string_lossy(), e);
+                    bail!("Failed to open \"{}\": {}", path.to_string_lossy(), e);
                 }
-            },
-        }
-    }
+                Ok(parent) => match fstat(parent) {
+                    Ok(stat) => {
+                        let actual_access =
+                            if (stat.st_mode & SFlag::S_IFMT.bits()) != SFlag::S_IFDIR.bits() {
+                                access & ACCESS_FILE
+                            } else {
+                                access
+                            };
 
-    Ok(ruleset)
+                        Ok(inner_ruleset
+                            .add_path_beneath_rule(parent, actual_access)
+                            .map_err(|e| {
+                                anyhow!(
+                                    "Failed to update ruleset with \"{}\": {}",
+                                    path.to_string_lossy(),
+                                    e
+                                )
+                            })?)
+                    }
+                    Err(e) => {
+                        bail!("Failed to stat \"{}\": {}", path.to_string_lossy(), e);
+                    }
+                },
+            }
+        })
 }
 
 fn main() -> Result<(), anyhow::Error> {
