@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail};
-use landlock::{AccessFs, Compat, PathBeneath, Ruleset, RulesetAttr};
+use landlock::{AccessFs, Compat, ErrorThreshold, PathBeneath, Ruleset, RulesetAttr};
 use nix::fcntl::{open, OFlag};
 use nix::sys::stat::{fstat, Mode, SFlag};
 use std::env;
@@ -73,7 +73,7 @@ fn populate_ruleset(
 
                         Ok(inner_ruleset
                             .add_rule(PathBeneath::new(&parent).allow_access(actual_access))
-                            .into_result()
+                            .into_result(ErrorThreshold::Runtime)
                             .map_err(|e| {
                                 anyhow!(
                                     "Failed to update ruleset with \"{}\": {}",
@@ -130,7 +130,7 @@ fn main() -> Result<(), anyhow::Error> {
     let ruleset = RulesetAttr::new()
         .handle_fs(AccessFs::all())
         .create()
-        .into_result()?;
+        .into_result(ErrorThreshold::PartiallyCompatible)?;
     let ruleset = populate_ruleset(ruleset, fs_ro, ACCESS_FS_ROUGHLY_READ)?;
     populate_ruleset(
         ruleset,
@@ -139,6 +139,7 @@ fn main() -> Result<(), anyhow::Error> {
     )?
     .set_no_new_privs(true)
     .restrict_self()
+    .into_result()
     .expect("Failed to enforce ruleset");
 
     Err(Command::new(cmd_name.to_string())
