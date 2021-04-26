@@ -51,6 +51,8 @@ struct CompatObject<T> {
     /// Saves the last encountered error for `RestrictionStatus`.
     // TODO: save the first error instead?
     prev_error: Option<Error>,
+    /// Saves the error threshold for the build chain.
+    threshold: ErrorThreshold,
     /// It is `None` if the build chain is incompatible with the running system.
     build: Option<CompatBuild<T>>,
 }
@@ -83,7 +85,12 @@ enum CompatStatus {
     Partial,
 }
 
+#[derive(Copy, Clone)]
 pub enum ErrorThreshold {
+    /// Handles the return value in a compatible way: method calls will always return `Ok(Self)`.
+    /// This is the encouraged way to use this API.  The last runtime error in the build chain can
+    /// be catched thanks to the return RestrictionStatus.
+    NoError,
     /// Only considers a runtime error as an error.
     // Maps to LastCall::RuntimeError.
     Runtime,
@@ -105,18 +112,28 @@ impl From<CompatStatus> for LastCall {
 }
 
 impl<T> Compat<T> {
-    fn new(status: CompatStatus, data: T) -> Self {
-        Compat(CompatObject {
-            last: status.into(),
+    // TODO: Call uapi::landlock_create_ruleset(NULL, 0, 1) and save the version.
+    fn new() -> Result<Self, Error> {
+        Ok(Compat(CompatObject {
+            // TODO: check compatibility
+            last: LastCall::FullSuccess,
             prev_error: None,
-            build: Some(CompatBuild {
-                status: status,
-                data: data,
-            }),
-        })
+            threshold: ErrorThreshold::NoError,
+            build: None,
+        }))
     }
 
-    fn set_last_call_status(mut self, status: LastCall) -> Self {
+    fn set_build(mut self, status: CompatStatus, data: T) -> Result<Self, Error> {
+        self.0.last = status.into();
+        self.0.build = Some(CompatBuild {
+            status: status,
+            data: data,
+        });
+        // TODO: check compatibility according to the threshold
+        Ok(self)
+    }
+
+    fn set_last_call_status(mut self, status: LastCall) -> Result<Self, Error> {
         // Only downgrades build compatibility.
         match status {
             LastCall::FullSuccess => {}
@@ -130,7 +147,7 @@ impl<T> Compat<T> {
         if let LastCall::RuntimeError(e) = replace(&mut self.0.last, status) {
             self.0.prev_error = Some(e);
         }
-        self
+        self.into_result()
     }
 
     fn get_last_error(self) -> Option<Error> {
@@ -144,23 +161,21 @@ impl<T> Compat<T> {
         Compat(CompatObject {
             last: self.0.last,
             prev_error: self.0.prev_error,
+            threshold: self.0.threshold,
             build: build,
         })
     }
 
-    /// It is still possible to manually handle (chained) runtime incompatibilities (e.g. with `?`).
-    ///
-    /// If you are unsure when to use this function, ignore it.
-    pub fn into_result(self, threshold: ErrorThreshold) -> Result<Self, Error> {
+    fn into_result(self) -> Result<Self, Error> {
         match self.0.last {
             LastCall::FullSuccess => Ok(self),
-            LastCall::PartialSuccess => match threshold {
+            LastCall::PartialSuccess => match self.0.threshold {
                 ErrorThreshold::PartiallyCompatible => {
                     Err(Error::new(ErrorKind::InvalidData, "Partial compatibility"))
                 }
                 _ => Ok(self),
             },
-            LastCall::Unsupported | LastCall::Fake => match threshold {
+            LastCall::Unsupported | LastCall::Fake => match self.0.threshold {
                 ErrorThreshold::PartiallyCompatible | ErrorThreshold::Incompatible => {
                     Err(Error::new(ErrorKind::InvalidData, "Incompatibility"))
                 }
@@ -170,10 +185,15 @@ impl<T> Compat<T> {
             LastCall::RuntimeError(e) => Err(e),
         }
     }
+
+    pub fn set_error_threshold(mut self, threshold: ErrorThreshold) -> Self {
+        self.0.threshold = threshold;
+        self
+    }
 }
 
-// If you only want a full restriction enforced, then you need to call .into_result() before
-// .restrict_self().
+/// If you only want a full restriction enforced, then you need to adjust the error threshold with
+/// `.set_error_threshold()` before calling `.restrict_self()`.
 pub enum RestrictionStatus {
     /// All requested restrictions are enforced.
     // TODO: FullyRestricted(RestrictSet),
@@ -205,12 +225,17 @@ pub struct PathBeneath<'a> {
 }
 
 impl PathBeneath<'_> {
-    pub fn new<'a, T>(parent: &'a T) -> Compat<Self>
+    pub fn new() -> Result<Compat<Self>, Error> {
+        Compat::new()
+    }
+}
+
+impl Compat<PathBeneath<'_>> {
+    pub fn set_parent<'a, T>(self, parent: &'a T) -> Result<Self, Error>
     where
         T: AsRawFd,
     {
-        // TODO: Call uapi::landlock_create_ruleset(NULL, 0, 1) } {
-        Compat::new(
+        self.set_build(
             CompatStatus::Full,
             PathBeneath {
                 attr: {
@@ -224,10 +249,8 @@ impl PathBeneath<'_> {
             },
         )
     }
-}
 
-impl Compat<PathBeneath<'_>> {
-    pub fn allow_access(mut self, allowed: AccessFs) -> Self {
+    pub fn allow_access(mut self, allowed: AccessFs) -> Result<Self, Error> {
         match self.0.build {
             None => self.set_last_call_status(LastCall::Fake),
             Some(ref mut build) => {
@@ -265,12 +288,12 @@ pub struct RulesetAttr {
 }
 
 impl RulesetAttr {
-    pub fn new() -> Compat<Self> {
+    pub fn new() -> Result<Compat<Self>, Error> {
         // The API should be future-proof: one Rust program or library should have the same
         // behavior if built with an old or a newer crate (e.g. with an extended ruleset_attr
         // enum).  It should then not be possible to give an "all-possible-handled-accesses" to the
         // Ruleset builder because this value would be relative to the running kernel.
-        Compat::new(
+        Compat::new()?.set_build(
             CompatStatus::Full,
             RulesetAttr {
                 // FIXME: Replace all() with group1()
@@ -281,7 +304,7 @@ impl RulesetAttr {
 }
 
 impl Compat<RulesetAttr> {
-    pub fn handle_fs(mut self, access: AccessFs) -> Self {
+    pub fn handle_fs(mut self, access: AccessFs) -> Result<Self, Error> {
         match self.0.build {
             None => self.set_last_call_status(LastCall::Fake),
             Some(ref mut build) => {
@@ -292,7 +315,7 @@ impl Compat<RulesetAttr> {
         }
     }
 
-    pub fn create(self) -> Compat<Ruleset> {
+    pub fn create(self) -> Result<Compat<Ruleset>, Error> {
         match self.0.build {
             None => self.merge(None).set_last_call_status(LastCall::Fake),
             Some(ref build) => match Ruleset::new(&build.data) {
@@ -334,7 +357,7 @@ impl Ruleset {
 }
 
 impl Compat<Ruleset> {
-    pub fn add_rule<T>(mut self, mut rule: Compat<T>) -> Self
+    pub fn add_rule<T>(mut self, mut rule: Compat<T>) -> Result<Self, Error>
     where
         T: Rule,
     {
@@ -362,7 +385,7 @@ impl Compat<Ruleset> {
         }
     }
 
-    pub fn set_no_new_privs(mut self, no_new_privs: bool) -> Self {
+    pub fn set_no_new_privs(mut self, no_new_privs: bool) -> Result<Self, Error> {
         match self.0.build {
             None => self.set_last_call_status(LastCall::Fake),
             Some(ref mut build) => {
@@ -410,37 +433,38 @@ mod tests {
     use std::fs::File;
 
     fn ruleset_root_compat() -> Result<(), Error> {
-        RulesetAttr::new()
+        RulesetAttr::new()?
             // FIXME: Make it impossible to use AccessFs::all() but group1() instead
-            .handle_fs(AccessFs::all())
-            .create()
-            .set_no_new_privs(true)
-            .add_rule(PathBeneath::new(&File::open("/")?).allow_access(AccessFs::all()))
+            .handle_fs(AccessFs::all())?
+            .create()?
+            .set_no_new_privs(true)?
+            .add_rule(
+                PathBeneath::new()?
+                    .set_parent(&File::open("/")?)?
+                    .allow_access(AccessFs::all())?,
+            )?
             .restrict_self()
             .into_result()
     }
 
     fn ruleset_root_fragile() -> Result<(), Error> {
-        RulesetAttr::new()
-            .into_result(ErrorThreshold::PartiallyCompatible)?
-            // FIXME: Make it impossible to use AccessFs::all() but group1() instead
-            .handle_fs(AccessFs::EXECUTE)
+        RulesetAttr::new()?
             // Must have at least the execute check…
-            .into_result(ErrorThreshold::PartiallyCompatible)?
-            .handle_fs(AccessFs::all())
+            .set_error_threshold(ErrorThreshold::PartiallyCompatible)
+            // FIXME: Make it impossible to use AccessFs::all() but group1() instead
+            .handle_fs(AccessFs::EXECUTE)?
+            .set_error_threshold(ErrorThreshold::NoError)
             // …and possibly others.
-            .into_result(ErrorThreshold::PartiallyCompatible)?
-            .create()
-            .into_result(ErrorThreshold::PartiallyCompatible)?
-            .set_no_new_privs(true)
-            .into_result(ErrorThreshold::PartiallyCompatible)?
+            .handle_fs(AccessFs::all())?
+            .create()?
+            .set_no_new_privs(true)?
             .add_rule(
-                PathBeneath::new(&File::open("/")?)
-                    .into_result(ErrorThreshold::PartiallyCompatible)?
-                    .allow_access(AccessFs::all())
-                    .into_result(ErrorThreshold::PartiallyCompatible)?,
-            )
-            .into_result(ErrorThreshold::Runtime)? // Useful to catch wrong PathBeneath's FD type.
+                PathBeneath::new()?
+                    // Useful to catch wrong PathBeneath's FD type.
+                    .set_error_threshold(ErrorThreshold::Runtime)
+                    .set_parent(&File::open("/")?)?
+                    .allow_access(AccessFs::all())?,
+            )?
             .restrict_self()
             .into_result()
     }

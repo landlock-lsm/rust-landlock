@@ -72,8 +72,12 @@ fn populate_ruleset(
                             };
 
                         Ok(inner_ruleset
-                            .add_rule(PathBeneath::new(&parent).allow_access(actual_access))
-                            .into_result(ErrorThreshold::Runtime)
+                            .set_error_threshold(ErrorThreshold::PartiallyCompatible)
+                            .add_rule(
+                                PathBeneath::new()?
+                                    .set_parent(&parent)?
+                                    .allow_access(actual_access)?,
+                            )
                             .map_err(|e| {
                                 anyhow!(
                                     "Failed to update ruleset with \"{}\": {}",
@@ -127,17 +131,17 @@ fn main() -> Result<(), anyhow::Error> {
 
     let cmd_name = args.get(1).map(|s| s.to_string_lossy()).unwrap();
 
-    let ruleset = RulesetAttr::new()
-        .handle_fs(AccessFs::all())
-        .create()
-        .into_result(ErrorThreshold::PartiallyCompatible)?;
+    let ruleset = RulesetAttr::new()?
+        .set_error_threshold(ErrorThreshold::PartiallyCompatible)
+        .handle_fs(AccessFs::all())?
+        .create()?;
     let ruleset = populate_ruleset(ruleset, fs_ro, ACCESS_FS_ROUGHLY_READ)?;
     populate_ruleset(
         ruleset,
         fs_rw,
         ACCESS_FS_ROUGHLY_READ | ACCESS_FS_ROUGHLY_WRITE,
     )?
-    .set_no_new_privs(true)
+    .set_no_new_privs(true)?
     .restrict_self()
     .into_result()
     .expect("Failed to enforce ruleset");
