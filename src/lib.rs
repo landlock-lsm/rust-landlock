@@ -28,7 +28,7 @@ bitflags! {
 }
 
 pub trait Rule {
-    fn as_ptr(&self) -> *const libc::c_void;
+    fn as_ptr(&self) -> Option<*const libc::c_void>;
     fn get_type_id(&self) -> uapi::landlock_rule_type;
     fn get_flags(&self) -> u32;
 }
@@ -112,27 +112,6 @@ impl From<CompatStatus> for LastCall {
 }
 
 impl<T> Compat<T> {
-    // TODO: Call uapi::landlock_create_ruleset(NULL, 0, 1) and save the version.
-    fn new() -> Result<Self, Error> {
-        Ok(Compat(CompatObject {
-            // TODO: check compatibility
-            last: LastCall::FullSuccess,
-            prev_error: None,
-            threshold: ErrorThreshold::NoError,
-            build: None,
-        }))
-    }
-
-    fn set_build(mut self, status: CompatStatus, data: T) -> Result<Self, Error> {
-        self.0.last = status.into();
-        self.0.build = Some(CompatBuild {
-            status: status,
-            data: data,
-        });
-        // TODO: check compatibility according to the threshold
-        Ok(self)
-    }
-
     fn set_last_call_status(mut self, status: LastCall) -> Result<Self, Error> {
         // Only downgrades build compatibility.
         match status {
@@ -157,12 +136,21 @@ impl<T> Compat<T> {
         }
     }
 
-    fn merge<U>(self, build: Option<CompatBuild<U>>) -> Compat<U> {
+    fn merge<U>(self, data: Option<U>) -> Compat<U> {
         Compat(CompatObject {
             last: self.0.last,
             prev_error: self.0.prev_error,
             threshold: self.0.threshold,
-            build: build,
+            build: match self.0.build {
+                None => None,
+                Some(build) => match data {
+                    None => None,
+                    Some(data) => Some(CompatBuild {
+                        status: build.status,
+                        data: data,
+                    }),
+                },
+            },
         })
     }
 
@@ -189,6 +177,53 @@ impl<T> Compat<T> {
     pub fn set_error_threshold(mut self, threshold: ErrorThreshold) -> Self {
         self.0.threshold = threshold;
         self
+    }
+}
+
+pub trait FromFactory: Default {
+    fn get_supported_version() -> i32;
+}
+
+#[derive(Copy, Clone)]
+pub struct Factory {
+    abi_version: i32,
+}
+
+impl Factory {
+    pub fn new() -> Result<Factory, Error> {
+        match unsafe {
+            uapi::landlock_create_ruleset(
+                std::ptr::null(),
+                0,
+                uapi::LANDLOCK_CREATE_RULESET_VERSION,
+            )
+        } {
+            // Landlock ABI version starts at 1 but errno is only set for negative values.
+            ret if ret >= 0 => Ok(Factory { abi_version: ret }),
+            _ => Err(Error::last_os_error()),
+        }
+    }
+
+    pub fn create<T: FromFactory>(&self) -> Result<Compat<T>, Error> {
+        let is_compatible = self.abi_version >= T::get_supported_version();
+        Compat(CompatObject {
+            last: LastCall::FullSuccess,
+            prev_error: None,
+            threshold: ErrorThreshold::NoError,
+            build: if is_compatible {
+                Some(CompatBuild {
+                    status: CompatStatus::Full,
+                    data: T::default(),
+                })
+            } else {
+                None
+            },
+        })
+        .set_last_call_status(if is_compatible {
+            LastCall::FullSuccess
+        } else {
+            LastCall::Unsupported
+        })
     }
 }
 
@@ -222,32 +257,47 @@ pub struct PathBeneath<'a> {
     attr: uapi::landlock_path_beneath_attr,
     // Ties the lifetime of a PathBeneath instance to the litetime of its wrapped attr.parent_fd .
     _parent_fd: PhantomData<&'a u32>,
+    parent_fd_is_set: bool,
 }
 
-impl PathBeneath<'_> {
-    pub fn new() -> Result<Compat<Self>, Error> {
-        Compat::new()
+impl Default for PathBeneath<'_> {
+    fn default() -> Self {
+        PathBeneath {
+            attr: uapi::landlock_path_beneath_attr {
+                // FIXME: Replace all() with group1()
+                allowed_access: AccessFs::all().bits,
+                parent_fd: -1,
+            },
+            _parent_fd: PhantomData,
+            parent_fd_is_set: false,
+        }
+    }
+}
+
+impl FromFactory for PathBeneath<'_> {
+    fn get_supported_version() -> i32 {
+        1
     }
 }
 
 impl Compat<PathBeneath<'_>> {
-    pub fn set_parent<'a, T>(self, parent: &'a T) -> Result<Self, Error>
+    pub fn set_parent<'a, T>(mut self, parent: &'a T) -> Result<Self, Error>
     where
         T: AsRawFd,
     {
-        self.set_build(
-            CompatStatus::Full,
-            PathBeneath {
-                attr: {
-                    uapi::landlock_path_beneath_attr {
-                        // FIXME: Replace all() with group1()
-                        allowed_access: AccessFs::all().bits,
-                        parent_fd: parent.as_raw_fd(),
-                    }
-                },
-                _parent_fd: PhantomData,
-            },
-        )
+        match self.0.build {
+            None => self.set_last_call_status(LastCall::Fake),
+            Some(ref mut build) => {
+                let mut attr = build.data.attr;
+                attr.parent_fd = parent.as_raw_fd();
+                self.merge(Some(PathBeneath {
+                    attr: attr,
+                    _parent_fd: PhantomData,
+                    parent_fd_is_set: true,
+                }))
+                .set_last_call_status(LastCall::FullSuccess)
+            }
+        }
     }
 
     pub fn allow_access(mut self, allowed: AccessFs) -> Result<Self, Error> {
@@ -263,8 +313,12 @@ impl Compat<PathBeneath<'_>> {
 }
 
 impl Rule for PathBeneath<'_> {
-    fn as_ptr(&self) -> *const libc::c_void {
-        &self.attr as *const _ as _
+    fn as_ptr(&self) -> Option<*const libc::c_void> {
+        if self.parent_fd_is_set {
+            Some(&self.attr as *const _ as _)
+        } else {
+            None
+        }
     }
 
     fn get_type_id(&self) -> uapi::landlock_rule_type {
@@ -287,19 +341,22 @@ pub struct RulesetAttr {
     handled_fs: AccessFs,
 }
 
-impl RulesetAttr {
-    pub fn new() -> Result<Compat<Self>, Error> {
+impl Default for RulesetAttr {
+    fn default() -> Self {
         // The API should be future-proof: one Rust program or library should have the same
         // behavior if built with an old or a newer crate (e.g. with an extended ruleset_attr
         // enum).  It should then not be possible to give an "all-possible-handled-accesses" to the
         // Ruleset builder because this value would be relative to the running kernel.
-        Compat::new()?.set_build(
-            CompatStatus::Full,
-            RulesetAttr {
-                // FIXME: Replace all() with group1()
-                handled_fs: AccessFs::all(),
-            },
-        )
+        RulesetAttr {
+            // FIXME: Replace all() with group1()
+            handled_fs: AccessFs::all(),
+        }
+    }
+}
+
+impl FromFactory for RulesetAttr {
+    fn get_supported_version() -> i32 {
+        1
     }
 }
 
@@ -319,14 +376,9 @@ impl Compat<RulesetAttr> {
         match self.0.build {
             None => self.merge(None).set_last_call_status(LastCall::Fake),
             Some(ref build) => match Ruleset::new(&build.data) {
-                Ok(ruleset) => {
-                    let new_build = Some(CompatBuild {
-                        status: build.status,
-                        data: ruleset,
-                    });
-                    self.merge(new_build)
-                        .set_last_call_status(LastCall::FullSuccess)
-                }
+                Ok(ruleset) => self
+                    .merge(Some(ruleset))
+                    .set_last_call_status(LastCall::FullSuccess),
                 Err(e) => self
                     .merge(None)
                     .set_last_call_status(LastCall::RuntimeError(e)),
@@ -367,16 +419,20 @@ impl Compat<Ruleset> {
                 let last_call_status = match rule.0.build {
                     None => LastCall::Unsupported,
                     Some(ref mut rule_build) => {
-                        match unsafe {
-                            uapi::landlock_add_rule(
-                                ruleset_build.data.fd,
-                                rule_build.data.get_type_id(),
-                                rule_build.data.as_ptr(),
-                                rule_build.data.get_flags(),
-                            )
-                        } {
-                            0 => rule_build.status.into(),
-                            _ => LastCall::RuntimeError(Error::last_os_error()),
+                        match rule_build.data.as_ptr() {
+                            // TODO: Add a new LastCall type?
+                            None => LastCall::Unsupported,
+                            Some(ptr) => match unsafe {
+                                uapi::landlock_add_rule(
+                                    ruleset_build.data.fd,
+                                    rule_build.data.get_type_id(),
+                                    ptr,
+                                    rule_build.data.get_flags(),
+                                )
+                            } {
+                                0 => rule_build.status.into(),
+                                _ => LastCall::RuntimeError(Error::last_os_error()),
+                            },
                         }
                     }
                 };
@@ -433,13 +489,18 @@ mod tests {
     use std::fs::File;
 
     fn ruleset_root_compat() -> Result<(), Error> {
-        RulesetAttr::new()?
+        let factory = Factory::new()?;
+        // RulesetAttr
+        factory
+            .create()?
             // FIXME: Make it impossible to use AccessFs::all() but group1() instead
             .handle_fs(AccessFs::all())?
             .create()?
             .set_no_new_privs(true)?
             .add_rule(
-                PathBeneath::new()?
+                // PathBeneath
+                factory
+                    .create()?
                     .set_parent(&File::open("/")?)?
                     .allow_access(AccessFs::all())?,
             )?
@@ -448,7 +509,10 @@ mod tests {
     }
 
     fn ruleset_root_fragile() -> Result<(), Error> {
-        RulesetAttr::new()?
+        let factory = Factory::new()?;
+        // RulesetAttr
+        factory
+            .create()?
             // Must have at least the execute check…
             .set_error_threshold(ErrorThreshold::PartiallyCompatible)
             // FIXME: Make it impossible to use AccessFs::all() but group1() instead
@@ -459,7 +523,9 @@ mod tests {
             .create()?
             .set_no_new_privs(true)?
             .add_rule(
-                PathBeneath::new()?
+                // PathBeneath
+                factory
+                    .create()?
                     // Useful to catch wrong PathBeneath's FD type.
                     .set_error_threshold(ErrorThreshold::Runtime)
                     .set_parent(&File::open("/")?)?

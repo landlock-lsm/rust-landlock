@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail};
-use landlock::{AccessFs, Compat, ErrorThreshold, PathBeneath, Ruleset, RulesetAttr};
+use landlock::{AccessFs, Compat, ErrorThreshold, Factory, Ruleset};
 use nix::fcntl::{open, OFlag};
 use nix::sys::stat::{fstat, Mode, SFlag};
 use std::env;
@@ -45,6 +45,7 @@ const ACCESS_FILE: AccessFs = AccessFs::from_bits_truncate(
 /// * `access` - The set of restrictions to apply to each of the given paths.
 ///
 fn populate_ruleset(
+    factory: &Factory,
     ruleset: Compat<Ruleset>,
     paths: OsString,
     access: AccessFs,
@@ -74,7 +75,9 @@ fn populate_ruleset(
                         Ok(inner_ruleset
                             .set_error_threshold(ErrorThreshold::PartiallyCompatible)
                             .add_rule(
-                                PathBeneath::new()?
+                                // PathBeneath
+                                factory
+                                    .create()?
                                     .set_parent(&parent)?
                                     .allow_access(actual_access)?,
                             )
@@ -131,12 +134,16 @@ fn main() -> Result<(), anyhow::Error> {
 
     let cmd_name = args.get(1).map(|s| s.to_string_lossy()).unwrap();
 
-    let ruleset = RulesetAttr::new()?
+    // RulesetAttr
+    let factory = Factory::new()?;
+    let ruleset = factory
+        .create()?
         .set_error_threshold(ErrorThreshold::PartiallyCompatible)
         .handle_fs(AccessFs::all())?
         .create()?;
-    let ruleset = populate_ruleset(ruleset, fs_ro, ACCESS_FS_ROUGHLY_READ)?;
+    let ruleset = populate_ruleset(&factory, ruleset, fs_ro, ACCESS_FS_ROUGHLY_READ)?;
     populate_ruleset(
+        &factory,
         ruleset,
         fs_rw,
         ACCESS_FS_ROUGHLY_READ | ACCESS_FS_ROUGHLY_WRITE,
