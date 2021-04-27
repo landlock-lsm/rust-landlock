@@ -2,6 +2,7 @@
 
 pub const __BITS_PER_LONG: u32 = 64;
 pub const __FD_SETSIZE: u32 = 1024;
+pub const LANDLOCK_CREATE_RULESET_VERSION: u32 = 1;
 pub const LANDLOCK_ACCESS_FS_EXECUTE: u32 = 1;
 pub const LANDLOCK_ACCESS_FS_WRITE_FILE: u32 = 2;
 pub const LANDLOCK_ACCESS_FS_READ_FILE: u32 = 4;

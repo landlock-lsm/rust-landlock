@@ -23,6 +23,7 @@ pub use self::landlock::{
     LANDLOCK_ACCESS_FS_MAKE_FIFO,
     LANDLOCK_ACCESS_FS_MAKE_BLOCK,
     LANDLOCK_ACCESS_FS_MAKE_SYM,
+    LANDLOCK_CREATE_RULESET_VERSION,
 };
 
 use libc::{__u32, c_int, c_void, size_t, syscall};
