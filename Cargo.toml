@@ -22,3 +22,4 @@ libc = "0.2"
 anyhow = "1.0"
 landlock = { path = "." }
 nix = "0.20"
+nom = "6.1"
