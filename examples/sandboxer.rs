@@ -1,5 +1,7 @@
 use anyhow::{anyhow, bail};
-use landlock::{AccessFs, Compat, ErrorThreshold, Factory, Ruleset};
+use landlock::{
+    AccessFs, Compat, Compatibility, ErrorThreshold, PathBeneath, Ruleset, RulesetAttr,
+};
 use nix::fcntl::{open, OFlag};
 use nix::sys::stat::{fstat, Mode, SFlag};
 use std::env;
@@ -45,7 +47,7 @@ const ACCESS_FILE: AccessFs = AccessFs::from_bits_truncate(
 /// * `access` - The set of restrictions to apply to each of the given paths.
 ///
 fn populate_ruleset(
-    factory: &Factory,
+    compat: &Compatibility,
     ruleset: Compat<Ruleset>,
     paths: OsString,
     access: AccessFs,
@@ -75,11 +77,7 @@ fn populate_ruleset(
                         Ok(inner_ruleset
                             .set_error_threshold(ErrorThreshold::PartiallyCompatible)
                             .add_rule(
-                                // PathBeneath
-                                factory
-                                    .create()?
-                                    .set_parent(&parent)?
-                                    .allow_access(actual_access)?,
+                                PathBeneath::new(&compat, &parent)?.allow_access(actual_access)?,
                             )
                             .map_err(|e| {
                                 anyhow!(
@@ -134,16 +132,14 @@ fn main() -> Result<(), anyhow::Error> {
 
     let cmd_name = args.get(1).map(|s| s.to_string_lossy()).unwrap();
 
-    // RulesetAttr
-    let factory = Factory::new()?;
-    let ruleset = factory
-        .create()?
+    let compat = Compatibility::new()?;
+    let ruleset = RulesetAttr::new(&compat)?
         .set_error_threshold(ErrorThreshold::PartiallyCompatible)
         .handle_fs(AccessFs::all())?
         .create()?;
-    let ruleset = populate_ruleset(&factory, ruleset, fs_ro, ACCESS_FS_ROUGHLY_READ)?;
+    let ruleset = populate_ruleset(&compat, ruleset, fs_ro, ACCESS_FS_ROUGHLY_READ)?;
     populate_ruleset(
-        &factory,
+        &compat,
         ruleset,
         fs_rw,
         ACCESS_FS_ROUGHLY_READ | ACCESS_FS_ROUGHLY_WRITE,
