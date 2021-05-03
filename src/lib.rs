@@ -140,6 +140,7 @@ impl<T> Compat<T> {
         Compat(CompatObject {
             last: self.0.last,
             prev_error: self.0.prev_error,
+            // TODO: Merge thresholds?
             threshold: self.0.threshold,
             build: match self.0.build {
                 None => None,
@@ -183,6 +184,7 @@ impl<T> Compat<T> {
 #[derive(Copy, Clone)]
 pub struct Compatibility {
     abi_version: i32,
+    threshold: ErrorThreshold,
 }
 
 impl Compatibility {
@@ -195,9 +197,16 @@ impl Compatibility {
             )
         } {
             // Landlock ABI version starts at 1 but errno is only set for negative values.
-            ret if ret >= 0 => Ok(Compatibility { abi_version: ret }),
+            ret if ret >= 0 => Ok(Compatibility {
+                abi_version: ret,
+                threshold: ErrorThreshold::NoError,
+            }),
             _ => Err(Error::last_os_error()),
         }
+    }
+
+    pub fn set_error_threshold(&mut self, threshold: ErrorThreshold) {
+        self.threshold = threshold;
     }
 
     // @new_data returns a default fully supported version of an object.
@@ -209,7 +218,7 @@ impl Compatibility {
         Compat(CompatObject {
             last: LastCall::FullSuccess,
             prev_error: None,
-            threshold: ErrorThreshold::NoError,
+            threshold: self.threshold,
             build: if is_compatible {
                 Some(CompatBuild {
                     status: CompatStatus::Full,
@@ -466,7 +475,9 @@ mod tests {
     }
 
     fn ruleset_root_fragile() -> Result<(), Error> {
-        let compat = Compatibility::new()?;
+        let mut compat = Compatibility::new()?;
+        // Sets default error threshold: abort the whole sandboxing for any runtime error.
+        compat.set_error_threshold(ErrorThreshold::Runtime);
         RulesetAttr::new(&compat)?
             // Must have at least the execute check…
             .set_error_threshold(ErrorThreshold::PartiallyCompatible)
@@ -477,12 +488,9 @@ mod tests {
             .handle_fs(AccessFs::all())?
             .create()?
             .set_no_new_privs(true)?
-            .add_rule(
-                PathBeneath::new(&compat, &File::open("/")?)?
-                    // Useful to catch wrong PathBeneath's FD type.
-                    .set_error_threshold(ErrorThreshold::Runtime)
-                    .allow_access(AccessFs::all())?,
-            )?
+            // Useful to catch wrong PathBeneath's FD type.
+            .set_error_threshold(ErrorThreshold::Runtime)
+            .add_rule(PathBeneath::new(&compat, &File::open("/")?)?.allow_access(AccessFs::all())?)?
             .restrict_self()
             .into_result()
     }
