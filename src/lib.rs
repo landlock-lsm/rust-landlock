@@ -321,18 +321,18 @@ fn prctl_set_no_new_privs() -> Result<(), Error> {
     }
 }
 
-pub struct RulesetAttr {
+pub struct RulesetInit {
     handled_fs: AccessFs,
 }
 
-impl RulesetAttr {
+impl RulesetInit {
     pub fn new(compat: &Compatibility) -> Result<Compat<Self>, Error> {
         // The API should be future-proof: one Rust program or library should have the same
         // behavior if built with an old or a newer crate (e.g. with an extended ruleset_attr
         // enum).  It should then not be possible to give an "all-possible-handled-accesses" to the
         // Ruleset builder because this value would be relative to the running kernel.
         compat.create(1, || {
-            RulesetAttr {
+            RulesetInit {
                 // FIXME: Replace all() with group1()
                 handled_fs: AccessFs::all(),
             }
@@ -340,7 +340,7 @@ impl RulesetAttr {
     }
 }
 
-impl Compat<RulesetAttr> {
+impl Compat<RulesetInit> {
     pub fn handle_fs(mut self, access: AccessFs) -> Result<Self, Error> {
         match self.0.build {
             None => self.set_last_call_status(LastCall::Fake),
@@ -352,10 +352,10 @@ impl Compat<RulesetAttr> {
         }
     }
 
-    pub fn create(self) -> Result<Compat<Ruleset>, Error> {
+    pub fn create(self) -> Result<Compat<RulesetCreated>, Error> {
         match self.0.build {
             None => self.merge(None).set_last_call_status(LastCall::Fake),
-            Some(ref build) => match Ruleset::new(&build.data) {
+            Some(ref build) => match RulesetCreated::new(&build.data) {
                 Ok(ruleset) => self
                     .merge(Some(ruleset))
                     .set_last_call_status(LastCall::FullSuccess),
@@ -367,19 +367,19 @@ impl Compat<RulesetAttr> {
     }
 }
 
-pub struct Ruleset {
+pub struct RulesetCreated {
     fd: RawFd,
     no_new_privs: bool,
 }
 
-impl Ruleset {
-    fn new(attribute: &RulesetAttr) -> Result<Self, Error> {
+impl RulesetCreated {
+    fn new(attribute: &RulesetInit) -> Result<Self, Error> {
         let attr = uapi::landlock_ruleset_attr {
             handled_access_fs: attribute.handled_fs.bits,
         };
 
         match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) } {
-            fd if fd >= 0 => Ok(Ruleset {
+            fd if fd >= 0 => Ok(RulesetCreated {
                 fd: fd,
                 no_new_privs: true,
             }),
@@ -388,7 +388,7 @@ impl Ruleset {
     }
 }
 
-impl Compat<Ruleset> {
+impl Compat<RulesetCreated> {
     pub fn add_rule<T>(mut self, mut rule: Compat<T>) -> Result<Self, Error>
     where
         T: Rule,
@@ -449,7 +449,7 @@ impl Compat<Ruleset> {
     }
 }
 
-impl Drop for Ruleset {
+impl Drop for RulesetCreated {
     fn drop(&mut self) {
         unsafe {
             close(self.fd);
@@ -464,7 +464,7 @@ mod tests {
 
     fn ruleset_root_compat() -> Result<(), Error> {
         let compat = Compatibility::new()?;
-        RulesetAttr::new(&compat)?
+        RulesetInit::new(&compat)?
             // FIXME: Make it impossible to use AccessFs::all() but group1() instead
             .handle_fs(AccessFs::all())?
             .create()?
@@ -478,7 +478,7 @@ mod tests {
         let mut compat = Compatibility::new()?;
         // Sets default error threshold: abort the whole sandboxing for any runtime error.
         compat.set_error_threshold(ErrorThreshold::Runtime);
-        RulesetAttr::new(&compat)?
+        RulesetInit::new(&compat)?
             // Must have at least the execute check…
             .set_error_threshold(ErrorThreshold::PartiallyCompatible)
             // FIXME: Make it impossible to use AccessFs::all() but group1() instead

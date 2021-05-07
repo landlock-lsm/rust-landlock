@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail};
 use landlock::{
-    AccessFs, Compat, Compatibility, ErrorThreshold, PathBeneath, Ruleset, RulesetAttr,
+    AccessFs, Compat, Compatibility, ErrorThreshold, PathBeneath, RulesetCreated, RulesetInit,
 };
 use nix::fcntl::{open, OFlag};
 use nix::sys::stat::{fstat, Mode, SFlag};
@@ -48,10 +48,10 @@ const ACCESS_FILE: AccessFs = AccessFs::from_bits_truncate(
 ///
 fn populate_ruleset(
     compat: &Compatibility,
-    ruleset: Compat<Ruleset>,
+    ruleset: Compat<RulesetCreated>,
     paths: OsString,
     access: AccessFs,
-) -> Result<Compat<Ruleset>, anyhow::Error> {
+) -> Result<Compat<RulesetCreated>, anyhow::Error> {
     if paths.len() == 0 {
         return Ok(ruleset);
     }
@@ -133,7 +133,7 @@ fn main() -> Result<(), anyhow::Error> {
     let cmd_name = args.get(1).map(|s| s.to_string_lossy()).unwrap();
 
     let compat = Compatibility::new()?;
-    let ruleset = RulesetAttr::new(&compat)?
+    let ruleset = RulesetInit::new(&compat)?
         .set_error_threshold(ErrorThreshold::PartiallyCompatible)
         .handle_fs(AccessFs::all())?
         .create()?;
