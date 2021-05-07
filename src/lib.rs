@@ -51,8 +51,7 @@ struct CompatObject<T> {
     /// Saves the last encountered error for `RestrictionStatus`.
     // TODO: save the first error instead?
     prev_error: Option<Error>,
-    /// Saves the error threshold for the build chain.
-    threshold: ErrorThreshold,
+    compat: Compatibility,
     /// It is `None` if the build chain is incompatible with the running system.
     build: Option<CompatBuild<T>>,
 }
@@ -136,35 +135,49 @@ impl<T> Compat<T> {
         }
     }
 
-    fn merge<U>(self, data: Option<U>) -> Compat<U> {
+    fn update<U, F>(self, minimum_version: i32, new_data: F) -> Result<Compat<U>, Error>
+    where
+        F: FnOnce(T) -> Result<U, Error>,
+    {
+        let (status, build) = match self.0.build {
+            None => (LastCall::Fake, None),
+            Some(build) => {
+                if self.0.compat.is_compatible(minimum_version) {
+                    match new_data(build.data) {
+                        Ok(data) => (
+                            LastCall::FullSuccess,
+                            Some(CompatBuild {
+                                status: build.status,
+                                data: data,
+                            }),
+                        ),
+                        Err(e) => (LastCall::RuntimeError(e), None),
+                    }
+                } else {
+                    (LastCall::Unsupported, None)
+                }
+            }
+        };
         Compat(CompatObject {
             last: self.0.last,
             prev_error: self.0.prev_error,
             // TODO: Merge thresholds?
-            threshold: self.0.threshold,
-            build: match self.0.build {
-                None => None,
-                Some(build) => match data {
-                    None => None,
-                    Some(data) => Some(CompatBuild {
-                        status: build.status,
-                        data: data,
-                    }),
-                },
-            },
+            compat: self.0.compat,
+            build: build,
         })
+        .set_last_call_status(status)
     }
 
     fn into_result(self) -> Result<Self, Error> {
         match self.0.last {
             LastCall::FullSuccess => Ok(self),
-            LastCall::PartialSuccess => match self.0.threshold {
+            LastCall::PartialSuccess => match self.0.compat.threshold {
                 ErrorThreshold::PartiallyCompatible => {
                     Err(Error::new(ErrorKind::InvalidData, "Partial compatibility"))
                 }
                 _ => Ok(self),
             },
-            LastCall::Unsupported | LastCall::Fake => match self.0.threshold {
+            LastCall::Unsupported | LastCall::Fake => match self.0.compat.threshold {
                 ErrorThreshold::PartiallyCompatible | ErrorThreshold::Incompatible => {
                     Err(Error::new(ErrorKind::InvalidData, "Incompatibility"))
                 }
@@ -176,7 +189,7 @@ impl<T> Compat<T> {
     }
 
     pub fn set_error_threshold(mut self, threshold: ErrorThreshold) -> Self {
-        self.0.threshold = threshold;
+        self.0.compat.threshold = threshold;
         self
     }
 }
@@ -184,6 +197,7 @@ impl<T> Compat<T> {
 #[derive(Copy, Clone)]
 pub struct Compatibility {
     abi_version: i32,
+    /// Saves the error threshold for the build chain.
     threshold: ErrorThreshold,
 }
 
@@ -209,16 +223,20 @@ impl Compatibility {
         self.threshold = threshold;
     }
 
+    fn is_compatible(&self, minimum_version: i32) -> bool {
+        self.abi_version >= minimum_version
+    }
+
     // @new_data returns a default fully supported version of an object.
     fn create<T, F>(&self, minimum_version: i32, new_data: F) -> Result<Compat<T>, Error>
     where
         F: FnOnce() -> T,
     {
-        let is_compatible = self.abi_version >= minimum_version;
+        let is_compatible = self.is_compatible(minimum_version);
         Compat(CompatObject {
             last: LastCall::FullSuccess,
             prev_error: None,
-            threshold: self.threshold,
+            compat: *self,
             build: if is_compatible {
                 Some(CompatBuild {
                     status: CompatStatus::Full,
@@ -288,15 +306,12 @@ impl PathBeneath<'_> {
 
 impl Compat<PathBeneath<'_>> {
     // TODO: Replace with `append_allowed_accesses()`?
-    pub fn allow_access(mut self, allowed: AccessFs) -> Result<Self, Error> {
-        match self.0.build {
-            None => self.set_last_call_status(LastCall::Fake),
-            Some(ref mut build) => {
-                build.data.attr.allowed_access = allowed.bits;
-                // TODO: Checks supported bitflags and update accordingly.
-                self.set_last_call_status(LastCall::FullSuccess)
-            }
-        }
+    pub fn allow_access(self, allowed: AccessFs) -> Result<Self, Error> {
+        self.update(1, |mut data| {
+            data.attr.allowed_access = allowed.bits;
+            // TODO: Checks supported bitflags and update accordingly.
+            Ok(data)
+        })
     }
 }
 
@@ -341,51 +356,33 @@ impl RulesetInit {
 }
 
 impl Compat<RulesetInit> {
-    pub fn handle_fs(mut self, access: AccessFs) -> Result<Self, Error> {
-        match self.0.build {
-            None => self.set_last_call_status(LastCall::Fake),
-            Some(ref mut build) => {
-                build.data.handled_fs = access;
-                // TODO: Check compatibility and update it accordingly.
-                self.set_last_call_status(LastCall::FullSuccess)
-            }
-        }
+    pub fn handle_fs(self, access: AccessFs) -> Result<Self, Error> {
+        self.update(1, |mut data| {
+            data.handled_fs = access;
+            // TODO: Check compatibility and update it accordingly.
+            Ok(data)
+        })
     }
 
     pub fn create(self) -> Result<Compat<RulesetCreated>, Error> {
-        match self.0.build {
-            None => self.merge(None).set_last_call_status(LastCall::Fake),
-            Some(ref build) => match RulesetCreated::new(&build.data) {
-                Ok(ruleset) => self
-                    .merge(Some(ruleset))
-                    .set_last_call_status(LastCall::FullSuccess),
-                Err(e) => self
-                    .merge(None)
-                    .set_last_call_status(LastCall::RuntimeError(e)),
-            },
-        }
+        self.update(1, |data| {
+            let attr = uapi::landlock_ruleset_attr {
+                handled_access_fs: data.handled_fs.bits,
+            };
+            match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) } {
+                fd if fd >= 0 => Ok(RulesetCreated {
+                    fd: fd,
+                    no_new_privs: true,
+                }),
+                _ => Err(Error::last_os_error()),
+            }
+        })
     }
 }
 
 pub struct RulesetCreated {
     fd: RawFd,
     no_new_privs: bool,
-}
-
-impl RulesetCreated {
-    fn new(attribute: &RulesetInit) -> Result<Self, Error> {
-        let attr = uapi::landlock_ruleset_attr {
-            handled_access_fs: attribute.handled_fs.bits,
-        };
-
-        match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) } {
-            fd if fd >= 0 => Ok(RulesetCreated {
-                fd: fd,
-                no_new_privs: true,
-            }),
-            _ => Err(Error::last_os_error()),
-        }
-    }
 }
 
 impl Compat<RulesetCreated> {
@@ -415,15 +412,11 @@ impl Compat<RulesetCreated> {
         }
     }
 
-    pub fn set_no_new_privs(mut self, no_new_privs: bool) -> Result<Self, Error> {
-        match self.0.build {
-            None => self.set_last_call_status(LastCall::Fake),
-            Some(ref mut build) => {
-                build.data.no_new_privs = no_new_privs;
-                // TODO: Check compatibility and update it accordingly.
-                self.set_last_call_status(LastCall::FullSuccess)
-            }
-        }
+    pub fn set_no_new_privs(self, no_new_privs: bool) -> Result<Self, Error> {
+        self.update(1, |mut data| {
+            data.no_new_privs = no_new_privs;
+            Ok(data)
+        })
     }
 
     pub fn restrict_self(self) -> RestrictionStatus {
