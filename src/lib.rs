@@ -56,6 +56,12 @@ struct CompatObject<T> {
     build: Option<CompatBuild<T>>,
 }
 
+impl<T> From<Compat<T>> for Option<CompatBuild<T>> {
+    fn from(compat: Compat<T>) -> Self {
+        compat.0.build
+    }
+}
+
 /// Last attempted call, which may not be the last from the build chain.
 enum LastCall {
     /// Did handle the build method and all arguments.
@@ -135,19 +141,26 @@ impl<T> Compat<T> {
         }
     }
 
-    fn update<U, F>(self, minimum_version: i32, new_data: F) -> Result<Compat<U>, Error>
+    fn merge<U, V, F>(
+        self,
+        minimum_version: i32,
+        other: Option<CompatBuild<V>>,
+        new_data: F,
+    ) -> Result<Compat<U>, Error>
     where
-        F: FnOnce(T) -> Result<U, Error>,
+        F: FnOnce(T, V) -> Result<U, Error>,
     {
-        let (status, build) = match self.0.build {
-            None => (LastCall::Fake, None),
-            Some(build) => {
+        let (status, build) = match (self.0.build, other) {
+            (None, _) => (LastCall::Fake, None),
+            (_, None) => (LastCall::Unsupported, None),
+            (Some(self_build), Some(other_build)) => {
                 if self.0.compat.is_compatible(minimum_version) {
-                    match new_data(build.data) {
+                    match new_data(self_build.data, other_build.data) {
                         Ok(data) => (
-                            LastCall::FullSuccess,
+                            other_build.status.into(),
                             Some(CompatBuild {
-                                status: build.status,
+                                // Will be updated by the following call to set_last_call_status().
+                                status: self_build.status,
                                 data: data,
                             }),
                         ),
@@ -166,6 +179,18 @@ impl<T> Compat<T> {
             build: build,
         })
         .set_last_call_status(status)
+    }
+
+    fn update<U, F>(self, minimum_version: i32, new_data: F) -> Result<Compat<U>, Error>
+    where
+        F: FnOnce(T) -> Result<U, Error>,
+    {
+        let other = Some(CompatBuild {
+            status: CompatStatus::Full,
+            data: 0,
+        });
+        // Artificial merge to factor out the update code.
+        self.merge(minimum_version, other, |self_data, _| new_data(self_data))
     }
 
     fn into_result(self) -> Result<Self, Error> {
@@ -386,30 +411,23 @@ pub struct RulesetCreated {
 }
 
 impl Compat<RulesetCreated> {
-    pub fn add_rule<T>(mut self, mut rule: Compat<T>) -> Result<Self, Error>
+    pub fn add_rule<T>(self, rule: Compat<T>) -> Result<Self, Error>
     where
         T: Rule,
     {
-        match self.0.build {
-            None => self.set_last_call_status(LastCall::Fake),
-            Some(ref mut ruleset_build) => {
-                let last_call_status = match rule.0.build {
-                    None => LastCall::Unsupported,
-                    Some(ref mut rule_build) => match unsafe {
-                        uapi::landlock_add_rule(
-                            ruleset_build.data.fd,
-                            rule_build.data.get_type_id(),
-                            rule_build.data.as_ptr(),
-                            rule_build.data.get_flags(),
-                        )
-                    } {
-                        0 => rule_build.status.into(),
-                        _ => LastCall::RuntimeError(Error::last_os_error()),
-                    },
-                };
-                self.set_last_call_status(last_call_status)
+        self.merge(1, rule.into(), |self_data, rule_data| {
+            match unsafe {
+                uapi::landlock_add_rule(
+                    self_data.fd,
+                    rule_data.get_type_id(),
+                    rule_data.as_ptr(),
+                    rule_data.get_flags(),
+                )
+            } {
+                0 => Ok(self_data),
+                _ => Err(Error::last_os_error()),
             }
-        }
+        })
     }
 
     pub fn set_no_new_privs(self, no_new_privs: bool) -> Result<Self, Error> {
