@@ -15,7 +15,6 @@ exclude = [".gitignore"]
 readme = "README.md"
 
 [dependencies]
-bitflags = "1.2"
 libc = "0.2"
 
 [dev-dependencies]

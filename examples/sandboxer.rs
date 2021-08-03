@@ -1,6 +1,7 @@
 use anyhow::{anyhow, bail};
 use landlock::{
-    AccessFs, Compat, Compatibility, ErrorThreshold, PathBeneath, RulesetCreated, RulesetInit,
+    AccessFs, AccessRights, Compat, Compatibility, ErrorThreshold, PathBeneath, RulesetCreated,
+    RulesetInit,
 };
 use nix::fcntl::{open, OFlag};
 use nix::sys::stat::{fstat, Mode, SFlag};
@@ -13,27 +14,6 @@ use std::process::Command;
 
 const ENV_FS_RO_NAME: &str = "LL_FS_RO";
 const ENV_FS_RW_NAME: &str = "LL_FS_RW";
-
-const ACCESS_FS_ROUGHLY_READ: AccessFs = AccessFs::from_bits_truncate(
-    AccessFs::EXECUTE.bits() | AccessFs::READ_FILE.bits() | AccessFs::READ_DIR.bits(),
-);
-
-const ACCESS_FS_ROUGHLY_WRITE: AccessFs = AccessFs::from_bits_truncate(
-    AccessFs::WRITE_FILE.bits()
-        | AccessFs::REMOVE_DIR.bits()
-        | AccessFs::REMOVE_FILE.bits()
-        | AccessFs::MAKE_CHAR.bits()
-        | AccessFs::MAKE_DIR.bits()
-        | AccessFs::MAKE_REG.bits()
-        | AccessFs::MAKE_SOCK.bits()
-        | AccessFs::MAKE_FIFO.bits()
-        | AccessFs::MAKE_BLOCK.bits()
-        | AccessFs::MAKE_SYM.bits(),
-);
-
-const ACCESS_FILE: AccessFs = AccessFs::from_bits_truncate(
-    AccessFs::READ_FILE.bits() | AccessFs::WRITE_FILE.bits() | AccessFs::EXECUTE.bits(),
-);
 
 /// Populates a given ruleset with PathBeneath landlock rules
 ///
@@ -50,7 +30,7 @@ fn populate_ruleset(
     compat: &Compatibility,
     ruleset: Compat<RulesetCreated>,
     paths: OsString,
-    access: AccessFs,
+    access: AccessRights<AccessFs>,
 ) -> Result<Compat<RulesetCreated>, anyhow::Error> {
     if paths.len() == 0 {
         return Ok(ruleset);
@@ -69,7 +49,7 @@ fn populate_ruleset(
                     Ok(stat) => {
                         let actual_access =
                             if (stat.st_mode & SFlag::S_IFMT.bits()) != SFlag::S_IFDIR.bits() {
-                                access & ACCESS_FILE
+                                access.mask_dir_accesses()
                             } else {
                                 access
                             };
@@ -135,14 +115,17 @@ fn main() -> Result<(), anyhow::Error> {
     let compat = Compatibility::new()?;
     let ruleset = RulesetInit::new(&compat)?
         .set_error_threshold(ErrorThreshold::PartiallyCompatible)
-        .handle_fs(AccessFs::all())?
+        .handle_fs(AccessFs::group1())?
         .create()?;
-    let ruleset = populate_ruleset(&compat, ruleset, fs_ro, ACCESS_FS_ROUGHLY_READ)?;
+
+    let access_fs_roughly_read = AccessFs::Execute | AccessFs::read();
+    let access_fs_roughly_write = AccessFs::WriteFile | AccessFs::remove() | AccessFs::make();
+    let ruleset = populate_ruleset(&compat, ruleset, fs_ro, access_fs_roughly_read)?;
     populate_ruleset(
         &compat,
         ruleset,
         fs_rw,
-        ACCESS_FS_ROUGHLY_READ | ACCESS_FS_ROUGHLY_WRITE,
+        access_fs_roughly_read | access_fs_roughly_write,
     )?
     .set_no_new_privs(true)?
     .restrict_self()

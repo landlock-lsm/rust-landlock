@@ -1,31 +1,12 @@
-#[macro_use]
-extern crate bitflags;
-
+pub use access::{AccessFlags, AccessFlagsFs, AccessFs, AccessRights};
 use libc::close;
 use std::io::{Error, ErrorKind};
 use std::marker::PhantomData;
 use std::mem::{replace, size_of_val};
 use std::os::unix::io::{AsRawFd, RawFd};
 
+mod access;
 mod uapi;
-
-bitflags! {
-    pub struct AccessFs: u64 {
-        const EXECUTE = uapi::LANDLOCK_ACCESS_FS_EXECUTE as u64;
-        const WRITE_FILE = uapi::LANDLOCK_ACCESS_FS_WRITE_FILE as u64;
-        const READ_FILE = uapi::LANDLOCK_ACCESS_FS_READ_FILE as u64;
-        const READ_DIR = uapi::LANDLOCK_ACCESS_FS_READ_DIR as u64;
-        const REMOVE_DIR = uapi::LANDLOCK_ACCESS_FS_REMOVE_DIR as u64;
-        const REMOVE_FILE = uapi::LANDLOCK_ACCESS_FS_REMOVE_FILE as u64;
-        const MAKE_CHAR = uapi::LANDLOCK_ACCESS_FS_MAKE_CHAR as u64;
-        const MAKE_DIR = uapi::LANDLOCK_ACCESS_FS_MAKE_DIR as u64;
-        const MAKE_REG = uapi::LANDLOCK_ACCESS_FS_MAKE_REG as u64;
-        const MAKE_SOCK = uapi::LANDLOCK_ACCESS_FS_MAKE_SOCK as u64;
-        const MAKE_FIFO = uapi::LANDLOCK_ACCESS_FS_MAKE_FIFO as u64;
-        const MAKE_BLOCK = uapi::LANDLOCK_ACCESS_FS_MAKE_BLOCK as u64;
-        const MAKE_SYM = uapi::LANDLOCK_ACCESS_FS_MAKE_SYM as u64;
-    }
-}
 
 pub trait Rule {
     fn as_ptr(&self) -> *const libc::c_void;
@@ -316,25 +297,25 @@ impl PathBeneath<'_> {
     where
         T: AsRawFd,
     {
-        compat.create(1, || {
-            PathBeneath {
-                attr: uapi::landlock_path_beneath_attr {
-                    // FIXME: Replace all() with a dedicated Default implementation
-                    allowed_access: AccessFs::all().bits,
-                    parent_fd: parent.as_raw_fd(),
-                },
-                _parent_fd: PhantomData,
-            }
+        compat.create(1, || PathBeneath {
+            attr: uapi::landlock_path_beneath_attr {
+                allowed_access: AccessFs::group1().get_flags(),
+                parent_fd: parent.as_raw_fd(),
+            },
+            _parent_fd: PhantomData,
         })
     }
 }
 
 impl Compat<PathBeneath<'_>> {
     // TODO: Replace with `append_allowed_accesses()`?
-    pub fn allow_access(self, allowed: AccessFs) -> Result<Self, Error> {
+    pub fn allow_access<T>(self, allowed: T) -> Result<Self, Error>
+    where
+        T: AccessFlagsFs,
+    {
         self.update(1, |mut data| {
-            data.attr.allowed_access = allowed.bits;
-            // TODO: Checks supported bitflags and update accordingly.
+            data.attr.allowed_access = allowed.get_flags();
+            // TODO: Checks supported flags and update accordingly.
             Ok(data)
         })
     }
@@ -362,7 +343,7 @@ fn prctl_set_no_new_privs() -> Result<(), Error> {
 }
 
 pub struct RulesetInit {
-    handled_fs: AccessFs,
+    handled_fs: AccessRights<AccessFs>,
 }
 
 impl RulesetInit {
@@ -371,19 +352,19 @@ impl RulesetInit {
         // behavior if built with an old or a newer crate (e.g. with an extended ruleset_attr
         // enum).  It should then not be possible to give an "all-possible-handled-accesses" to the
         // Ruleset builder because this value would be relative to the running kernel.
-        compat.create(1, || {
-            RulesetInit {
-                // FIXME: Replace all() with group1()
-                handled_fs: AccessFs::all(),
-            }
+        compat.create(1, || RulesetInit {
+            handled_fs: AccessFs::group1(),
         })
     }
 }
 
 impl Compat<RulesetInit> {
-    pub fn handle_fs(self, access: AccessFs) -> Result<Self, Error> {
+    pub fn handle_fs<T>(self, access: T) -> Result<Self, Error>
+    where
+        T: Into<AccessRights<AccessFs>>,
+    {
         self.update(1, |mut data| {
-            data.handled_fs = access;
+            data.handled_fs = access.into();
             // TODO: Check compatibility and update it accordingly.
             Ok(data)
         })
@@ -392,7 +373,7 @@ impl Compat<RulesetInit> {
     pub fn create(self) -> Result<Compat<RulesetCreated>, Error> {
         self.update(1, |data| {
             let attr = uapi::landlock_ruleset_attr {
-                handled_access_fs: data.handled_fs.bits,
+                handled_access_fs: data.handled_fs.get_flags(),
             };
             match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) } {
                 fd if fd >= 0 => Ok(RulesetCreated {
@@ -476,11 +457,12 @@ mod tests {
     fn ruleset_root_compat() -> Result<(), Error> {
         let compat = Compatibility::new()?;
         RulesetInit::new(&compat)?
-            // FIXME: Make it impossible to use AccessFs::all() but group1() instead
-            .handle_fs(AccessFs::all())?
+            .handle_fs(AccessFs::group1())?
             .create()?
             .set_no_new_privs(true)?
-            .add_rule(PathBeneath::new(&compat, &File::open("/")?)?.allow_access(AccessFs::all())?)?
+            .add_rule(
+                PathBeneath::new(&compat, &File::open("/")?)?.allow_access(AccessFs::group1())?,
+            )?
             .restrict_self()
             .into_result()
     }
@@ -492,16 +474,17 @@ mod tests {
         RulesetInit::new(&compat)?
             // Must have at least the execute check…
             .set_error_threshold(ErrorThreshold::PartiallyCompatible)
-            // FIXME: Make it impossible to use AccessFs::all() but group1() instead
-            .handle_fs(AccessFs::EXECUTE)?
+            .handle_fs(AccessFs::Execute)?
             .set_error_threshold(ErrorThreshold::NoError)
             // …and possibly others.
-            .handle_fs(AccessFs::all())?
+            .handle_fs(AccessFs::group1())?
             .create()?
             .set_no_new_privs(true)?
             // Useful to catch wrong PathBeneath's FD type.
             .set_error_threshold(ErrorThreshold::Runtime)
-            .add_rule(PathBeneath::new(&compat, &File::open("/")?)?.allow_access(AccessFs::all())?)?
+            .add_rule(
+                PathBeneath::new(&compat, &File::open("/")?)?.allow_access(AccessFs::group1())?,
+            )?
             .restrict_self()
             .into_result()
     }
