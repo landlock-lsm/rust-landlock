@@ -1,5 +1,5 @@
 use super::uapi;
-use super::{AccessFs, Compat, CompatStatus, Compatibility, ABI};
+use super::{AccessFs, BitFlags, Compat, CompatStatus, Compatibility, ABI};
 use libc::close;
 use std::io::Error;
 use std::mem::size_of_val;
@@ -45,7 +45,7 @@ fn prctl_set_no_new_privs() -> Result<(), Error> {
 }
 
 pub struct RulesetInit {
-    handled_fs: AccessFs,
+    handled_fs: BitFlags<AccessFs>,
 }
 
 impl RulesetInit {
@@ -61,7 +61,7 @@ impl RulesetInit {
 }
 
 impl Compat<RulesetInit> {
-    pub fn handle_fs(self, access: AccessFs) -> Result<Self, Error> {
+    pub fn handle_fs(self, access: BitFlags<AccessFs>) -> Result<Self, Error> {
         self.update(1, |mut data| {
             data.handled_fs = access;
             // TODO: Check compatibility and update it accordingly.

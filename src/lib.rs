@@ -1,6 +1,6 @@
-#[macro_use]
-extern crate bitflags;
+extern crate enumflags2;
 
+pub use enumflags2::{make_bitflags, BitFlags};
 pub use fs::{AccessFs, PathBeneath};
 pub use ruleset::{RestrictionStatus, Rule, RulesetCreated, RulesetInit};
 use std::io::{Error, ErrorKind};
@@ -284,7 +284,7 @@ mod tests {
         RulesetInit::new(&compat)?
             // Must have at least the execute check…
             .set_error_threshold(ErrorThreshold::PartiallyCompatible)
-            .handle_fs(AccessFs::EXECUTE)?
+            .handle_fs(AccessFs::Execute.into())?
             .set_error_threshold(ErrorThreshold::NoError)
             // …and possibly others.
             .handle_fs(ABI::V1.into())?

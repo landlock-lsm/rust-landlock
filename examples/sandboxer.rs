@@ -1,6 +1,7 @@
 use anyhow::{anyhow, bail};
 use landlock::{
-    AccessFs, Compat, Compatibility, ErrorThreshold, PathBeneath, RulesetCreated, RulesetInit, ABI,
+    make_bitflags, AccessFs, BitFlags, Compat, Compatibility, ErrorThreshold, PathBeneath,
+    RulesetCreated, RulesetInit, ABI,
 };
 use nix::fcntl::{open, OFlag};
 use nix::sys::stat::{fstat, Mode, SFlag};
@@ -14,26 +15,17 @@ use std::process::Command;
 const ENV_FS_RO_NAME: &str = "LL_FS_RO";
 const ENV_FS_RW_NAME: &str = "LL_FS_RW";
 
-const ACCESS_FS_ROUGHLY_READ: AccessFs = AccessFs::from_bits_truncate(
-    AccessFs::EXECUTE.bits() | AccessFs::READ_FILE.bits() | AccessFs::READ_DIR.bits(),
-);
+const ACCESS_FS_ROUGHLY_READ: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
+    Execute | ReadFile | ReadDir});
 
-const ACCESS_FS_ROUGHLY_WRITE: AccessFs = AccessFs::from_bits_truncate(
-    AccessFs::WRITE_FILE.bits()
-        | AccessFs::REMOVE_DIR.bits()
-        | AccessFs::REMOVE_FILE.bits()
-        | AccessFs::MAKE_CHAR.bits()
-        | AccessFs::MAKE_DIR.bits()
-        | AccessFs::MAKE_REG.bits()
-        | AccessFs::MAKE_SOCK.bits()
-        | AccessFs::MAKE_FIFO.bits()
-        | AccessFs::MAKE_BLOCK.bits()
-        | AccessFs::MAKE_SYM.bits(),
-);
+const ACCESS_FS_ROUGHLY_WRITE: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
+    WriteFile | RemoveDir | RemoveFile | MakeChar | MakeDir | MakeReg | MakeSock | MakeFifo |
+        MakeBlock | MakeSym
+});
 
-const ACCESS_FILE: AccessFs = AccessFs::from_bits_truncate(
-    AccessFs::READ_FILE.bits() | AccessFs::WRITE_FILE.bits() | AccessFs::EXECUTE.bits(),
-);
+const ACCESS_FILE: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
+    ReadFile | WriteFile | Execute
+});
 
 /// Populates a given ruleset with PathBeneath landlock rules
 ///
@@ -50,7 +42,7 @@ fn populate_ruleset(
     compat: &Compatibility,
     ruleset: Compat<RulesetCreated>,
     paths: OsString,
-    access: AccessFs,
+    access: BitFlags<AccessFs>,
 ) -> Result<Compat<RulesetCreated>, anyhow::Error> {
     if paths.len() == 0 {
         return Ok(ruleset);
