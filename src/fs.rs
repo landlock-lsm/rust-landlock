@@ -1,4 +1,4 @@
-use super::{uapi, Compat, Compatibility, Rule};
+use super::{uapi, Compat, Compatibility, Rule, ABI};
 use std::io::Error;
 use std::marker::PhantomData;
 use std::os::unix::io::AsRawFd;
@@ -21,6 +21,28 @@ bitflags! {
     }
 }
 
+impl From<ABI> for AccessFs {
+    fn from(abi: ABI) -> Self {
+        match abi {
+            ABI::V1 => AccessFs::from_bits_truncate(
+                AccessFs::EXECUTE.bits()
+                    | AccessFs::WRITE_FILE.bits()
+                    | AccessFs::READ_FILE.bits()
+                    | AccessFs::READ_DIR.bits()
+                    | AccessFs::REMOVE_DIR.bits()
+                    | AccessFs::REMOVE_FILE.bits()
+                    | AccessFs::MAKE_CHAR.bits()
+                    | AccessFs::MAKE_DIR.bits()
+                    | AccessFs::MAKE_REG.bits()
+                    | AccessFs::MAKE_SOCK.bits()
+                    | AccessFs::MAKE_FIFO.bits()
+                    | AccessFs::MAKE_BLOCK.bits()
+                    | AccessFs::MAKE_SYM.bits(),
+            ),
+        }
+    }
+}
+
 pub struct PathBeneath<'a> {
     attr: uapi::landlock_path_beneath_attr,
     // Ties the lifetime of a PathBeneath instance to the litetime of its wrapped attr.parent_fd .
@@ -33,10 +55,11 @@ impl PathBeneath<'_> {
         T: AsRawFd,
     {
         compat.create(1, || {
+            // By default, allows all v1 accesses on this path exception.
+            let allowed: AccessFs = ABI::V1.into();
             PathBeneath {
                 attr: uapi::landlock_path_beneath_attr {
-                    // FIXME: Replace all() with a dedicated Default implementation
-                    allowed_access: AccessFs::all().bits(),
+                    allowed_access: allowed.bits,
                     parent_fd: parent.as_raw_fd(),
                 },
                 _parent_fd: PhantomData,

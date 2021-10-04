@@ -1,5 +1,5 @@
 use super::uapi;
-use super::{AccessFs, Compat, CompatStatus, Compatibility};
+use super::{AccessFs, Compat, CompatStatus, Compatibility, ABI};
 use libc::close;
 use std::io::Error;
 use std::mem::size_of_val;
@@ -54,11 +54,8 @@ impl RulesetInit {
         // behavior if built with an old or a newer crate (e.g. with an extended ruleset_attr
         // enum).  It should then not be possible to give an "all-possible-handled-accesses" to the
         // Ruleset builder because this value would be relative to the running kernel.
-        compat.create(1, || {
-            RulesetInit {
-                // FIXME: Replace all() with group1()
-                handled_fs: AccessFs::all(),
-            }
+        compat.create(1, || RulesetInit {
+            handled_fs: ABI::V1.into(),
         })
     }
 }

@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail};
 use landlock::{
-    AccessFs, Compat, Compatibility, ErrorThreshold, PathBeneath, RulesetCreated, RulesetInit,
+    AccessFs, Compat, Compatibility, ErrorThreshold, PathBeneath, RulesetCreated, RulesetInit, ABI,
 };
 use nix::fcntl::{open, OFlag};
 use nix::sys::stat::{fstat, Mode, SFlag};
@@ -135,7 +135,7 @@ fn main() -> Result<(), anyhow::Error> {
     let compat = Compatibility::new()?;
     let ruleset = RulesetInit::new(&compat)?
         .set_error_threshold(ErrorThreshold::PartiallyCompatible)
-        .handle_fs(AccessFs::all())?
+        .handle_fs(ABI::V1.into())?
         .create()?;
     let ruleset = populate_ruleset(&compat, ruleset, fs_ro, ACCESS_FS_ROUGHLY_READ)?;
     populate_ruleset(

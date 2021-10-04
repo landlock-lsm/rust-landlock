@@ -10,6 +10,11 @@ mod fs;
 mod ruleset;
 mod uapi;
 
+/// Version of the Landlock [ABI](https://en.wikipedia.org/wiki/Application_binary_interface).
+pub enum ABI {
+    V1 = 1,
+}
+
 /// Properly handles runtime unsupported features.  This enables to guarantee consistent behaviors
 /// across crate users and runtime kernels even if this crate get new features.  It eases backward
 /// compatibility and enables future-proofness.
@@ -264,11 +269,10 @@ mod tests {
     fn ruleset_root_compat() -> Result<(), Error> {
         let compat = Compatibility::new()?;
         RulesetInit::new(&compat)?
-            // FIXME: Make it impossible to use AccessFs::all() but group1() instead
-            .handle_fs(AccessFs::all())?
+            .handle_fs(ABI::V1.into())?
             .create()?
             .set_no_new_privs(true)?
-            .add_rule(PathBeneath::new(&compat, &File::open("/")?)?.allow_access(AccessFs::all())?)?
+            .add_rule(PathBeneath::new(&compat, &File::open("/")?)?.allow_access(ABI::V1.into())?)?
             .restrict_self()
             .into_result()
     }
@@ -280,16 +284,15 @@ mod tests {
         RulesetInit::new(&compat)?
             // Must have at least the execute check…
             .set_error_threshold(ErrorThreshold::PartiallyCompatible)
-            // FIXME: Make it impossible to use AccessFs::all() but group1() instead
             .handle_fs(AccessFs::EXECUTE)?
             .set_error_threshold(ErrorThreshold::NoError)
             // …and possibly others.
-            .handle_fs(AccessFs::all())?
+            .handle_fs(ABI::V1.into())?
             .create()?
             .set_no_new_privs(true)?
             // Useful to catch wrong PathBeneath's FD type.
             .set_error_threshold(ErrorThreshold::Runtime)
-            .add_rule(PathBeneath::new(&compat, &File::open("/")?)?.allow_access(AccessFs::all())?)?
+            .add_rule(PathBeneath::new(&compat, &File::open("/")?)?.allow_access(ABI::V1.into())?)?
             .restrict_self()
             .into_result()
     }
