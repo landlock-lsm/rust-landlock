@@ -1,4 +1,4 @@
-use super::{uapi, Compat, Compatibility, Rule, ABI};
+use super::{uapi, Compat, Compatibility, Rule, TryCompat, ABI};
 use enumflags2::{bitflags, make_bitflags, BitFlags};
 use std::io::Error;
 use std::marker::PhantomData;
@@ -88,10 +88,10 @@ impl Rule for PathBeneath<'_> {
 
 impl Compat<PathBeneath<'_>> {
     // TODO: Replace with `append_allowed_accesses()`?
-    pub fn allow_access(self, allowed: BitFlags<AccessFs>) -> Result<Self, Error> {
+    pub fn allow_access(self, access: BitFlags<AccessFs>) -> Result<Self, Error> {
+        let compat_access = access.try_compat(&self.0.compat)?;
         self.update(1, |mut data| {
-            data.attr.allowed_access = allowed.bits();
-            // TODO: Checks supported bitflags and update accordingly.
+            data.attr.allowed_access = compat_access.bits();
             Ok(data)
         })
     }

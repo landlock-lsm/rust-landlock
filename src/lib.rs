@@ -1,6 +1,6 @@
 extern crate enumflags2;
 
-pub use enumflags2::{make_bitflags, BitFlags};
+pub use enumflags2::{make_bitflags, BitFlag, BitFlags};
 pub use fs::{AccessFs, PathBeneath};
 pub use ruleset::{RestrictionStatus, Rule, RulesetCreated, RulesetInit};
 use std::convert::{TryFrom, TryInto};
@@ -313,6 +313,55 @@ impl Compatibility {
             LastCall::Unsupported
         })
     }
+}
+
+trait TryCompat {
+    fn try_compat(self, compat: &Compatibility) -> Result<Self, Error>
+    where
+        Self: Sized;
+}
+
+impl<T> TryCompat for BitFlags<T>
+where
+    T: BitFlag,
+    BitFlags<T>: From<ABI>,
+{
+    fn try_compat(self, compat: &Compatibility) -> Result<Self, Error> {
+        if self.is_empty() {
+            return Ok(self);
+        }
+        let compat_bits = self & Self::from(compat.abi);
+        match compat.threshold {
+            ErrorThreshold::NoError | ErrorThreshold::Runtime => Ok(compat_bits),
+            ErrorThreshold::Incompatible => {
+                if compat_bits.is_empty() {
+                    Err(Error::new(ErrorKind::InvalidData, "Incompatible"))
+                } else {
+                    Ok(compat_bits)
+                }
+            }
+            ErrorThreshold::PartiallyCompatible => {
+                if self != compat_bits {
+                    Err(Error::new(ErrorKind::InvalidData, "Incompatible"))
+                } else {
+                    Ok(compat_bits)
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn compat_bit_flags() {
+    let compat = Compatibility {
+        abi: ABI::V1,
+        threshold: ErrorThreshold::NoError,
+    };
+    let access_ro = make_bitflags!(AccessFs::{Execute | ReadFile | ReadDir});
+    assert_eq!(access_ro, access_ro.try_compat(&compat).unwrap());
+
+    let access_empty = BitFlags::<AccessFs>::empty();
+    assert_eq!(access_empty, access_empty.try_compat(&compat).unwrap());
 }
 
 #[cfg(test)]

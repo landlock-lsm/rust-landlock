@@ -1,5 +1,5 @@
 use super::uapi;
-use super::{AccessFs, BitFlags, Compat, CompatStatus, Compatibility, ABI};
+use super::{AccessFs, BitFlags, Compat, CompatStatus, Compatibility, TryCompat, ABI};
 use libc::close;
 use std::io::Error;
 use std::mem::size_of_val;
@@ -62,9 +62,9 @@ impl RulesetInit {
 
 impl Compat<RulesetInit> {
     pub fn handle_fs(self, access: BitFlags<AccessFs>) -> Result<Self, Error> {
+        let compat_access = access.try_compat(&self.0.compat)?;
         self.update(1, |mut data| {
-            data.handled_fs = access;
-            // TODO: Check compatibility and update it accordingly.
+            data.handled_fs = compat_access;
             Ok(data)
         })
     }
