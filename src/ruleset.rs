@@ -11,30 +11,15 @@ pub trait Rule {
     fn get_flags(&self) -> u32;
 }
 
-/// If you only want a full restriction enforced, then you need to adjust the error threshold with
-/// `.set_error_threshold()` before calling `.restrict_self()`.
+/// Returned by ruleset builder.
+#[derive(Debug, PartialEq)]
 pub enum RestrictionStatus {
     /// All requested restrictions are enforced.
-    // TODO: FullyRestricted(RestrictSet),
     FullyRestricted,
-    /// Some requested restrictions are enforced, and some unexpected error may have append (e.g.
-    /// wrong PathBeneath FD: EBADFD, but no EINVAL).
-    // TODO: PartiallyRestricted((RestrictSet), (with last saved error)
-    PartiallyRestricted(Option<Error>),
-    /// Contains an error if restrict_self() failed, or None if the build chain is incompatible
-    /// with the running system.
-    Unrestricted(Option<Error>),
-}
-
-impl RestrictionStatus {
-    // It is not an error to run on a system not supporting Landlock.
-    pub fn into_result(self) -> Result<(), Error> {
-        match self {
-            RestrictionStatus::FullyRestricted => Ok(()),
-            RestrictionStatus::PartiallyRestricted(err) => err.map_or(Ok(()), |x| Err(x)),
-            RestrictionStatus::Unrestricted(err) => err.map_or(Ok(()), |x| Err(x)),
-        }
-    }
+    /// Some requested restrictions are enforced, following a best-effort approach.
+    PartiallyRestricted,
+    /// The running system doesn't support Landlock.
+    Unrestricted,
 }
 
 fn prctl_set_no_new_privs() -> Result<(), Error> {
@@ -120,23 +105,22 @@ impl Compat<RulesetCreated> {
         })
     }
 
-    pub fn restrict_self(self) -> RestrictionStatus {
+    pub fn restrict_self(self) -> Result<RestrictionStatus, Error> {
         match self.0.build {
-            None => RestrictionStatus::Unrestricted(self.get_last_error()),
+            None => Ok(RestrictionStatus::Unrestricted),
             Some(ref build) => {
                 if build.data.no_new_privs {
-                    if let Err(e) = prctl_set_no_new_privs() {
-                        return RestrictionStatus::Unrestricted(Some(e));
-                    }
+                    // If Landlock is supported, then no_new_privs should also be supported (unless
+                    // blocked e.g., by seccomp-bpf).  Otherwise, we should inform users by
+                    // returning the syscall error.
+                    prctl_set_no_new_privs()?;
                 }
                 match unsafe { uapi::landlock_restrict_self(build.data.fd, 0) } {
                     0 => match build.status {
-                        CompatStatus::Full => RestrictionStatus::FullyRestricted,
-                        CompatStatus::Partial => {
-                            RestrictionStatus::PartiallyRestricted(self.get_last_error())
-                        }
+                        CompatStatus::Full => Ok(RestrictionStatus::FullyRestricted),
+                        CompatStatus::Partial => Ok(RestrictionStatus::PartiallyRestricted),
                     },
-                    _ => RestrictionStatus::Unrestricted(Some(Error::last_os_error())),
+                    _ => Err(Error::last_os_error()),
                 }
             }
         }

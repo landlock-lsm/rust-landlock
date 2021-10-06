@@ -180,13 +180,6 @@ impl<T> Compat<T> {
         self.into_result()
     }
 
-    fn get_last_error(self) -> Option<Error> {
-        match self.0.last {
-            LastCall::RuntimeError(e) => Some(e),
-            _ => self.0.prev_error,
-        }
-    }
-
     fn merge<U, V, F>(
         self,
         minimum_version: i32,
@@ -369,7 +362,7 @@ mod tests {
     use super::*;
     use std::fs::File;
 
-    fn ruleset_root_compat() -> Result<(), Error> {
+    fn ruleset_root_compat() -> Result<RestrictionStatus, Error> {
         let compat = Compatibility::new()?;
         RulesetInit::new(&compat)?
             .handle_fs(ABI::V1)?
@@ -377,10 +370,9 @@ mod tests {
             .set_no_new_privs(true)?
             .add_rule(PathBeneath::new(&compat, &File::open("/")?)?.allow_access(ABI::V1)?)?
             .restrict_self()
-            .into_result()
     }
 
-    fn ruleset_root_fragile() -> Result<(), Error> {
+    fn ruleset_root_fragile() -> Result<RestrictionStatus, Error> {
         let mut compat = Compatibility::new()?;
         // Sets default error threshold: abort the whole sandboxing for any runtime error.
         compat.set_error_threshold(ErrorThreshold::Runtime);
@@ -397,16 +389,21 @@ mod tests {
             .set_error_threshold(ErrorThreshold::Runtime)
             .add_rule(PathBeneath::new(&compat, &File::open("/")?)?.allow_access(ABI::V1)?)?
             .restrict_self()
-            .into_result()
     }
 
     #[test]
     fn allow_root_compat() {
-        ruleset_root_compat().unwrap()
+        assert_eq!(
+            ruleset_root_compat().unwrap(),
+            RestrictionStatus::FullyRestricted
+        );
     }
 
     #[test]
     fn allow_root_fragile() {
-        ruleset_root_fragile().unwrap()
+        assert_eq!(
+            ruleset_root_fragile().unwrap(),
+            RestrictionStatus::FullyRestricted
+        );
     }
 }

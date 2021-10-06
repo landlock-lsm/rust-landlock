@@ -138,7 +138,6 @@ fn main() -> Result<(), anyhow::Error> {
     )?
     .set_no_new_privs(true)?
     .restrict_self()
-    .into_result()
     .expect("Failed to enforce ruleset");
 
     Err(Command::new(cmd_name.to_string())
