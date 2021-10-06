@@ -3,6 +3,7 @@ extern crate enumflags2;
 pub use enumflags2::{make_bitflags, BitFlags};
 pub use fs::{AccessFs, PathBeneath};
 pub use ruleset::{RestrictionStatus, Rule, RulesetCreated, RulesetInit};
+use std::convert::{TryFrom, TryInto};
 use std::io::{Error, ErrorKind};
 use std::mem::replace;
 
@@ -11,8 +12,71 @@ mod ruleset;
 mod uapi;
 
 /// Version of the Landlock [ABI](https://en.wikipedia.org/wiki/Application_binary_interface).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ABI {
     V1 = 1,
+}
+
+impl ABI {
+    fn new_current() -> Result<Self, Error> {
+        unsafe {
+            // Landlock ABI version starts at 1 but errno is only set for negative values.
+            uapi::landlock_create_ruleset(
+                std::ptr::null(),
+                0,
+                uapi::LANDLOCK_CREATE_RULESET_VERSION,
+            )
+        }
+        .try_into()
+    }
+
+    fn is_compatible<T>(&self, minimum_version: T) -> bool
+    where
+        T: TryInto<Self>,
+    {
+        match minimum_version.try_into() {
+            Ok(min) => self >= &min,
+            Err(_) => false,
+        }
+    }
+}
+
+#[test]
+fn abi_is_compatible() {
+    assert!(!ABI::V1.is_compatible(-1));
+    assert!(!ABI::V1.is_compatible(0));
+
+    assert!(ABI::V1.is_compatible(1));
+    assert!(ABI::V1.is_compatible(2));
+}
+
+impl TryFrom<i32> for ABI {
+    type Error = Error;
+
+    fn try_from(value: i32) -> Result<ABI, Error> {
+        match value {
+            // A value of 0 should not come from the kernel, but if it is the case we get an
+            // Other error (or an Uncategorized error in a newer Rust std).
+            n if n <= 0 => Err(Error::from_raw_os_error(n * -1)),
+            1 => Ok(ABI::V1),
+            // Returns the greatest known ABI.
+            _ => Ok(ABI::V1),
+        }
+    }
+}
+
+#[test]
+fn abi_try_from() {
+    assert_eq!(ABI::try_from(-38).unwrap_err().kind(), ErrorKind::Other);
+    assert_eq!(
+        ABI::try_from(-1).unwrap_err().kind(),
+        ErrorKind::PermissionDenied
+    );
+    assert_eq!(ABI::try_from(0).unwrap_err().kind(), ErrorKind::Other);
+
+    assert_eq!(ABI::try_from(1).unwrap(), ABI::V1);
+    assert_eq!(ABI::try_from(2).unwrap(), ABI::V1);
+    assert_eq!(ABI::try_from(9).unwrap(), ABI::V1);
 }
 
 /// Properly handles runtime unsupported features.  This enables to guarantee consistent behaviors
@@ -203,27 +267,17 @@ impl<T> Compat<T> {
 
 #[derive(Copy, Clone)]
 pub struct Compatibility {
-    abi_version: i32,
+    abi: ABI,
     /// Saves the error threshold for the build chain.
     threshold: ErrorThreshold,
 }
 
 impl Compatibility {
     pub fn new() -> Result<Compatibility, Error> {
-        match unsafe {
-            uapi::landlock_create_ruleset(
-                std::ptr::null(),
-                0,
-                uapi::LANDLOCK_CREATE_RULESET_VERSION,
-            )
-        } {
-            // Landlock ABI version starts at 1 but errno is only set for negative values.
-            ret if ret >= 0 => Ok(Compatibility {
-                abi_version: ret,
-                threshold: ErrorThreshold::NoError,
-            }),
-            _ => Err(Error::last_os_error()),
-        }
+        Ok(Compatibility {
+            abi: ABI::new_current()?,
+            threshold: ErrorThreshold::NoError,
+        })
     }
 
     pub fn set_error_threshold(&mut self, threshold: ErrorThreshold) {
@@ -231,7 +285,7 @@ impl Compatibility {
     }
 
     fn is_compatible(&self, minimum_version: i32) -> bool {
-        self.abi_version >= minimum_version
+        self.abi.is_compatible(minimum_version)
     }
 
     // @new_data returns a default fully supported version of an object.
