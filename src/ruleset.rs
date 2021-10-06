@@ -61,8 +61,11 @@ impl RulesetInit {
 }
 
 impl Compat<RulesetInit> {
-    pub fn handle_fs(self, access: BitFlags<AccessFs>) -> Result<Self, Error> {
-        let compat_access = access.try_compat(&self.0.compat)?;
+    pub fn handle_fs<T>(self, access: T) -> Result<Self, Error>
+    where
+        T: Into<BitFlags<AccessFs>>,
+    {
+        let compat_access = access.into().try_compat(&self.0.compat)?;
         self.update(1, |mut data| {
             data.handled_fs = compat_access;
             Ok(data)

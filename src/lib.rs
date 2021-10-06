@@ -372,10 +372,10 @@ mod tests {
     fn ruleset_root_compat() -> Result<(), Error> {
         let compat = Compatibility::new()?;
         RulesetInit::new(&compat)?
-            .handle_fs(ABI::V1.into())?
+            .handle_fs(ABI::V1)?
             .create()?
             .set_no_new_privs(true)?
-            .add_rule(PathBeneath::new(&compat, &File::open("/")?)?.allow_access(ABI::V1.into())?)?
+            .add_rule(PathBeneath::new(&compat, &File::open("/")?)?.allow_access(ABI::V1)?)?
             .restrict_self()
             .into_result()
     }
@@ -387,15 +387,15 @@ mod tests {
         RulesetInit::new(&compat)?
             // Must have at least the execute check…
             .set_error_threshold(ErrorThreshold::PartiallyCompatible)
-            .handle_fs(AccessFs::Execute.into())?
+            .handle_fs(AccessFs::Execute)?
             .set_error_threshold(ErrorThreshold::NoError)
             // …and possibly others.
-            .handle_fs(ABI::V1.into())?
+            .handle_fs(ABI::V1)?
             .create()?
             .set_no_new_privs(true)?
             // Useful to catch wrong PathBeneath's FD type.
             .set_error_threshold(ErrorThreshold::Runtime)
-            .add_rule(PathBeneath::new(&compat, &File::open("/")?)?.allow_access(ABI::V1.into())?)?
+            .add_rule(PathBeneath::new(&compat, &File::open("/")?)?.allow_access(ABI::V1)?)?
             .restrict_self()
             .into_result()
     }

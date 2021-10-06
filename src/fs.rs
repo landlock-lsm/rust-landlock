@@ -88,8 +88,11 @@ impl Rule for PathBeneath<'_> {
 
 impl Compat<PathBeneath<'_>> {
     // TODO: Replace with `append_allowed_accesses()`?
-    pub fn allow_access(self, access: BitFlags<AccessFs>) -> Result<Self, Error> {
-        let compat_access = access.try_compat(&self.0.compat)?;
+    pub fn allow_access<T>(self, access: T) -> Result<Self, Error>
+    where
+        T: Into<BitFlags<AccessFs>>,
+    {
+        let compat_access = access.into().try_compat(&self.0.compat)?;
         self.update(1, |mut data| {
             data.attr.allowed_access = compat_access.bits();
             Ok(data)

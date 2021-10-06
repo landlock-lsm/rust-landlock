@@ -127,7 +127,7 @@ fn main() -> Result<(), anyhow::Error> {
     let compat = Compatibility::new()?;
     let ruleset = RulesetInit::new(&compat)?
         .set_error_threshold(ErrorThreshold::PartiallyCompatible)
-        .handle_fs(ABI::V1.into())?
+        .handle_fs(ABI::V1)?
         .create()?;
     let ruleset = populate_ruleset(&compat, ruleset, fs_ro, ACCESS_FS_ROUGHLY_READ)?;
     populate_ruleset(
