@@ -1,4 +1,4 @@
-use super::{uapi, Compatibility, Rule, TryCompat, ABI};
+use super::{private, uapi, Compatibility, Rule, ABI};
 use enumflags2::{bitflags, make_bitflags, BitFlags};
 use std::io::Error;
 use std::marker::PhantomData;
@@ -86,14 +86,18 @@ impl PathBeneath<'_> {
     }
 }
 
-impl TryCompat for PathBeneath<'_> {
+impl private::TryCompat for PathBeneath<'_> {
     fn try_compat(mut self, compat: &mut Compatibility) -> Result<Self, Error> {
         self.attr.allowed_access = self.allowed_access.try_compat(compat)?.bits();
         Ok(self)
     }
 }
 
-impl Rule for PathBeneath<'_> {
+// It is useful for documentation generation to explicitely implement Rule for every types, instead
+// of doing it generically.
+impl Rule for PathBeneath<'_> {}
+
+impl private::Rule for PathBeneath<'_> {
     fn as_ptr(&self) -> *const libc::c_void {
         &self.attr as *const _ as _
     }

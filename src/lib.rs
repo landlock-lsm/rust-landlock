@@ -1,8 +1,10 @@
 extern crate enumflags2;
 
-pub use enumflags2::{make_bitflags, BitFlag, BitFlags};
+use enumflags2::BitFlag;
+pub use enumflags2::{make_bitflags, BitFlags};
 pub use fs::{AccessFs, PathBeneath};
-pub use ruleset::{RestrictionStatus, Rule, RulesetCreated, RulesetInit};
+use private::TryCompat;
+pub use ruleset::{RestrictionStatus, RulesetCreated, RulesetInit};
 use std::convert::{TryFrom, TryInto};
 use std::io::{Error, ErrorKind};
 
@@ -193,10 +195,21 @@ impl Compatibility {
     }
 }
 
-pub trait TryCompat {
-    fn try_compat(self, compat: &mut Compatibility) -> Result<Self, Error>
-    where
-        Self: Sized;
+// Public interface without methods and which is impossible to implement outside this crate.
+pub trait Rule: private::Rule {}
+
+pub(crate) mod private {
+    pub trait Rule: TryCompat {
+        fn as_ptr(&self) -> *const libc::c_void;
+        fn get_type_id(&self) -> crate::uapi::landlock_rule_type;
+        fn get_flags(&self) -> u32;
+    }
+
+    pub trait TryCompat {
+        fn try_compat(self, compat: &mut crate::Compatibility) -> Result<Self, crate::Error>
+        where
+            Self: Sized;
+    }
 }
 
 impl<T> TryCompat for BitFlags<T>

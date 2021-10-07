@@ -1,16 +1,10 @@
+use super::private::TryCompat;
 use super::uapi;
-use super::{AccessFs, BitFlags, CompatState, Compatibility, TryCompat, ABI};
+use super::{AccessFs, BitFlags, CompatState, Compatibility, Rule, ABI};
 use libc::close;
 use std::io::Error;
 use std::mem::size_of_val;
 use std::os::unix::io::RawFd;
-
-// FIXME: remove most from the public interface and inherit TryCompat
-pub trait Rule: TryCompat {
-    fn as_ptr(&self) -> *const libc::c_void;
-    fn get_type_id(&self) -> uapi::landlock_rule_type;
-    fn get_flags(&self) -> u32;
-}
 
 /// Returned by ruleset builder.
 #[derive(Debug, PartialEq)]
