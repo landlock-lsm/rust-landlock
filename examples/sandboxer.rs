@@ -1,7 +1,6 @@
 use anyhow::{anyhow, bail};
 use landlock::{
-    make_bitflags, AccessFs, BitFlags, Compat, Compatibility, ErrorThreshold, PathBeneath,
-    RulesetCreated, RulesetInit, ABI,
+    make_bitflags, AccessFs, BitFlags, Compatibility, PathBeneath, RulesetCreated, RulesetInit, ABI,
 };
 use nix::fcntl::{open, OFlag};
 use nix::sys::stat::{fstat, Mode, SFlag};
@@ -39,11 +38,10 @@ const ACCESS_FILE: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
 /// * `access` - The set of restrictions to apply to each of the given paths.
 ///
 fn populate_ruleset(
-    compat: &Compatibility,
-    ruleset: Compat<RulesetCreated>,
+    ruleset: RulesetCreated,
     paths: OsString,
     access: BitFlags<AccessFs>,
-) -> Result<Compat<RulesetCreated>, anyhow::Error> {
+) -> Result<RulesetCreated, anyhow::Error> {
     if paths.len() == 0 {
         return Ok(ruleset);
     }
@@ -67,10 +65,7 @@ fn populate_ruleset(
                             };
 
                         Ok(inner_ruleset
-                            .set_error_threshold(ErrorThreshold::PartiallyCompatible)
-                            .add_rule(
-                                PathBeneath::new(&compat, &parent)?.allow_access(actual_access)?,
-                            )
+                            .add_rule(PathBeneath::new(&parent).allow_access(actual_access))
                             .map_err(|e| {
                                 anyhow!(
                                     "Failed to update ruleset with \"{}\": {}",
@@ -124,19 +119,15 @@ fn main() -> Result<(), anyhow::Error> {
 
     let cmd_name = args.get(1).map(|s| s.to_string_lossy()).unwrap();
 
-    let compat = Compatibility::new()?;
-    let ruleset = RulesetInit::new(&compat)?
-        .set_error_threshold(ErrorThreshold::PartiallyCompatible)
+    let ruleset = RulesetInit::new(Compatibility::new()?)
         .handle_fs(ABI::V1)?
         .create()?;
-    let ruleset = populate_ruleset(&compat, ruleset, fs_ro, ACCESS_FS_ROUGHLY_READ)?;
+    let ruleset = populate_ruleset(ruleset, fs_ro, ACCESS_FS_ROUGHLY_READ)?;
     populate_ruleset(
-        &compat,
         ruleset,
         fs_rw,
         ACCESS_FS_ROUGHLY_READ | ACCESS_FS_ROUGHLY_WRITE,
     )?
-    .set_no_new_privs(true)?
     .restrict_self()
     .expect("Failed to enforce ruleset");
 

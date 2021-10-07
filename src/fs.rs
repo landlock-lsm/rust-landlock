@@ -1,4 +1,4 @@
-use super::{uapi, Compat, Compatibility, Rule, TryCompat, ABI};
+use super::{uapi, Compatibility, Rule, TryCompat, ABI};
 use enumflags2::{bitflags, make_bitflags, BitFlags};
 use std::io::Error;
 use std::marker::PhantomData;
@@ -28,6 +28,11 @@ pub enum AccessFs {
 impl From<ABI> for BitFlags<AccessFs> {
     fn from(abi: ABI) -> Self {
         match abi {
+            // An empty access-right would be an error if passed to the kernel, but because the
+            // kernel doesn't support Landlock, no Landlock syscall should be called.
+            // try_compat() should also return RestrictionStatus::Unrestricted when called with
+            // unsupported/empty access-righs.
+            ABI::Unsupported => BitFlags::<AccessFs>::empty(),
             ABI::V1 => make_bitflags!(AccessFs::{
                 Execute
                 | WriteFile
@@ -51,24 +56,40 @@ pub struct PathBeneath<'a> {
     attr: uapi::landlock_path_beneath_attr,
     // Ties the lifetime of a PathBeneath instance to the litetime of its wrapped attr.parent_fd .
     _parent_fd: PhantomData<&'a u32>,
+    allowed_access: BitFlags<AccessFs>,
 }
 
 impl PathBeneath<'_> {
-    pub fn new<'a, T>(compat: &Compatibility, parent: &'a T) -> Result<Compat<Self>, Error>
+    pub fn new<'a, T>(parent: &'a T) -> Self
     where
         T: AsRawFd,
     {
-        compat.create(1, || {
-            // By default, allows all v1 accesses on this path exception.
-            let allowed: BitFlags<AccessFs> = ABI::V1.into();
-            PathBeneath {
-                attr: uapi::landlock_path_beneath_attr {
-                    allowed_access: allowed.bits(),
-                    parent_fd: parent.as_raw_fd(),
-                },
-                _parent_fd: PhantomData,
-            }
-        })
+        // By default, allows all v1 accesses on this path exception.
+        PathBeneath {
+            attr: uapi::landlock_path_beneath_attr {
+                // Invalid access-rights until try_compat() is called.
+                allowed_access: 0,
+                parent_fd: parent.as_raw_fd(),
+            },
+            _parent_fd: PhantomData,
+            allowed_access: ABI::V1.into(),
+        }
+    }
+
+    // TODO: Replace with `append_allowed_accesses()`?
+    pub fn allow_access<T>(mut self, access: T) -> Self
+    where
+        T: Into<BitFlags<AccessFs>>,
+    {
+        self.allowed_access = access.into();
+        self
+    }
+}
+
+impl TryCompat for PathBeneath<'_> {
+    fn try_compat(mut self, compat: &mut Compatibility) -> Result<Self, Error> {
+        self.attr.allowed_access = self.allowed_access.try_compat(compat)?.bits();
+        Ok(self)
     }
 }
 
@@ -83,19 +104,5 @@ impl Rule for PathBeneath<'_> {
 
     fn get_flags(&self) -> u32 {
         0
-    }
-}
-
-impl Compat<PathBeneath<'_>> {
-    // TODO: Replace with `append_allowed_accesses()`?
-    pub fn allow_access<T>(self, access: T) -> Result<Self, Error>
-    where
-        T: Into<BitFlags<AccessFs>>,
-    {
-        let compat_access = access.into().try_compat(&self.0.compat)?;
-        self.update(1, |mut data| {
-            data.attr.allowed_access = compat_access.bits();
-            Ok(data)
-        })
     }
 }

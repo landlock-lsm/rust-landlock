@@ -5,7 +5,6 @@ pub use fs::{AccessFs, PathBeneath};
 pub use ruleset::{RestrictionStatus, Rule, RulesetCreated, RulesetInit};
 use std::convert::{TryFrom, TryInto};
 use std::io::{Error, ErrorKind};
-use std::mem::replace;
 
 mod fs;
 mod ruleset;
@@ -14,6 +13,7 @@ mod uapi;
 /// Version of the Landlock [ABI](https://en.wikipedia.org/wiki/Application_binary_interface).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ABI {
+    Unsupported = 0,
     V1 = 1,
 }
 
@@ -29,32 +29,18 @@ impl ABI {
         }
         .try_into()
     }
-
-    fn is_compatible<T>(&self, minimum_version: T) -> bool
-    where
-        T: TryInto<Self>,
-    {
-        match minimum_version.try_into() {
-            Ok(min) => self >= &min,
-            Err(_) => false,
-        }
-    }
-}
-
-#[test]
-fn abi_is_compatible() {
-    assert!(!ABI::V1.is_compatible(-1));
-    assert!(!ABI::V1.is_compatible(0));
-
-    assert!(ABI::V1.is_compatible(1));
-    assert!(ABI::V1.is_compatible(2));
 }
 
 impl TryFrom<i32> for ABI {
     type Error = Error;
 
     fn try_from(value: i32) -> Result<ABI, Error> {
+        const EOPNOTSUPP: i32 = -libc::EOPNOTSUPP;
+        const ENOSYS: i32 = -libc::ENOSYS;
+
         match value {
+            EOPNOTSUPP => Ok(ABI::Unsupported),
+            ENOSYS => Ok(ABI::Unsupported),
             // A value of 0 should not come from the kernel, but if it is the case we get an
             // Other error (or an Uncategorized error in a newer Rust std).
             n if n <= 0 => Err(Error::from_raw_os_error(n * -1)),
@@ -67,18 +53,109 @@ impl TryFrom<i32> for ABI {
 
 #[test]
 fn abi_try_from() {
-    assert_eq!(ABI::try_from(-38).unwrap_err().kind(), ErrorKind::Other);
     assert_eq!(
         ABI::try_from(-1).unwrap_err().kind(),
         ErrorKind::PermissionDenied
     );
     assert_eq!(ABI::try_from(0).unwrap_err().kind(), ErrorKind::Other);
 
+    // EOPNOTSUPP
+    assert_eq!(ABI::try_from(-95).unwrap(), ABI::Unsupported);
+    // ENOSYS
+    assert_eq!(ABI::try_from(-38).unwrap(), ABI::Unsupported);
+
     assert_eq!(ABI::try_from(1).unwrap(), ABI::V1);
     assert_eq!(ABI::try_from(2).unwrap(), ABI::V1);
     assert_eq!(ABI::try_from(9).unwrap(), ABI::V1);
 }
 
+/// Returned by ruleset builder.
+#[derive(Copy, Clone, Debug, PartialEq)]
+enum CompatState {
+    /// Initial unknown state.
+    Start,
+    /// All requested restrictions are enforced.
+    Full,
+    /// Some requested restrictions are enforced, following a best-effort approach.
+    Partial,
+    /// The running system doesn't support Landlock.
+    No,
+    /// Final unsupported state.
+    Final,
+}
+
+impl CompatState {
+    fn update(&mut self, other: Self) {
+        *self = match (*self, other) {
+            (CompatState::Final, _) => CompatState::Final,
+            (_, CompatState::Final) => CompatState::Final,
+            (CompatState::Start, state) => state,
+            (state, CompatState::Start) => state,
+            (CompatState::No, CompatState::No) => CompatState::No,
+            (CompatState::Full, CompatState::Full) => CompatState::Full,
+            (_, _) => CompatState::Partial,
+        }
+    }
+}
+
+#[test]
+fn compat_state_update_1() {
+    let mut state = CompatState::Start;
+
+    state.update(CompatState::Start);
+    assert_eq!(state, CompatState::Start);
+
+    state.update(CompatState::No);
+    assert_eq!(state, CompatState::No);
+
+    state.update(CompatState::Start);
+    assert_eq!(state, CompatState::No);
+
+    state.update(CompatState::Full);
+    assert_eq!(state, CompatState::Partial);
+
+    state.update(CompatState::Start);
+    assert_eq!(state, CompatState::Partial);
+
+    state.update(CompatState::No);
+    assert_eq!(state, CompatState::Partial);
+
+    state.update(CompatState::Final);
+    assert_eq!(state, CompatState::Final);
+
+    state.update(CompatState::Full);
+    assert_eq!(state, CompatState::Final);
+
+    state.update(CompatState::Start);
+    assert_eq!(state, CompatState::Final);
+}
+
+#[test]
+fn compat_state_update_2() {
+    let mut state = CompatState::Full;
+
+    state.update(CompatState::Full);
+    assert_eq!(state, CompatState::Full);
+
+    state.update(CompatState::No);
+    assert_eq!(state, CompatState::Partial);
+
+    state.update(CompatState::Start);
+    assert_eq!(state, CompatState::Partial);
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum SupportLevel {
+    /// Best-effort security approach, should be selected by default.
+    Optional,
+    /// Strict security requirement (e.g., to return an error if not all requested security
+    /// features are supported).
+    Required,
+}
+
+// FIXME: remove Copy, it is too easy to misuse a builder pattern:
+// compat.set_support_level(SupportLevel::Required);
+// then use (unmodified) compat somehow…
 /// Properly handles runtime unsupported features.  This enables to guarantee consistent behaviors
 /// across crate users and runtime kernels even if this crate get new features.  It eases backward
 /// compatibility and enables future-proofness.
@@ -88,228 +165,36 @@ fn abi_try_from() {
 /// system should then be handled in a best-effort way, contrary to common system features.  In
 /// some circumstances (e.g. applications carefully designed to only be run with a specific kernel
 /// version), it may be required to check if some of there features are enforced, which is possible
-/// with the `Compat<T>::into_result()` helper.
-pub struct Compat<T>(CompatObject<T>);
-
-struct CompatObject<T> {
-    /// Saves the last call status for `Compat<T>::into_result()`.
-    last: LastCall,
-    /// Saves the last encountered error for `RestrictionStatus`.
-    // TODO: save the first error instead?
-    prev_error: Option<Error>,
-    compat: Compatibility,
-    /// It is `None` if the build chain is incompatible with the running system.
-    build: Option<CompatBuild<T>>,
-}
-
-impl<T> From<Compat<T>> for Option<CompatBuild<T>> {
-    fn from(compat: Compat<T>) -> Self {
-        compat.0.build
-    }
-}
-
-/// Last attempted call, which may not be the last from the build chain.
-enum LastCall {
-    /// Did handle the build method and all arguments.
-    FullSuccess,
-    /// Did handle the build method but not all arguments (which had been made compatible for the
-    /// call, e.g. removing some handled accesses).
-    PartialSuccess,
-    /// Didn't handle the build method or don't handle any argument.
-    Unsupported,
-    /// The build is None.
-    Fake,
-    /// Did handle the build method and a subset of arguments, but the call returned an error (e.g.
-    /// invalid FD or not enough permissions).
-    // This API should guarantee that no EINVAL is returned.
-    RuntimeError(Error),
-}
-
-struct CompatBuild<T> {
-    status: CompatStatus,
-    data: T,
-}
-
-#[derive(Copy, Clone)]
-enum CompatStatus {
-    Full,
-    Partial,
-}
-
-#[derive(Copy, Clone)]
-pub enum ErrorThreshold {
-    /// Handles the return value in a compatible way: method calls will always return `Ok(Self)`.
-    /// This is the encouraged way to use this API.  The last runtime error in the build chain can
-    /// be catched thanks to the return RestrictionStatus.
-    NoError,
-    /// Only considers a runtime error as an error.
-    // Maps to LastCall::RuntimeError.
-    Runtime,
-    /// Considers a runtime error or a full incompatibility as an error.
-    // Maps to LastCall::Unsupported.
-    Incompatible,
-    /// Considers a runtime error or a partial compatibility as an error.
-    // Maps to LastCall::PartialSuccess.
-    PartiallyCompatible,
-}
-
-impl From<CompatStatus> for LastCall {
-    fn from(status: CompatStatus) -> Self {
-        match status {
-            CompatStatus::Full => LastCall::FullSuccess,
-            CompatStatus::Partial => LastCall::PartialSuccess,
-        }
-    }
-}
-
-impl<T> Compat<T> {
-    fn set_last_call_status(mut self, status: LastCall) -> Result<Self, Error> {
-        // Only downgrades build compatibility.
-        match status {
-            LastCall::FullSuccess => {}
-            _ => {
-                if let Some(ref mut build) = self.0.build {
-                    build.status = CompatStatus::Partial;
-                }
-            }
-        }
-        // Saves the previous error, if any.
-        if let LastCall::RuntimeError(e) = replace(&mut self.0.last, status) {
-            self.0.prev_error = Some(e);
-        }
-        self.into_result()
-    }
-
-    fn merge<U, V, F>(
-        self,
-        minimum_version: i32,
-        other: Option<CompatBuild<V>>,
-        new_data: F,
-    ) -> Result<Compat<U>, Error>
-    where
-        F: FnOnce(T, V) -> Result<U, Error>,
-    {
-        let (status, build) = match (self.0.build, other) {
-            (None, _) => (LastCall::Fake, None),
-            (_, None) => (LastCall::Unsupported, None),
-            (Some(self_build), Some(other_build)) => {
-                if self.0.compat.is_compatible(minimum_version) {
-                    match new_data(self_build.data, other_build.data) {
-                        Ok(data) => (
-                            other_build.status.into(),
-                            Some(CompatBuild {
-                                // Will be updated by the following call to set_last_call_status().
-                                status: self_build.status,
-                                data: data,
-                            }),
-                        ),
-                        Err(e) => (LastCall::RuntimeError(e), None),
-                    }
-                } else {
-                    (LastCall::Unsupported, None)
-                }
-            }
-        };
-        Compat(CompatObject {
-            last: self.0.last,
-            prev_error: self.0.prev_error,
-            // TODO: Merge thresholds?
-            compat: self.0.compat,
-            build: build,
-        })
-        .set_last_call_status(status)
-    }
-
-    fn update<U, F>(self, minimum_version: i32, new_data: F) -> Result<Compat<U>, Error>
-    where
-        F: FnOnce(T) -> Result<U, Error>,
-    {
-        let other = Some(CompatBuild {
-            status: CompatStatus::Full,
-            data: 0,
-        });
-        // Artificial merge to factor out the update code.
-        self.merge(minimum_version, other, |self_data, _| new_data(self_data))
-    }
-
-    fn into_result(self) -> Result<Self, Error> {
-        match self.0.last {
-            LastCall::FullSuccess => Ok(self),
-            LastCall::PartialSuccess => match self.0.compat.threshold {
-                ErrorThreshold::PartiallyCompatible => {
-                    Err(Error::new(ErrorKind::InvalidData, "Partial compatibility"))
-                }
-                _ => Ok(self),
-            },
-            LastCall::Unsupported | LastCall::Fake => match self.0.compat.threshold {
-                ErrorThreshold::PartiallyCompatible | ErrorThreshold::Incompatible => {
-                    Err(Error::new(ErrorKind::InvalidData, "Incompatibility"))
-                }
-                _ => Ok(self),
-            },
-            // Matches ErrorThreshold::Runtime and all others.
-            LastCall::RuntimeError(e) => Err(e),
-        }
-    }
-
-    pub fn set_error_threshold(mut self, threshold: ErrorThreshold) -> Self {
-        self.0.compat.threshold = threshold;
-        self
-    }
-}
-
-#[derive(Copy, Clone)]
+/// with XXX
+#[derive(Copy, Clone, Debug)]
 pub struct Compatibility {
     abi: ABI,
-    /// Saves the error threshold for the build chain.
-    threshold: ErrorThreshold,
+    level: SupportLevel,
+    state: CompatState,
 }
 
 impl Compatibility {
     pub fn new() -> Result<Compatibility, Error> {
+        let abi = ABI::new_current()?;
         Ok(Compatibility {
-            abi: ABI::new_current()?,
-            threshold: ErrorThreshold::NoError,
-        })
-    }
-
-    pub fn set_error_threshold(&mut self, threshold: ErrorThreshold) {
-        self.threshold = threshold;
-    }
-
-    fn is_compatible(&self, minimum_version: i32) -> bool {
-        self.abi.is_compatible(minimum_version)
-    }
-
-    // @new_data returns a default fully supported version of an object.
-    fn create<T, F>(&self, minimum_version: i32, new_data: F) -> Result<Compat<T>, Error>
-    where
-        F: FnOnce() -> T,
-    {
-        let is_compatible = self.is_compatible(minimum_version);
-        Compat(CompatObject {
-            last: LastCall::FullSuccess,
-            prev_error: None,
-            compat: *self,
-            build: if is_compatible {
-                Some(CompatBuild {
-                    status: CompatStatus::Full,
-                    data: new_data(),
-                })
-            } else {
-                None
+            abi: abi,
+            level: SupportLevel::Optional,
+            state: match abi {
+                // Forces the state as unsupported because all possible types will be useless.
+                ABI::Unsupported => CompatState::Final,
+                _ => CompatState::Start,
             },
         })
-        .set_last_call_status(if is_compatible {
-            LastCall::FullSuccess
-        } else {
-            LastCall::Unsupported
-        })
+    }
+
+    pub fn set_support_level(mut self, level: SupportLevel) -> Self {
+        self.level = level;
+        self
     }
 }
 
-trait TryCompat {
-    fn try_compat(self, compat: &Compatibility) -> Result<Self, Error>
+pub trait TryCompat {
+    fn try_compat(self, compat: &mut Compatibility) -> Result<Self, Error>
     where
         Self: Sized;
 }
@@ -319,42 +204,99 @@ where
     T: BitFlag,
     BitFlags<T>: From<ABI>,
 {
-    fn try_compat(self, compat: &Compatibility) -> Result<Self, Error> {
-        if self.is_empty() {
-            return Ok(self);
-        }
-        let compat_bits = self & Self::from(compat.abi);
-        match compat.threshold {
-            ErrorThreshold::NoError | ErrorThreshold::Runtime => Ok(compat_bits),
-            ErrorThreshold::Incompatible => {
-                if compat_bits.is_empty() {
-                    Err(Error::new(ErrorKind::InvalidData, "Incompatible"))
-                } else {
-                    Ok(compat_bits)
-                }
+    fn try_compat(self, compat: &mut Compatibility) -> Result<Self, Error> {
+        let access_mask = match compat.level {
+            SupportLevel::Optional => Self::all(),
+            SupportLevel::Required => Self::from(compat.abi),
+        };
+        let (state, ret) = if self.is_empty() {
+            // Empty access-rights would result to a runtime error.
+            (
+                CompatState::Final,
+                Err(Error::from_raw_os_error(libc::ENOMSG)),
+            )
+        } else if !access_mask.contains(self) {
+            // Unknown access-rights would result to a runtime error.
+            (
+                CompatState::Final,
+                Err(Error::from_raw_os_error(libc::ENOMSG)),
+            )
+        } else {
+            let compat_bits = self & Self::from(compat.abi);
+            if compat_bits.is_empty() {
+                (
+                    CompatState::No,
+                    match compat.level {
+                        SupportLevel::Optional => Ok(compat_bits),
+                        SupportLevel::Required => {
+                            Err(Error::new(ErrorKind::InvalidData, "Incompatibility"))
+                        }
+                    },
+                )
+            } else if compat_bits != self {
+                (
+                    CompatState::Partial,
+                    match compat.level {
+                        SupportLevel::Optional => Ok(compat_bits),
+                        SupportLevel::Required => {
+                            Err(Error::new(ErrorKind::InvalidData, "Partial compatibility"))
+                        }
+                    },
+                )
+            } else {
+                (CompatState::Full, Ok(compat_bits))
             }
-            ErrorThreshold::PartiallyCompatible => {
-                if self != compat_bits {
-                    Err(Error::new(ErrorKind::InvalidData, "Incompatible"))
-                } else {
-                    Ok(compat_bits)
-                }
-            }
-        }
+        };
+        compat.state.update(state);
+        ret
     }
 }
 
 #[test]
 fn compat_bit_flags() {
-    let compat = Compatibility {
+    let mut compat = Compatibility {
         abi: ABI::V1,
-        threshold: ErrorThreshold::NoError,
+        level: SupportLevel::Optional,
+        state: CompatState::Start,
     };
-    let access_ro = make_bitflags!(AccessFs::{Execute | ReadFile | ReadDir});
-    assert_eq!(access_ro, access_ro.try_compat(&compat).unwrap());
 
-    let access_empty = BitFlags::<AccessFs>::empty();
-    assert_eq!(access_empty, access_empty.try_compat(&compat).unwrap());
+    let ro_access = make_bitflags!(AccessFs::{Execute | ReadFile | ReadDir});
+    assert_eq!(ro_access, ro_access.try_compat(&mut compat).unwrap());
+
+    let empty_access = BitFlags::<AccessFs>::empty();
+    assert_eq!(
+        ErrorKind::Other,
+        empty_access.try_compat(&mut compat).unwrap_err().kind()
+    );
+
+    let all_unknown_access = unsafe { BitFlags::<AccessFs>::from_bits_unchecked(1 << 63) };
+    assert_eq!(
+        ErrorKind::Other,
+        all_unknown_access
+            .try_compat(&mut compat)
+            .unwrap_err()
+            .kind()
+    );
+
+    let some_unknown_access = unsafe { BitFlags::<AccessFs>::from_bits_unchecked(1 << 63 | 1) };
+    assert_eq!(
+        ErrorKind::Other,
+        some_unknown_access
+            .try_compat(&mut compat)
+            .unwrap_err()
+            .kind()
+    );
+
+    // Access-rights are valid (but ignored) when they are not required for the current ABI.
+    compat.abi = ABI::Unsupported;
+    assert_eq!(empty_access, ro_access.try_compat(&mut compat).unwrap());
+
+    // Access-rights are not valid when they are required for the current ABI.
+    compat.level = SupportLevel::Required;
+    assert_eq!(
+        ErrorKind::Other,
+        ro_access.try_compat(&mut compat).unwrap_err().kind()
+    );
 }
 
 #[cfg(test)]
@@ -364,30 +306,22 @@ mod tests {
 
     fn ruleset_root_compat() -> Result<RestrictionStatus, Error> {
         let compat = Compatibility::new()?;
-        RulesetInit::new(&compat)?
+        RulesetInit::new(compat)
             .handle_fs(ABI::V1)?
             .create()?
-            .set_no_new_privs(true)?
-            .add_rule(PathBeneath::new(&compat, &File::open("/")?)?.allow_access(ABI::V1)?)?
+            .add_rule(PathBeneath::new(&File::open("/")?).allow_access(ABI::V1))?
             .restrict_self()
     }
 
     fn ruleset_root_fragile() -> Result<RestrictionStatus, Error> {
-        let mut compat = Compatibility::new()?;
-        // Sets default error threshold: abort the whole sandboxing for any runtime error.
-        compat.set_error_threshold(ErrorThreshold::Runtime);
-        RulesetInit::new(&compat)?
-            // Must have at least the execute check…
-            .set_error_threshold(ErrorThreshold::PartiallyCompatible)
+        // Sets default support level: abort the whole sandboxing for any Landlock error.
+        let compat = Compatibility::new()?.set_support_level(SupportLevel::Required);
+        RulesetInit::new(compat)
             .handle_fs(AccessFs::Execute)?
-            .set_error_threshold(ErrorThreshold::NoError)
-            // …and possibly others.
             .handle_fs(ABI::V1)?
             .create()?
-            .set_no_new_privs(true)?
-            // Useful to catch wrong PathBeneath's FD type.
-            .set_error_threshold(ErrorThreshold::Runtime)
-            .add_rule(PathBeneath::new(&compat, &File::open("/")?)?.allow_access(ABI::V1)?)?
+            .set_no_new_privs(true)
+            .add_rule(PathBeneath::new(&File::open("/")?).allow_access(ABI::V1))?
             .restrict_self()
     }
 
