@@ -1,10 +1,20 @@
-use super::private::TryCompat;
-use super::uapi;
-use super::{AccessFs, BitFlags, CompatState, Compatibility, Rule, ABI};
+use crate::{uapi, AccessFs, BitFlags, CompatState, Compatibility, TryCompat, ABI};
 use libc::close;
 use std::io::Error;
 use std::mem::size_of_val;
 use std::os::unix::io::RawFd;
+
+#[cfg(test)]
+use crate::SupportLevel;
+
+// Public interface without methods and which is impossible to implement outside this crate.
+pub trait Rule: PrivateRule {}
+
+pub trait PrivateRule: TryCompat {
+    fn as_ptr(&self) -> *const libc::c_void;
+    fn get_type_id(&self) -> uapi::landlock_rule_type;
+    fn get_flags(&self) -> u32;
+}
 
 /// Returned by ruleset builder.
 #[derive(Debug, PartialEq)]
@@ -156,7 +166,7 @@ fn ruleset_unsupported() {
 
     let mut compat = Compatibility {
         abi: ABI::Unsupported,
-        level: crate::SupportLevel::Optional,
+        level: SupportLevel::Optional,
         state: CompatState::Start,
     };
     assert_eq!(
