@@ -14,6 +14,8 @@ pub enum ABI {
 }
 
 impl ABI {
+    // Must remain private to avoid inconsistent behavior by passing Ok(self) to a builder method,
+    // e.g. to make it impossible to call ruleset.handle_fs(ABI::new_current()?)
     fn new_current() -> Result<Self, Error> {
         unsafe {
             // Landlock ABI version starts at 1 but errno is only set for negative values.

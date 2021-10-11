@@ -86,6 +86,7 @@ impl RulesetInit {
         match self.compat.abi {
             ABI::Unsupported => Ok(RulesetCreated {
                 fd: -1,
+                // TODO: Set no_new_privs to true, but check if the kernel support it.
                 no_new_privs: false,
                 requested_handled_fs: self.requested_handled_fs,
                 compat: self.compat,
@@ -142,6 +143,7 @@ impl RulesetCreated {
 
     pub fn restrict_self(mut self) -> Result<RestrictionStatus, Error> {
         match self.compat.abi {
+            // TODO: Call prctl_set_no_new_privs() as long as kernel >= 3.5
             ABI::Unsupported => Ok(self.compat.state.into()),
             ABI::V1 => {
                 if self.no_new_privs {
@@ -164,8 +166,8 @@ impl RulesetCreated {
 
 impl Drop for RulesetCreated {
     fn drop(&mut self) {
-        unsafe {
-            close(self.fd);
+        if self.fd >= 0 {
+            unsafe { close(self.fd) };
         }
     }
 }
