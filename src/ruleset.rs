@@ -47,6 +47,14 @@ fn prctl_set_no_new_privs() -> Result<(), Error> {
     }
 }
 
+fn support_no_new_privs() -> bool {
+    match unsafe { libc::prctl(libc::PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) } {
+        0 | 1 => true,
+        // Only Linux < 3.5 or kernel with seccomp filters should return an error.
+        _ => false,
+    }
+}
+
 #[derive(Debug)]
 pub struct RulesetInit {
     requested_handled_fs: BitFlags<AccessFs>,
@@ -83,11 +91,11 @@ impl RulesetInit {
         let attr = uapi::landlock_ruleset_attr {
             handled_access_fs: self.actual_handled_fs.bits(),
         };
+
         match self.compat.abi {
             ABI::Unsupported => Ok(RulesetCreated {
                 fd: -1,
-                // TODO: Set no_new_privs to true, but check if the kernel support it.
-                no_new_privs: false,
+                no_new_privs: true,
                 requested_handled_fs: self.requested_handled_fs,
                 compat: self.compat,
             }),
@@ -142,24 +150,37 @@ impl RulesetCreated {
     }
 
     pub fn restrict_self(mut self) -> Result<RestrictionStatus, Error> {
-        match self.compat.abi {
-            // TODO: Call prctl_set_no_new_privs() as long as kernel >= 3.5
-            ABI::Unsupported => Ok(self.compat.state.into()),
-            ABI::V1 => {
-                if self.no_new_privs {
-                    // If Landlock is supported, then no_new_privs should also be supported (unless
-                    // blocked e.g., by seccomp-bpf).  Otherwise, we should inform users by
-                    // returning the syscall error.
-                    prctl_set_no_new_privs()?;
-                }
-                match unsafe { uapi::landlock_restrict_self(self.fd, 0) } {
-                    0 => {
-                        self.compat.state.update(CompatState::Full);
-                        Ok(self.compat.state.into())
+        if self.no_new_privs {
+            if let Err(e) = prctl_set_no_new_privs() {
+                // To get a consistent behavior, calls this prctl whether or not Landlock is
+                // supported by the running kernel.
+                let support_nnp = support_no_new_privs();
+                match self.compat.abi {
+                    // It should not be an error for kernel (older than 3.5) not supporting
+                    // no_new_privs.
+                    ABI::Unsupported => {
+                        if support_nnp {
+                            // The kernel seems to be between 3.5 (included) and 5.13 (excluded),
+                            // or Landlock is not enabled; no_new_privs should be supported anyway.
+                            return Err(e);
+                        }
                     }
-                    _ => Err(Error::last_os_error()),
+                    // A kernel supporting Landlock should also support no_new_privs (unless
+                    // filtered by seccomp).
+                    _ => return Err(e),
                 }
             }
+        }
+
+        match self.compat.abi {
+            ABI::Unsupported => Ok(self.compat.state.into()),
+            ABI::V1 => match unsafe { uapi::landlock_restrict_self(self.fd, 0) } {
+                0 => {
+                    self.compat.state.update(CompatState::Full);
+                    Ok(self.compat.state.into())
+                }
+                _ => Err(Error::last_os_error()),
+            },
         }
     }
 }
