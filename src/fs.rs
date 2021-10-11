@@ -1,4 +1,4 @@
-use crate::{uapi, Compatibility, PrivateRule, Rule, TryCompat, ABI};
+use crate::{uapi, Compatibility, PrivateRule, Rule, RulesetCreated, TryCompat, ABI};
 use enumflags2::{bitflags, make_bitflags, BitFlags};
 use std::io::Error;
 use std::marker::PhantomData;
@@ -108,5 +108,18 @@ impl PrivateRule for PathBeneath<'_> {
 
     fn get_flags(&self) -> u32 {
         0
+    }
+
+    fn check_consistency(&self, ruleset: &RulesetCreated) -> Result<(), Error> {
+        // Checks that this rule doesn't contain a superset of the access-rights handled by the
+        // ruleset.  This check is about requested access-rights but not actual access-rights.
+        // Indeed, we want to get a deterministic behavior, i.e. not based on the running kernel
+        // (which is handled by RulesetInit and RulesetCreated).
+        if ruleset.requested_handled_fs.contains(self.allowed_access) {
+            Ok(())
+        } else {
+            // TODO: Replace all Error::from_raw_os_error() with high-level errors.
+            Err(Error::from_raw_os_error(libc::EINVAL))
+        }
     }
 }

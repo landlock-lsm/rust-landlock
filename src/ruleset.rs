@@ -5,7 +5,7 @@ use std::mem::size_of_val;
 use std::os::unix::io::RawFd;
 
 #[cfg(test)]
-use crate::SupportLevel;
+use crate::*;
 
 // Public interface without methods and which is impossible to implement outside this crate.
 pub trait Rule: PrivateRule {}
@@ -14,6 +14,7 @@ pub trait PrivateRule: TryCompat {
     fn as_ptr(&self) -> *const libc::c_void;
     fn get_type_id(&self) -> uapi::landlock_rule_type;
     fn get_flags(&self) -> u32;
+    fn check_consistency(&self, ruleset: &RulesetCreated) -> Result<(), Error>;
 }
 
 /// Returned by ruleset builder.
@@ -48,7 +49,8 @@ fn prctl_set_no_new_privs() -> Result<(), Error> {
 
 #[derive(Debug)]
 pub struct RulesetInit {
-    handled_fs: BitFlags<AccessFs>,
+    requested_handled_fs: BitFlags<AccessFs>,
+    actual_handled_fs: BitFlags<AccessFs>,
     compat: Compatibility,
 }
 
@@ -58,8 +60,12 @@ impl RulesetInit {
         // behavior if built with an old or a newer crate (e.g. with an extended ruleset_attr
         // enum).  It should then not be possible to give an "all-possible-handled-accesses" to the
         // Ruleset builder because this value would be relative to the running kernel.
+        //
+        // TODO: Replace ABI::V1.into() with a Default implementation for BitFlags<_>
+        let handled_fs = ABI::V1.into();
         RulesetInit {
-            handled_fs: ABI::V1.into(),
+            requested_handled_fs: handled_fs,
+            actual_handled_fs: handled_fs,
             compat: compat,
         }
     }
@@ -68,18 +74,20 @@ impl RulesetInit {
     where
         T: Into<BitFlags<AccessFs>>,
     {
-        self.handled_fs = access.into().try_compat(&mut self.compat)?;
+        self.requested_handled_fs = access.into();
+        self.actual_handled_fs = self.requested_handled_fs.try_compat(&mut self.compat)?;
         Ok(self)
     }
 
     pub fn create(self) -> Result<RulesetCreated, Error> {
         let attr = uapi::landlock_ruleset_attr {
-            handled_access_fs: self.handled_fs.bits(),
+            handled_access_fs: self.actual_handled_fs.bits(),
         };
         match self.compat.abi {
             ABI::Unsupported => Ok(RulesetCreated {
                 fd: -1,
                 no_new_privs: false,
+                requested_handled_fs: self.requested_handled_fs,
                 compat: self.compat,
             }),
             ABI::V1 => match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) }
@@ -87,6 +95,7 @@ impl RulesetInit {
                 fd if fd >= 0 => Ok(RulesetCreated {
                     fd: fd,
                     no_new_privs: true,
+                    requested_handled_fs: self.requested_handled_fs,
                     compat: self.compat,
                 }),
                 _ => Err(Error::last_os_error()),
@@ -99,6 +108,7 @@ impl RulesetInit {
 pub struct RulesetCreated {
     fd: RawFd,
     no_new_privs: bool,
+    pub(crate) requested_handled_fs: BitFlags<AccessFs>,
     compat: Compatibility,
 }
 
@@ -107,7 +117,7 @@ impl RulesetCreated {
     where
         T: Rule,
     {
-        // TODO: check subset of PathBeneath.allow_access with RulesetInit.handle_fs
+        rule.check_consistency(&self)?;
         let compat_rule = rule.try_compat(&mut self.compat)?;
         match self.compat.abi {
             ABI::Unsupported => Ok(self),
@@ -162,6 +172,7 @@ impl Drop for RulesetCreated {
 
 #[test]
 fn ruleset_unsupported() {
+    use std::fs::File;
     use std::io::ErrorKind;
 
     let mut compat = Compatibility {
@@ -216,4 +227,24 @@ fn ruleset_unsupported() {
             .kind(),
         ErrorKind::Other
     );
+
+    // Tests inconsistency between the ruleset handled access-rights and the rule access-rights.
+    for handled_access in &[
+        make_bitflags!(AccessFs::{Execute | WriteFile}),
+        AccessFs::Execute.into(),
+    ] {
+        assert_eq!(
+            RulesetInit::new(compat)
+                .handle_fs(*handled_access)
+                .unwrap()
+                .create()
+                .unwrap()
+                .add_rule(
+                    PathBeneath::new(&File::open("/").unwrap()).allow_access(AccessFs::ReadFile)
+                )
+                .unwrap_err()
+                .kind(),
+            ErrorKind::InvalidInput
+        );
+    }
 }
