@@ -17,27 +17,34 @@ pub trait PrivateRule: TryCompat {
     fn check_consistency(&self, ruleset: &RulesetCreated) -> Result<(), Error>;
 }
 
-/// Returned by ruleset builder.
 #[derive(Debug, PartialEq)]
-pub enum RestrictionStatus {
+pub enum RulesetStatus {
     /// All requested restrictions are enforced.
-    FullyRestricted,
+    FullyEnforced,
     /// Some requested restrictions are enforced, following a best-effort approach.
-    PartiallyRestricted,
-    /// The running system doesn't support Landlock or a subset of the requested features..
-    Unrestricted,
+    PartiallyEnforced,
+    /// The running system doesn't support Landlock or a subset of the requested Landlock features.
+    NotEnforced,
 }
 
-impl From<CompatState> for RestrictionStatus {
+impl From<CompatState> for RulesetStatus {
     fn from(state: CompatState) -> Self {
         match state {
-            CompatState::Start | CompatState::No | CompatState::Final => {
-                RestrictionStatus::Unrestricted
-            }
-            CompatState::Full => RestrictionStatus::FullyRestricted,
-            CompatState::Partial => RestrictionStatus::PartiallyRestricted,
+            CompatState::Start | CompatState::No | CompatState::Final => RulesetStatus::NotEnforced,
+            CompatState::Full => RulesetStatus::FullyEnforced,
+            CompatState::Partial => RulesetStatus::PartiallyEnforced,
         }
     }
+}
+
+/// Returned by ruleset builder.
+#[non_exhaustive]
+#[derive(Debug, PartialEq)]
+pub struct RestrictionStatus {
+    /// Status of the Landlock ruleset enforcement.
+    pub ruleset: RulesetStatus,
+    /// Status of prctl(2)'s PR_SET_NO_NEW_PRIVS enforcement.
+    pub no_new_privs: bool,
 }
 
 fn prctl_set_no_new_privs() -> Result<(), Error> {
@@ -150,7 +157,7 @@ impl RulesetCreated {
     }
 
     pub fn restrict_self(mut self) -> Result<RestrictionStatus, Error> {
-        if self.no_new_privs {
+        let enforced_nnp = if self.no_new_privs {
             if let Err(e) = prctl_set_no_new_privs() {
                 // To get a consistent behavior, calls this prctl whether or not Landlock is
                 // supported by the running kernel.
@@ -169,15 +176,26 @@ impl RulesetCreated {
                     // filtered by seccomp).
                     _ => return Err(e),
                 }
+                false
+            } else {
+                true
             }
-        }
+        } else {
+            false
+        };
 
         match self.compat.abi {
-            ABI::Unsupported => Ok(self.compat.state.into()),
+            ABI::Unsupported => Ok(RestrictionStatus {
+                ruleset: self.compat.state.into(),
+                no_new_privs: enforced_nnp,
+            }),
             ABI::V1 => match unsafe { uapi::landlock_restrict_self(self.fd, 0) } {
                 0 => {
                     self.compat.state.update(CompatState::Full);
-                    Ok(self.compat.state.into())
+                    Ok(RestrictionStatus {
+                        ruleset: self.compat.state.into(),
+                        no_new_privs: enforced_nnp,
+                    })
                 }
                 _ => Err(Error::last_os_error()),
             },
@@ -209,7 +227,10 @@ fn ruleset_unsupported() {
             .unwrap()
             .restrict_self()
             .unwrap(),
-        RestrictionStatus::Unrestricted
+        RestrictionStatus {
+            ruleset: RulesetStatus::NotEnforced,
+            no_new_privs: true,
+        }
     );
     assert_eq!(
         RulesetInit::new(compat)
@@ -219,7 +240,23 @@ fn ruleset_unsupported() {
             .unwrap()
             .restrict_self()
             .unwrap(),
-        RestrictionStatus::Unrestricted
+        RestrictionStatus {
+            ruleset: RulesetStatus::NotEnforced,
+            no_new_privs: true,
+        }
+    );
+
+    assert_eq!(
+        RulesetInit::new(compat)
+            .create()
+            .unwrap()
+            .set_no_new_privs(false)
+            .restrict_self()
+            .unwrap(),
+        RestrictionStatus {
+            ruleset: RulesetStatus::NotEnforced,
+            no_new_privs: false,
+        }
     );
 
     assert_eq!(
@@ -240,7 +277,10 @@ fn ruleset_unsupported() {
             .unwrap()
             .restrict_self()
             .unwrap(),
-        RestrictionStatus::FullyRestricted
+        RestrictionStatus {
+            ruleset: RulesetStatus::FullyEnforced,
+            no_new_privs: true,
+        }
     );
     assert_eq!(
         RulesetInit::new(compat)

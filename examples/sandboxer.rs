@@ -1,6 +1,7 @@
 use anyhow::{anyhow, bail};
 use landlock::{
-    make_bitflags, AccessFs, BitFlags, Compatibility, PathBeneath, RulesetCreated, RulesetInit, ABI,
+    make_bitflags, AccessFs, BitFlags, Compatibility, PathBeneath, RulesetCreated, RulesetInit,
+    RulesetStatus, ABI,
 };
 use nix::fcntl::{open, OFlag};
 use nix::sys::stat::{fstat, Mode, SFlag};
@@ -123,13 +124,17 @@ fn main() -> Result<(), anyhow::Error> {
         .handle_fs(ABI::V1)?
         .create()?;
     let ruleset = populate_ruleset(ruleset, fs_ro, ACCESS_FS_ROUGHLY_READ)?;
-    populate_ruleset(
+    let status = populate_ruleset(
         ruleset,
         fs_rw,
         ACCESS_FS_ROUGHLY_READ | ACCESS_FS_ROUGHLY_WRITE,
     )?
     .restrict_self()
     .expect("Failed to enforce ruleset");
+
+    if status.ruleset == RulesetStatus::NotEnforced {
+        bail!("Landlock is not supported by the running kernel.");
+    }
 
     Err(Command::new(cmd_name.to_string())
         .env_remove(ENV_FS_RO_NAME)

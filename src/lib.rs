@@ -5,7 +5,7 @@ pub use compat::{Compatibility, SupportLevel, ABI};
 pub use enumflags2::{make_bitflags, BitFlags};
 pub use fs::{AccessFs, PathBeneath};
 use ruleset::PrivateRule;
-pub use ruleset::{RestrictionStatus, Rule, RulesetCreated, RulesetInit};
+pub use ruleset::{RestrictionStatus, Rule, RulesetCreated, RulesetInit, RulesetStatus};
 
 #[cfg(test)]
 use std::io::Error;
@@ -45,7 +45,10 @@ mod tests {
     fn allow_root_compat() {
         assert_eq!(
             ruleset_root_compat().unwrap(),
-            RestrictionStatus::FullyRestricted
+            RestrictionStatus {
+                ruleset: RulesetStatus::FullyEnforced,
+                no_new_privs: true,
+            }
         );
     }
 
@@ -53,7 +56,10 @@ mod tests {
     fn allow_root_fragile() {
         assert_eq!(
             ruleset_root_fragile().unwrap(),
-            RestrictionStatus::FullyRestricted
+            RestrictionStatus {
+                ruleset: RulesetStatus::FullyEnforced,
+                no_new_privs: true,
+            }
         );
     }
 }
