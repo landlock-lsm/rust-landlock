@@ -145,9 +145,6 @@ pub enum SupportLevel {
     Required,
 }
 
-// FIXME: remove Copy, it is too easy to misuse a builder pattern:
-// compat.set_support_level(SupportLevel::Required);
-// then use (unmodified) compat somehow…
 /// Properly handles runtime unsupported features.  This enables to guarantee consistent behaviors
 /// across crate users and runtime kernels even if this crate get new features.  It eases backward
 /// compatibility and enables future-proofness.
@@ -159,7 +156,7 @@ pub enum SupportLevel {
 /// version), it may be required to check if some of there features are enforced, which is possible
 /// with XXX
 #[cfg_attr(test, derive(Debug))]
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 // Compatibility is not public outside this crate.
 pub struct Compatibility {
     pub(crate) abi: ABI,

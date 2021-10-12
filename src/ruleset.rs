@@ -245,10 +245,10 @@ fn ruleset_unsupported() {
         level: SupportLevel::Optional,
         state: CompatState::Start,
     };
-    let new_ruleset = |compat: Compatibility| -> RulesetInit { compat.into() };
+    let new_ruleset = |compat: &Compatibility| -> RulesetInit { compat.clone().into() };
 
     assert_eq!(
-        new_ruleset(compat)
+        new_ruleset(&compat)
             .create()
             .unwrap()
             .restrict_self()
@@ -259,7 +259,7 @@ fn ruleset_unsupported() {
         }
     );
     assert_eq!(
-        new_ruleset(compat)
+        new_ruleset(&compat)
             .handle_fs(AccessFs::Execute)
             .unwrap()
             .create()
@@ -273,7 +273,7 @@ fn ruleset_unsupported() {
     );
 
     assert_eq!(
-        new_ruleset(compat)
+        new_ruleset(&compat)
             .create()
             .unwrap()
             .set_no_new_privs(false)
@@ -286,7 +286,7 @@ fn ruleset_unsupported() {
     );
 
     assert_eq!(
-        new_ruleset(compat)
+        new_ruleset(&compat)
             // Empty access-rights
             .handle_fs(ABI::Unsupported)
             .unwrap_err()
@@ -296,7 +296,7 @@ fn ruleset_unsupported() {
 
     compat.abi = ABI::V1;
     assert_eq!(
-        new_ruleset(compat)
+        new_ruleset(&compat)
             .handle_fs(AccessFs::Execute)
             .unwrap()
             .create()
@@ -309,7 +309,7 @@ fn ruleset_unsupported() {
         }
     );
     assert_eq!(
-        new_ruleset(compat)
+        new_ruleset(&compat)
             // Empty access-rights
             .handle_fs(ABI::Unsupported)
             .unwrap_err()
@@ -323,7 +323,7 @@ fn ruleset_unsupported() {
         AccessFs::Execute.into(),
     ] {
         assert_eq!(
-            new_ruleset(compat)
+            new_ruleset(&compat)
                 .handle_fs(*handled_access)
                 .unwrap()
                 .create()
