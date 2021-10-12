@@ -1,6 +1,6 @@
 use crate::{uapi, BitFlags};
 use enumflags2::BitFlag;
-use std::convert::{TryFrom, TryInto};
+use std::convert::{From, Into};
 use std::io::{Error, ErrorKind};
 
 #[cfg(test)]
@@ -18,7 +18,7 @@ pub enum ABI {
 impl ABI {
     // Must remain private to avoid inconsistent behavior by passing Ok(self) to a builder method,
     // e.g. to make it impossible to call ruleset.handle_fs(ABI::new_current()?)
-    fn new_current() -> Result<Self, Error> {
+    fn new_current() -> Self {
         unsafe {
             // Landlock ABI version starts at 1 but errno is only set for negative values.
             uapi::landlock_create_ruleset(
@@ -27,49 +27,36 @@ impl ABI {
                 uapi::LANDLOCK_CREATE_RULESET_VERSION,
             )
         }
-        .try_into()
+        .into()
     }
 }
 
 // There is no way to not publicly expose an implementation of an external trait.
 // See RFC PR: https://github.com/rust-lang/rfcs/pull/2529
 #[doc(hidden)]
-impl TryFrom<i32> for ABI {
-    type Error = Error;
-
-    fn try_from(value: i32) -> Result<ABI, Error> {
-        const EOPNOTSUPP: i32 = -libc::EOPNOTSUPP;
-        const ENOSYS: i32 = -libc::ENOSYS;
-
+impl From<i32> for ABI {
+    fn from(value: i32) -> ABI {
         match value {
-            EOPNOTSUPP => Ok(ABI::Unsupported),
-            ENOSYS => Ok(ABI::Unsupported),
-            // A value of 0 should not come from the kernel, but if it is the case we get an
-            // Other error (or an Uncategorized error in a newer Rust std).
-            n if n <= 0 => Err(Error::from_raw_os_error(n * -1)),
-            1 => Ok(ABI::V1),
+            // The only possible error values should be EOPNOTSUPP and ENOSYS, but let's interpret
+            // all kind of errors as unsupported.
+            n if n <= 0 => ABI::Unsupported,
+            1 => ABI::V1,
             // Returns the greatest known ABI.
-            _ => Ok(ABI::V1),
+            _ => ABI::V1,
         }
     }
 }
 
 #[test]
-fn abi_try_from() {
-    assert_eq!(
-        ABI::try_from(-1).unwrap_err().kind(),
-        ErrorKind::PermissionDenied
-    );
-    assert_eq!(ABI::try_from(0).unwrap_err().kind(), ErrorKind::Other);
+fn abi_from() {
+    // EOPNOTSUPP (-95), ENOSYS (-38)
+    for n in &[-95, -38, -1, 0] {
+        assert_eq!(ABI::from(*n), ABI::Unsupported);
+    }
 
-    // EOPNOTSUPP
-    assert_eq!(ABI::try_from(-95).unwrap(), ABI::Unsupported);
-    // ENOSYS
-    assert_eq!(ABI::try_from(-38).unwrap(), ABI::Unsupported);
-
-    assert_eq!(ABI::try_from(1).unwrap(), ABI::V1);
-    assert_eq!(ABI::try_from(2).unwrap(), ABI::V1);
-    assert_eq!(ABI::try_from(9).unwrap(), ABI::V1);
+    assert_eq!(ABI::from(1), ABI::V1);
+    assert_eq!(ABI::from(2), ABI::V1);
+    assert_eq!(ABI::from(9), ABI::V1);
 }
 
 /// Returned by ruleset builder.
@@ -181,9 +168,9 @@ pub struct Compatibility {
 }
 
 impl Compatibility {
-    pub fn new() -> Result<Compatibility, Error> {
-        let abi = ABI::new_current()?;
-        Ok(Compatibility {
+    pub fn new() -> Compatibility {
+        let abi = ABI::new_current();
+        Compatibility {
             abi: abi,
             level: SupportLevel::Optional,
             state: match abi {
@@ -191,7 +178,7 @@ impl Compatibility {
                 ABI::Unsupported => CompatState::Final,
                 _ => CompatState::Start,
             },
-        })
+        }
     }
 }
 

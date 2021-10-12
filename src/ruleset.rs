@@ -87,12 +87,12 @@ impl From<Compatibility> for RulesetInit {
 }
 
 impl RulesetInit {
-    pub fn new() -> Result<Self, Error> {
+    pub fn new() -> Self {
         // The API should be future-proof: one Rust program or library should have the same
         // behavior if built with an old or a newer crate (e.g. with an extended ruleset_attr
         // enum).  It should then not be possible to give an "all-possible-handled-accesses" to the
         // Ruleset builder because this value would be relative to the running kernel.
-        Ok(Compatibility::new()?.into())
+        Compatibility::new().into()
     }
 
     pub fn handle_fs<T>(mut self, access: T) -> Result<Self, Error>

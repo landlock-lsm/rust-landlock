@@ -21,7 +21,7 @@ mod tests {
     use std::fs::File;
 
     fn ruleset_root_compat() -> Result<RestrictionStatus, Error> {
-        let ruleset: RulesetInit = Compatibility::new()?.into();
+        let ruleset: RulesetInit = Compatibility::new().into();
         ruleset
             .handle_fs(ABI::V1)?
             .create()?
@@ -31,7 +31,7 @@ mod tests {
 
     fn ruleset_root_fragile() -> Result<RestrictionStatus, Error> {
         // Sets default support level: abort the whole sandboxing for any Landlock error.
-        RulesetInit::new()?
+        RulesetInit::new()
             // Must have at least the execute check…
             .set_support_level(SupportLevel::Required)
             .handle_fs(AccessFs::Execute)?
