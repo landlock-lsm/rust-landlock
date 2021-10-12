@@ -7,7 +7,9 @@ use std::io::{Error, ErrorKind};
 use crate::{make_bitflags, AccessFs};
 
 /// Version of the Landlock [ABI](https://en.wikipedia.org/wiki/Application_binary_interface).
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Copy, Clone)]
+#[non_exhaustive]
 pub enum ABI {
     Unsupported = 0,
     V1 = 1,
@@ -29,6 +31,9 @@ impl ABI {
     }
 }
 
+// There is no way to not publicly expose an implementation of an external trait.
+// See RFC PR: https://github.com/rust-lang/rfcs/pull/2529
+#[doc(hidden)]
 impl TryFrom<i32> for ABI {
     type Error = Error;
 
@@ -68,7 +73,8 @@ fn abi_try_from() {
 }
 
 /// Returned by ruleset builder.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Copy, Clone)]
 pub(crate) enum CompatState {
     /// Initial unknown state.
     Start,
@@ -142,7 +148,8 @@ fn compat_state_update_2() {
     assert_eq!(state, CompatState::Partial);
 }
 
-#[derive(Copy, Clone, Debug)]
+#[cfg_attr(test, derive(Debug))]
+#[derive(Copy, Clone)]
 pub enum SupportLevel {
     /// Best-effort security approach, should be selected by default.
     Optional,
@@ -164,7 +171,9 @@ pub enum SupportLevel {
 /// some circumstances (e.g. applications carefully designed to only be run with a specific kernel
 /// version), it may be required to check if some of there features are enforced, which is possible
 /// with XXX
-#[derive(Copy, Clone, Debug)]
+#[cfg_attr(test, derive(Debug))]
+#[derive(Copy, Clone)]
+// Compatibility is not public outside this crate.
 pub struct Compatibility {
     pub(crate) abi: ABI,
     pub(crate) level: SupportLevel,
@@ -190,6 +199,7 @@ pub trait Compatible {
     fn set_support_level(self, level: SupportLevel) -> Self;
 }
 
+// TryCompat is not public outside this crate.
 pub trait TryCompat {
     fn try_compat(self, compat: &mut Compatibility) -> Result<Self, Error>
     where

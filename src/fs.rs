@@ -8,7 +8,8 @@ use std::os::unix::io::AsRawFd;
 /// instead.
 #[bitflags]
 #[repr(u64)]
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum AccessFs {
     Execute = uapi::LANDLOCK_ACCESS_FS_EXECUTE as u64,
     WriteFile = uapi::LANDLOCK_ACCESS_FS_WRITE_FILE as u64,

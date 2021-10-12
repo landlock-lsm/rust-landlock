@@ -12,6 +12,7 @@ use crate::*;
 // Public interface without methods and which is impossible to implement outside this crate.
 pub trait Rule: PrivateRule {}
 
+// PrivateRule is not public outside this crate.
 pub trait PrivateRule: TryCompat {
     fn as_ptr(&self) -> *const libc::c_void;
     fn get_type_id(&self) -> uapi::landlock_rule_type;
@@ -19,7 +20,7 @@ pub trait PrivateRule: TryCompat {
     fn check_consistency(&self, ruleset: &RulesetCreated) -> Result<(), Error>;
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum RulesetStatus {
     /// All requested restrictions are enforced.
     FullyEnforced,
@@ -39,9 +40,11 @@ impl From<CompatState> for RulesetStatus {
     }
 }
 
+// The Debug, PartialEq and Eq implementations are useful for crate users to debug and check the
+// result of a Landlock ruleset enforcement.
 /// Returned by ruleset builder.
+#[derive(Debug, PartialEq, Eq)]
 #[non_exhaustive]
-#[derive(Debug, PartialEq)]
 pub struct RestrictionStatus {
     /// Status of the Landlock ruleset enforcement.
     pub ruleset: RulesetStatus,
@@ -64,7 +67,7 @@ fn support_no_new_privs() -> bool {
     }
 }
 
-#[derive(Debug)]
+#[cfg_attr(test, derive(Debug))]
 pub struct RulesetInit {
     requested_handled_fs: BitFlags<AccessFs>,
     actual_handled_fs: BitFlags<AccessFs>,
@@ -134,7 +137,7 @@ impl Compatible for RulesetInit {
     }
 }
 
-#[derive(Debug)]
+#[cfg_attr(test, derive(Debug))]
 pub struct RulesetCreated {
     fd: RawFd,
     no_new_privs: bool,
