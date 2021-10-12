@@ -184,11 +184,10 @@ impl Compatibility {
             },
         })
     }
+}
 
-    pub fn set_support_level(mut self, level: SupportLevel) -> Self {
-        self.level = level;
-        self
-    }
+pub trait Compatible {
+    fn set_support_level(self, level: SupportLevel) -> Self;
 }
 
 pub trait TryCompat {

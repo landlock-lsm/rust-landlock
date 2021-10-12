@@ -1,4 +1,6 @@
-use crate::{uapi, AccessFs, BitFlags, CompatState, Compatibility, TryCompat, ABI};
+use crate::{
+    uapi, AccessFs, BitFlags, CompatState, Compatibility, Compatible, SupportLevel, TryCompat, ABI,
+};
 use libc::close;
 use std::io::Error;
 use std::mem::size_of_val;
@@ -69,13 +71,8 @@ pub struct RulesetInit {
     compat: Compatibility,
 }
 
-impl RulesetInit {
-    pub fn new(compat: Compatibility) -> Self {
-        // The API should be future-proof: one Rust program or library should have the same
-        // behavior if built with an old or a newer crate (e.g. with an extended ruleset_attr
-        // enum).  It should then not be possible to give an "all-possible-handled-accesses" to the
-        // Ruleset builder because this value would be relative to the running kernel.
-        //
+impl From<Compatibility> for RulesetInit {
+    fn from(compat: Compatibility) -> Self {
         // TODO: Replace ABI::V1.into() with a Default implementation for BitFlags<_>
         let handled_fs = ABI::V1.into();
         RulesetInit {
@@ -83,6 +80,16 @@ impl RulesetInit {
             actual_handled_fs: handled_fs,
             compat: compat,
         }
+    }
+}
+
+impl RulesetInit {
+    pub fn new() -> Result<Self, Error> {
+        // The API should be future-proof: one Rust program or library should have the same
+        // behavior if built with an old or a newer crate (e.g. with an extended ruleset_attr
+        // enum).  It should then not be possible to give an "all-possible-handled-accesses" to the
+        // Ruleset builder because this value would be relative to the running kernel.
+        Ok(Compatibility::new()?.into())
     }
 
     pub fn handle_fs<T>(mut self, access: T) -> Result<Self, Error>
@@ -117,6 +124,13 @@ impl RulesetInit {
                 _ => Err(Error::last_os_error()),
             },
         }
+    }
+}
+
+impl Compatible for RulesetInit {
+    fn set_support_level(mut self, level: SupportLevel) -> Self {
+        self.compat.level = level;
+        self
     }
 }
 
@@ -211,6 +225,13 @@ impl Drop for RulesetCreated {
     }
 }
 
+impl Compatible for RulesetCreated {
+    fn set_support_level(mut self, level: SupportLevel) -> Self {
+        self.compat.level = level;
+        self
+    }
+}
+
 #[test]
 fn ruleset_unsupported() {
     use std::fs::File;
@@ -221,8 +242,10 @@ fn ruleset_unsupported() {
         level: SupportLevel::Optional,
         state: CompatState::Start,
     };
+    let new_ruleset = |compat: Compatibility| -> RulesetInit { compat.into() };
+
     assert_eq!(
-        RulesetInit::new(compat)
+        new_ruleset(compat)
             .create()
             .unwrap()
             .restrict_self()
@@ -233,7 +256,7 @@ fn ruleset_unsupported() {
         }
     );
     assert_eq!(
-        RulesetInit::new(compat)
+        new_ruleset(compat)
             .handle_fs(AccessFs::Execute)
             .unwrap()
             .create()
@@ -247,7 +270,7 @@ fn ruleset_unsupported() {
     );
 
     assert_eq!(
-        RulesetInit::new(compat)
+        new_ruleset(compat)
             .create()
             .unwrap()
             .set_no_new_privs(false)
@@ -260,7 +283,7 @@ fn ruleset_unsupported() {
     );
 
     assert_eq!(
-        RulesetInit::new(compat)
+        new_ruleset(compat)
             // Empty access-rights
             .handle_fs(ABI::Unsupported)
             .unwrap_err()
@@ -270,7 +293,7 @@ fn ruleset_unsupported() {
 
     compat.abi = ABI::V1;
     assert_eq!(
-        RulesetInit::new(compat)
+        new_ruleset(compat)
             .handle_fs(AccessFs::Execute)
             .unwrap()
             .create()
@@ -283,7 +306,7 @@ fn ruleset_unsupported() {
         }
     );
     assert_eq!(
-        RulesetInit::new(compat)
+        new_ruleset(compat)
             // Empty access-rights
             .handle_fs(ABI::Unsupported)
             .unwrap_err()
@@ -297,7 +320,7 @@ fn ruleset_unsupported() {
         AccessFs::Execute.into(),
     ] {
         assert_eq!(
-            RulesetInit::new(compat)
+            new_ruleset(compat)
                 .handle_fs(*handled_access)
                 .unwrap()
                 .create()

@@ -1,7 +1,6 @@
 use anyhow::{anyhow, bail};
 use landlock::{
-    make_bitflags, AccessFs, BitFlags, Compatibility, PathBeneath, RulesetCreated, RulesetInit,
-    RulesetStatus, ABI,
+    make_bitflags, AccessFs, BitFlags, PathBeneath, RulesetCreated, RulesetInit, RulesetStatus, ABI,
 };
 use nix::fcntl::{open, OFlag};
 use nix::sys::stat::{fstat, Mode, SFlag};
@@ -120,9 +119,7 @@ fn main() -> Result<(), anyhow::Error> {
 
     let cmd_name = args.get(1).map(|s| s.to_string_lossy()).unwrap();
 
-    let ruleset = RulesetInit::new(Compatibility::new()?)
-        .handle_fs(ABI::V1)?
-        .create()?;
+    let ruleset = RulesetInit::new()?.handle_fs(ABI::V1)?.create()?;
     let ruleset = populate_ruleset(ruleset, fs_ro, ACCESS_FS_ROUGHLY_READ)?;
     let status = populate_ruleset(
         ruleset,
