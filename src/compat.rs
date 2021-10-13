@@ -135,16 +135,6 @@ fn compat_state_update_2() {
     assert_eq!(state, CompatState::Partial);
 }
 
-#[cfg_attr(test, derive(Debug))]
-#[derive(Copy, Clone)]
-pub enum SupportLevel {
-    /// Best-effort security approach, should be selected by default.
-    Optional,
-    /// Strict security requirement (e.g., to return an error if not all requested security
-    /// features are supported).
-    Required,
-}
-
 /// Properly handles runtime unsupported features.  This enables to guarantee consistent behaviors
 /// across crate users and runtime kernels even if this crate get new features.  It eases backward
 /// compatibility and enables future-proofness.
@@ -160,7 +150,7 @@ pub enum SupportLevel {
 // Compatibility is not public outside this crate.
 pub struct Compatibility {
     pub(crate) abi: ABI,
-    pub(crate) level: SupportLevel,
+    pub(crate) is_best_effort: bool,
     pub(crate) state: CompatState,
 }
 
@@ -169,7 +159,7 @@ impl Compatibility {
         let abi = ABI::new_current();
         Compatibility {
             abi: abi,
-            level: SupportLevel::Optional,
+            is_best_effort: true,
             state: match abi {
                 // Forces the state as unsupported because all possible types will be useless.
                 ABI::Unsupported => CompatState::Final,
@@ -180,7 +170,10 @@ impl Compatibility {
 }
 
 pub trait Compatible {
-    fn set_support_level(self, level: SupportLevel) -> Self;
+    /// To enable a best-effort security approach, Landlock features that are not supported by the
+    /// running system are silently ignored by default.  If you want to error out when not all your
+    /// requested requirements are met, then you can configure it with `set_best_effort(false)`.
+    fn set_best_effort(self, best_effort: bool) -> Self;
 }
 
 // TryCompat is not public outside this crate.
@@ -196,9 +189,10 @@ where
     BitFlags<T>: From<ABI>,
 {
     fn try_compat(self, compat: &mut Compatibility) -> Result<Self, Error> {
-        let access_mask = match compat.level {
-            SupportLevel::Optional => Self::all(),
-            SupportLevel::Required => Self::from(compat.abi),
+        let access_mask = if compat.is_best_effort {
+            Self::all()
+        } else {
+            Self::from(compat.abi)
         };
         let (state, ret) = if self.is_empty() {
             // Empty access-rights would result to a runtime error.
@@ -217,21 +211,19 @@ where
             if compat_bits.is_empty() {
                 (
                     CompatState::No,
-                    match compat.level {
-                        SupportLevel::Optional => Ok(compat_bits),
-                        SupportLevel::Required => {
-                            Err(Error::new(ErrorKind::InvalidData, "Incompatibility"))
-                        }
+                    if compat.is_best_effort {
+                        Ok(compat_bits)
+                    } else {
+                        Err(Error::new(ErrorKind::InvalidData, "Incompatibility"))
                     },
                 )
             } else if compat_bits != self {
                 (
                     CompatState::Partial,
-                    match compat.level {
-                        SupportLevel::Optional => Ok(compat_bits),
-                        SupportLevel::Required => {
-                            Err(Error::new(ErrorKind::InvalidData, "Partial compatibility"))
-                        }
+                    if compat.is_best_effort {
+                        Ok(compat_bits)
+                    } else {
+                        Err(Error::new(ErrorKind::InvalidData, "Partial compatibility"))
                     },
                 )
             } else {
@@ -247,7 +239,7 @@ where
 fn compat_bit_flags() {
     let mut compat = Compatibility {
         abi: ABI::V1,
-        level: SupportLevel::Optional,
+        is_best_effort: true,
         state: CompatState::Start,
     };
 
@@ -283,7 +275,7 @@ fn compat_bit_flags() {
     assert_eq!(empty_access, ro_access.try_compat(&mut compat).unwrap());
 
     // Access-rights are not valid when they are required for the current ABI.
-    compat.level = SupportLevel::Required;
+    compat.is_best_effort = false;
     assert_eq!(
         ErrorKind::Other,
         ro_access.try_compat(&mut compat).unwrap_err().kind()

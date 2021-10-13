@@ -1,6 +1,5 @@
 use crate::{
-    uapi, CompatState, Compatibility, Compatible, PrivateRule, Rule, RulesetCreated, SupportLevel,
-    TryCompat, ABI,
+    uapi, CompatState, Compatibility, Compatible, PrivateRule, Rule, RulesetCreated, TryCompat, ABI,
 };
 use enumflags2::{bitflags, make_bitflags, BitFlags};
 use std::io::Error;
@@ -67,7 +66,7 @@ pub struct PathBeneath<'a> {
     // Ties the lifetime of a PathBeneath instance to the litetime of its wrapped attr.parent_fd .
     _parent_fd: PhantomData<&'a u32>,
     allowed_access: BitFlags<AccessFs>,
-    level: SupportLevel,
+    is_best_effort: bool,
 }
 
 impl PathBeneath<'_> {
@@ -84,7 +83,7 @@ impl PathBeneath<'_> {
             },
             _parent_fd: PhantomData,
             allowed_access: ABI::V1.into(),
-            level: SupportLevel::Optional,
+            is_best_effort: true,
         }
     }
 
@@ -97,7 +96,7 @@ impl PathBeneath<'_> {
         self
     }
 
-    // Check with our own support level.
+    // Check with our own support requirement.
     fn filter_access(&mut self) -> Result<(), Error> {
         let is_file = unsafe {
             let mut stat = zeroed();
@@ -115,9 +114,10 @@ impl PathBeneath<'_> {
         };
 
         if self.allowed_access != valid_access {
-            match self.level {
-                SupportLevel::Optional => self.allowed_access = valid_access,
-                SupportLevel::Required => return Err(Error::from_raw_os_error(libc::EINVAL)),
+            if self.is_best_effort {
+                self.allowed_access = valid_access;
+            } else {
+                return Err(Error::from_raw_os_error(libc::EINVAL));
             }
         }
         Ok(())
@@ -136,8 +136,8 @@ impl TryCompat for PathBeneath<'_> {
 }
 
 impl Compatible for PathBeneath<'_> {
-    fn set_support_level(mut self, level: SupportLevel) -> Self {
-        self.level = level;
+    fn set_best_effort(mut self, best_effort: bool) -> Self {
+        self.is_best_effort = best_effort;
         self
     }
 }
@@ -150,7 +150,7 @@ fn path_beneath_try_compat() {
 
     let compat = Compatibility {
         abi: ABI::V1,
-        level: SupportLevel::Optional,
+        is_best_effort: true,
         state: CompatState::Start,
     };
 
@@ -159,7 +159,7 @@ fn path_beneath_try_compat() {
         assert_eq!(
             PathBeneath::new(&File::open(file).unwrap())
                 .allow_access(AccessFs::ReadDir)
-                .set_support_level(SupportLevel::Required)
+                .set_best_effort(false)
                 .try_compat(&mut compat_copy)
                 .unwrap_err()
                 .kind(),
@@ -169,11 +169,11 @@ fn path_beneath_try_compat() {
     }
 
     let full_access: BitFlags<AccessFs> = ABI::V1.into();
-    for level in &[SupportLevel::Required, SupportLevel::Optional] {
+    for best_effort in &[true, false] {
         let mut compat_copy = compat.clone();
         let raw_access = PathBeneath::new(&File::open("/").unwrap())
             .allow_access(full_access)
-            .set_support_level(*level)
+            .set_best_effort(*best_effort)
             .try_compat(&mut compat_copy)
             .unwrap()
             .attr

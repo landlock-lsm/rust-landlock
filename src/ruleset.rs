@@ -1,6 +1,4 @@
-use crate::{
-    uapi, AccessFs, BitFlags, CompatState, Compatibility, Compatible, SupportLevel, TryCompat, ABI,
-};
+use crate::{uapi, AccessFs, BitFlags, CompatState, Compatibility, Compatible, TryCompat, ABI};
 use libc::close;
 use std::io::Error;
 use std::mem::size_of_val;
@@ -131,8 +129,8 @@ impl RulesetInit {
 }
 
 impl Compatible for RulesetInit {
-    fn set_support_level(mut self, level: SupportLevel) -> Self {
-        self.compat.level = level;
+    fn set_best_effort(mut self, best_effort: bool) -> Self {
+        self.compat.is_best_effort = best_effort;
         self
     }
 }
@@ -229,8 +227,8 @@ impl Drop for RulesetCreated {
 }
 
 impl Compatible for RulesetCreated {
-    fn set_support_level(mut self, level: SupportLevel) -> Self {
-        self.compat.level = level;
+    fn set_best_effort(mut self, best_effort: bool) -> Self {
+        self.compat.is_best_effort = best_effort;
         self
     }
 }
@@ -242,7 +240,7 @@ fn ruleset_unsupported() {
 
     let mut compat = Compatibility {
         abi: ABI::Unsupported,
-        level: SupportLevel::Optional,
+        is_best_effort: true,
         state: CompatState::Start,
     };
     let new_ruleset = |compat: &Compatibility| -> RulesetInit { compat.clone().into() };
