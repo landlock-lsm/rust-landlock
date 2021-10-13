@@ -1,7 +1,11 @@
-use crate::{uapi, Compatibility, PrivateRule, Rule, RulesetCreated, TryCompat, ABI};
+use crate::{
+    uapi, CompatState, Compatibility, Compatible, PrivateRule, Rule, RulesetCreated, SupportLevel,
+    TryCompat, ABI,
+};
 use enumflags2::{bitflags, make_bitflags, BitFlags};
 use std::io::Error;
 use std::marker::PhantomData;
+use std::mem::zeroed;
 use std::os::unix::io::AsRawFd;
 
 /// WARNING: Don't use `BitFlags::<AccessFs>::all()` nor `BitFlags::ALL` but `ABI::V1.into()`
@@ -53,11 +57,17 @@ impl From<ABI> for BitFlags<AccessFs> {
     }
 }
 
+const ACCESS_FILE: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
+    ReadFile | WriteFile | Execute
+});
+
+#[cfg_attr(test, derive(Debug))]
 pub struct PathBeneath<'a> {
     attr: uapi::landlock_path_beneath_attr,
     // Ties the lifetime of a PathBeneath instance to the litetime of its wrapped attr.parent_fd .
     _parent_fd: PhantomData<&'a u32>,
     allowed_access: BitFlags<AccessFs>,
+    level: SupportLevel,
 }
 
 impl PathBeneath<'_> {
@@ -74,6 +84,7 @@ impl PathBeneath<'_> {
             },
             _parent_fd: PhantomData,
             allowed_access: ABI::V1.into(),
+            level: SupportLevel::Optional,
         }
     }
 
@@ -85,12 +96,90 @@ impl PathBeneath<'_> {
         self.allowed_access = access.into();
         self
     }
+
+    // Check with our own support level.
+    fn filter_access(&mut self) -> Result<(), Error> {
+        let is_file = unsafe {
+            let mut stat = zeroed();
+            match libc::fstat(self.attr.parent_fd, &mut stat) {
+                0 => (stat.st_mode & libc::S_IFMT) != libc::S_IFDIR,
+                _ => return Err(Error::last_os_error()),
+            }
+        };
+
+        // Gets subset of valid accesses according the FD type.
+        let valid_access = if is_file {
+            self.allowed_access & ACCESS_FILE
+        } else {
+            self.allowed_access
+        };
+
+        if self.allowed_access != valid_access {
+            match self.level {
+                SupportLevel::Optional => self.allowed_access = valid_access,
+                SupportLevel::Required => return Err(Error::from_raw_os_error(libc::EINVAL)),
+            }
+        }
+        Ok(())
+    }
 }
 
 impl TryCompat for PathBeneath<'_> {
     fn try_compat(mut self, compat: &mut Compatibility) -> Result<Self, Error> {
+        if let Err(e) = self.filter_access() {
+            compat.state.update(CompatState::No);
+            return Err(e);
+        }
         self.attr.allowed_access = self.allowed_access.try_compat(compat)?.bits();
         Ok(self)
+    }
+}
+
+impl Compatible for PathBeneath<'_> {
+    fn set_support_level(mut self, level: SupportLevel) -> Self {
+        self.level = level;
+        self
+    }
+}
+
+#[test]
+fn path_beneath_try_compat() {
+    use crate::*;
+    use std::fs::File;
+    use std::io::ErrorKind;
+
+    let compat = Compatibility {
+        abi: ABI::V1,
+        level: SupportLevel::Optional,
+        state: CompatState::Start,
+    };
+
+    for file in &["/etc/passwd", "/dev/null"] {
+        let mut compat_copy = compat.clone();
+        assert_eq!(
+            PathBeneath::new(&File::open(file).unwrap())
+                .allow_access(AccessFs::ReadDir)
+                .set_support_level(SupportLevel::Required)
+                .try_compat(&mut compat_copy)
+                .unwrap_err()
+                .kind(),
+            ErrorKind::InvalidInput
+        );
+        assert_eq!(compat_copy.state, CompatState::No);
+    }
+
+    let full_access: BitFlags<AccessFs> = ABI::V1.into();
+    for level in &[SupportLevel::Required, SupportLevel::Optional] {
+        let mut compat_copy = compat.clone();
+        let raw_access = PathBeneath::new(&File::open("/").unwrap())
+            .allow_access(full_access)
+            .set_support_level(*level)
+            .try_compat(&mut compat_copy)
+            .unwrap()
+            .attr
+            .allowed_access;
+        assert_eq!(raw_access, full_access.bits());
+        assert_eq!(compat_copy.state, CompatState::Full);
     }
 }
 

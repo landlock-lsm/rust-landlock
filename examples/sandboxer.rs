@@ -3,7 +3,7 @@ use landlock::{
     make_bitflags, AccessFs, BitFlags, PathBeneath, RulesetCreated, RulesetInit, RulesetStatus, ABI,
 };
 use nix::fcntl::{open, OFlag};
-use nix::sys::stat::{fstat, Mode, SFlag};
+use nix::sys::stat::Mode;
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
@@ -20,10 +20,6 @@ const ACCESS_FS_ROUGHLY_READ: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
 const ACCESS_FS_ROUGHLY_WRITE: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
     WriteFile | RemoveDir | RemoveFile | MakeChar | MakeDir | MakeReg | MakeSock | MakeFifo |
         MakeBlock | MakeSym
-});
-
-const ACCESS_FILE: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
-    ReadFile | WriteFile | Execute
 });
 
 /// Populates a given ruleset with PathBeneath landlock rules
@@ -55,29 +51,15 @@ fn populate_ruleset(
                 Err(e) => {
                     bail!("Failed to open \"{}\": {}", path.to_string_lossy(), e);
                 }
-                Ok(parent) => match fstat(parent) {
-                    Ok(stat) => {
-                        let actual_access =
-                            if (stat.st_mode & SFlag::S_IFMT.bits()) != SFlag::S_IFDIR.bits() {
-                                access & ACCESS_FILE
-                            } else {
-                                access
-                            };
-
-                        Ok(inner_ruleset
-                            .add_rule(PathBeneath::new(&parent).allow_access(actual_access))
-                            .map_err(|e| {
-                                anyhow!(
-                                    "Failed to update ruleset with \"{}\": {}",
-                                    path.to_string_lossy(),
-                                    e
-                                )
-                            })?)
-                    }
-                    Err(e) => {
-                        bail!("Failed to stat \"{}\": {}", path.to_string_lossy(), e);
-                    }
-                },
+                Ok(parent) => Ok(inner_ruleset
+                    .add_rule(PathBeneath::new(&parent).allow_access(access))
+                    .map_err(|e| {
+                        anyhow!(
+                            "Failed to update ruleset with \"{}\": {}",
+                            path.to_string_lossy(),
+                            e
+                        )
+                    })?),
             }
         })
 }
