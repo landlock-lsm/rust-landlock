@@ -21,4 +21,3 @@ libc = "0.2"
 [dev-dependencies]
 anyhow = "1.0"
 landlock = { path = "." }
-nix = "0.20"

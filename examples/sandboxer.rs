@@ -2,11 +2,11 @@ use anyhow::{anyhow, bail};
 use landlock::{
     make_bitflags, AccessFs, BitFlags, PathBeneath, Ruleset, RulesetCreated, RulesetStatus, ABI,
 };
-use nix::fcntl::{open, OFlag};
-use nix::sys::stat::Mode;
 use std::env;
 use std::ffi::{OsStr, OsString};
+use std::fs::OpenOptions;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
+use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Command;
@@ -47,7 +47,11 @@ fn populate_ruleset(
         .split(|b| *b == b':')
         .try_fold(ruleset, |inner_ruleset, path| {
             let path: PathBuf = OsStr::from_bytes(path).to_owned().into();
-            match open(&path, OFlag::O_PATH | OFlag::O_CLOEXEC, Mode::empty()) {
+            match OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_PATH | libc::O_CLOEXEC)
+                .open(&path)
+            {
                 Err(e) => {
                     bail!("Failed to open \"{}\": {}", path.to_string_lossy(), e);
                 }
