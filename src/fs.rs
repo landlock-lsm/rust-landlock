@@ -204,7 +204,7 @@ impl PrivateRule for PathBeneath<'_> {
         // Checks that this rule doesn't contain a superset of the access-rights handled by the
         // ruleset.  This check is about requested access-rights but not actual access-rights.
         // Indeed, we want to get a deterministic behavior, i.e. not based on the running kernel
-        // (which is handled by RulesetInit and RulesetCreated).
+        // (which is handled by Ruleset and RulesetCreated).
         if ruleset.requested_handled_fs.contains(self.allowed_access) {
             Ok(())
         } else {

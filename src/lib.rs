@@ -5,7 +5,7 @@ pub use compat::{Compatible, ABI};
 pub use enumflags2::{make_bitflags, BitFlags};
 pub use fs::{AccessFs, PathBeneath};
 use ruleset::PrivateRule;
-pub use ruleset::{RestrictionStatus, Rule, RulesetCreated, RulesetInit, RulesetStatus};
+pub use ruleset::{RestrictionStatus, Rule, Ruleset, RulesetCreated, RulesetStatus};
 
 #[cfg(test)]
 use std::io::Error;
@@ -21,7 +21,7 @@ mod tests {
     use std::fs::File;
 
     fn ruleset_root_compat() -> Result<RestrictionStatus, Error> {
-        let ruleset: RulesetInit = Compatibility::new().into();
+        let ruleset: Ruleset = Compatibility::new().into();
         ruleset
             .handle_fs(ABI::V1)?
             .create()?
@@ -31,7 +31,7 @@ mod tests {
 
     fn ruleset_root_fragile() -> Result<RestrictionStatus, Error> {
         // Sets default support requirement: abort the whole sandboxing for any Landlock error.
-        RulesetInit::new()
+        Ruleset::new()
             // Must have at least the execute check…
             .set_best_effort(false)
             .handle_fs(AccessFs::Execute)?

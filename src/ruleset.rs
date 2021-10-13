@@ -66,17 +66,17 @@ fn support_no_new_privs() -> bool {
 }
 
 #[cfg_attr(test, derive(Debug))]
-pub struct RulesetInit {
+pub struct Ruleset {
     requested_handled_fs: BitFlags<AccessFs>,
     actual_handled_fs: BitFlags<AccessFs>,
     compat: Compatibility,
 }
 
-impl From<Compatibility> for RulesetInit {
+impl From<Compatibility> for Ruleset {
     fn from(compat: Compatibility) -> Self {
         // TODO: Replace ABI::V1.into() with a Default implementation for BitFlags<_>
         let handled_fs = ABI::V1.into();
-        RulesetInit {
+        Ruleset {
             requested_handled_fs: handled_fs,
             actual_handled_fs: handled_fs,
             compat: compat,
@@ -84,7 +84,7 @@ impl From<Compatibility> for RulesetInit {
     }
 }
 
-impl RulesetInit {
+impl Ruleset {
     pub fn new() -> Self {
         // The API should be future-proof: one Rust program or library should have the same
         // behavior if built with an old or a newer crate (e.g. with an extended ruleset_attr
@@ -128,7 +128,7 @@ impl RulesetInit {
     }
 }
 
-impl Compatible for RulesetInit {
+impl Compatible for Ruleset {
     fn set_best_effort(mut self, best_effort: bool) -> Self {
         self.compat.is_best_effort = best_effort;
         self
@@ -243,7 +243,7 @@ fn ruleset_unsupported() {
         is_best_effort: true,
         state: CompatState::Start,
     };
-    let new_ruleset = |compat: &Compatibility| -> RulesetInit { compat.clone().into() };
+    let new_ruleset = |compat: &Compatibility| -> Ruleset { compat.clone().into() };
 
     assert_eq!(
         new_ruleset(&compat)
