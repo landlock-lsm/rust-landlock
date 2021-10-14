@@ -22,50 +22,57 @@ const ACCESS_FS_ROUGHLY_WRITE: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
         MakeBlock | MakeSym
 });
 
-/// Populates a given ruleset with PathBeneath landlock rules
-///
-/// # Arguments
-///
-/// * `ruleset` - The ruleset to add the rules to. Note that due to the current
-///   API, it is also returned at the end.
-/// * `paths` - An OsString that contains the paths that are going to be
-///   restricted. Paths are separated with ":", e.g. "/bin:/lib:/usr:/proc". In
-///   case an empty string is provided, NO restrictions are applied.
-/// * `access` - The set of restrictions to apply to each of the given paths.
-///
-fn populate_ruleset(
-    ruleset: RulesetCreated,
-    paths: OsString,
-    access: BitFlags<AccessFs>,
-) -> Result<RulesetCreated, anyhow::Error> {
-    if paths.len() == 0 {
-        return Ok(ruleset);
-    }
+trait RulesetCreatedExt {
+    /// Populates a given ruleset with PathBeneath landlock rules
+    ///
+    /// # Arguments
+    ///
+    /// * `paths` - An OsString that contains the paths that are going to be
+    ///   restricted. Paths are separated with ":", e.g. "/bin:/lib:/usr:/proc". In
+    ///   case an empty string is provided, NO restrictions are applied.
+    /// * `access` - The set of restrictions to apply to each of the given paths.
+    fn populate(
+        self,
+        paths: OsString,
+        access: BitFlags<AccessFs>,
+    ) -> Result<RulesetCreated, anyhow::Error>;
+}
 
-    paths
-        .into_vec()
-        .split(|b| *b == b':')
-        .try_fold(ruleset, |inner_ruleset, path| {
-            let path: PathBuf = OsStr::from_bytes(path).to_owned().into();
-            match OpenOptions::new()
-                .read(true)
-                .custom_flags(libc::O_PATH | libc::O_CLOEXEC)
-                .open(&path)
-            {
-                Err(e) => {
-                    bail!("Failed to open \"{}\": {}", path.to_string_lossy(), e);
+impl RulesetCreatedExt for RulesetCreated {
+    fn populate(
+        self,
+        paths: OsString,
+        access: BitFlags<AccessFs>,
+    ) -> Result<RulesetCreated, anyhow::Error> {
+        if paths.len() == 0 {
+            return Ok(self);
+        }
+
+        paths
+            .into_vec()
+            .split(|b| *b == b':')
+            .try_fold(self, |ruleset, path| {
+                let path: PathBuf = OsStr::from_bytes(path).to_owned().into();
+                match OpenOptions::new()
+                    .read(true)
+                    .custom_flags(libc::O_PATH | libc::O_CLOEXEC)
+                    .open(&path)
+                {
+                    Err(e) => {
+                        bail!("Failed to open \"{}\": {}", path.to_string_lossy(), e);
+                    }
+                    Ok(parent) => Ok(ruleset
+                        .add_rule(PathBeneath::new(&parent).allow_access(access))
+                        .map_err(|e| {
+                            anyhow!(
+                                "Failed to update ruleset with \"{}\": {}",
+                                path.to_string_lossy(),
+                                e
+                            )
+                        })?),
                 }
-                Ok(parent) => Ok(inner_ruleset
-                    .add_rule(PathBeneath::new(&parent).allow_access(access))
-                    .map_err(|e| {
-                        anyhow!(
-                            "Failed to update ruleset with \"{}\": {}",
-                            path.to_string_lossy(),
-                            e
-                        )
-                    })?),
-            }
-        })
+            })
+    }
 }
 
 fn main() -> Result<(), anyhow::Error> {
@@ -105,15 +112,13 @@ fn main() -> Result<(), anyhow::Error> {
 
     let cmd_name = args.get(1).map(|s| s.to_string_lossy()).unwrap();
 
-    let ruleset = Ruleset::new().handle_fs(ABI::V1)?.create()?;
-    let ruleset = populate_ruleset(ruleset, fs_ro, ACCESS_FS_ROUGHLY_READ)?;
-    let status = populate_ruleset(
-        ruleset,
-        fs_rw,
-        ACCESS_FS_ROUGHLY_READ | ACCESS_FS_ROUGHLY_WRITE,
-    )?
-    .restrict_self()
-    .expect("Failed to enforce ruleset");
+    let status = Ruleset::new()
+        .handle_fs(ABI::V1)?
+        .create()?
+        .populate(fs_ro, ACCESS_FS_ROUGHLY_READ)?
+        .populate(fs_rw, ACCESS_FS_ROUGHLY_READ | ACCESS_FS_ROUGHLY_WRITE)?
+        .restrict_self()
+        .expect("Failed to enforce ruleset");
 
     if status.ruleset == RulesetStatus::NotEnforced {
         bail!("Landlock is not supported by the running kernel.");
