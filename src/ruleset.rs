@@ -108,20 +108,10 @@ impl Ruleset {
         };
 
         match self.compat.abi {
-            ABI::Unsupported => Ok(RulesetCreated {
-                fd: -1,
-                no_new_privs: true,
-                requested_handled_fs: self.requested_handled_fs,
-                compat: self.compat,
-            }),
+            ABI::Unsupported => Ok(RulesetCreated::new(self, -1)),
             ABI::V1 => match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) }
             {
-                fd if fd >= 0 => Ok(RulesetCreated {
-                    fd: fd,
-                    no_new_privs: true,
-                    requested_handled_fs: self.requested_handled_fs,
-                    compat: self.compat,
-                }),
+                fd if fd >= 0 => Ok(RulesetCreated::new(self, fd)),
                 _ => Err(Error::last_os_error()),
             },
         }
@@ -144,6 +134,15 @@ pub struct RulesetCreated {
 }
 
 impl RulesetCreated {
+    fn new(ruleset: Ruleset, fd: RawFd) -> Self {
+        RulesetCreated {
+            fd: fd,
+            no_new_privs: true,
+            requested_handled_fs: ruleset.requested_handled_fs,
+            compat: ruleset.compat,
+        }
+    }
+
     pub fn add_rule<T>(mut self, rule: T) -> Result<Self, Error>
     where
         T: Rule,
