@@ -8,7 +8,6 @@ use std::fs::OpenOptions;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
-use std::path::PathBuf;
 use std::process::Command;
 
 const ENV_FS_RO_NAME: &str = "LL_FS_RO";
@@ -52,7 +51,7 @@ impl RulesetCreatedExt for RulesetCreated {
             .into_vec()
             .split(|b| *b == b':')
             .try_fold(self, |ruleset, path| {
-                let path: PathBuf = OsStr::from_bytes(path).to_owned().into();
+                let path = OsStr::from_bytes(path);
                 match OpenOptions::new()
                     .read(true)
                     .custom_flags(libc::O_PATH | libc::O_CLOEXEC)
