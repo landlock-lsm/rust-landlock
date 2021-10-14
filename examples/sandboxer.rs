@@ -76,11 +76,13 @@ impl RulesetCreatedExt for RulesetCreated {
 }
 
 fn main() -> Result<(), anyhow::Error> {
-    let args: Vec<_> = env::args_os().collect();
+    let mut args = env::args_os();
+    let program_name = args
+        .next()
+        .ok_or(anyhow!("Missing the sandboxer program name (i.e. argv[0])"))?;
 
-    let program_name = args.get(0).map(|s| s.to_string_lossy()).unwrap_or_default();
-
-    if args.len() < 2 {
+    let cmd_name = args.next().ok_or_else(|| {
+        let program_name = program_name.to_string_lossy();
         eprintln!(
             "usage: {}=\"...\" {}=\"...\" {} <cmd> [args]...\n",
             ENV_FS_RO_NAME, ENV_FS_RW_NAME, program_name
@@ -99,13 +101,11 @@ fn main() -> Result<(), anyhow::Error> {
             "\nexample:\n\
                 {}=\"/bin:/lib:/usr:/proc:/etc:/dev/urandom\" \
                 {}=\"/dev/null:/dev/full:/dev/zero:/dev/pts:/tmp\" \
-                {} bash -i",
+                {} bash -i\n",
             ENV_FS_RO_NAME, ENV_FS_RW_NAME, program_name
         );
-        return Ok(());
-    }
-
-    let cmd_name = args.get(1).map(|s| s.to_string_lossy()).unwrap();
+        anyhow!("Missing command")
+    })?;
 
     let status = Ruleset::new()
         .handle_fs(ABI::V1)?
@@ -122,10 +122,10 @@ fn main() -> Result<(), anyhow::Error> {
         bail!("Landlock is not supported by the running kernel.");
     }
 
-    Err(Command::new(cmd_name.to_string())
+    Err(Command::new(cmd_name)
         .env_remove(ENV_FS_RO_NAME)
         .env_remove(ENV_FS_RW_NAME)
-        .args(env::args().skip(2))
+        .args(args)
         .exec()
         .into())
 }
