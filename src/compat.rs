@@ -1,6 +1,5 @@
 use crate::{uapi, BitFlags};
 use enumflags2::BitFlag;
-use std::convert::{From, Into};
 use std::io::{Error, ErrorKind};
 
 #[cfg(test)]
@@ -19,22 +18,18 @@ impl ABI {
     // Must remain private to avoid inconsistent behavior by passing Ok(self) to a builder method,
     // e.g. to make it impossible to call ruleset.handle_fs(ABI::new_current()?)
     fn new_current() -> Self {
-        unsafe {
+        ABI::from(unsafe {
             // Landlock ABI version starts at 1 but errno is only set for negative values.
             uapi::landlock_create_ruleset(
                 std::ptr::null(),
                 0,
                 uapi::LANDLOCK_CREATE_RULESET_VERSION,
             )
-        }
-        .into()
+        })
     }
-}
 
-// There is no way to not publicly expose an implementation of an external trait.
-// See RFC PR: https://github.com/rust-lang/rfcs/pull/2529
-#[doc(hidden)]
-impl From<i32> for ABI {
+    // There is no way to not publicly expose an implementation of an external trait such as
+    // From<i32>.  See RFC https://github.com/rust-lang/rfcs/pull/2529
     fn from(value: i32) -> ABI {
         match value {
             // The only possible error values should be EOPNOTSUPP and ENOSYS, but let's interpret
