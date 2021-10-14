@@ -3,7 +3,7 @@ use landlock::{
     make_bitflags, AccessFs, BitFlags, PathBeneath, Ruleset, RulesetCreated, RulesetStatus, ABI,
 };
 use std::env;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
 use std::fs::OpenOptions;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::OpenOptionsExt;
@@ -26,23 +26,24 @@ trait RulesetCreatedExt {
     ///
     /// # Arguments
     ///
-    /// * `paths` - An OsString that contains the paths that are going to be
-    ///   restricted. Paths are separated with ":", e.g. "/bin:/lib:/usr:/proc". In
-    ///   case an empty string is provided, NO restrictions are applied.
-    /// * `access` - The set of restrictions to apply to each of the given paths.
-    fn populate(
+    /// * `name`: String identifying an environment variable containing paths requested to be
+    ///   allowed. Paths are separated with ":", e.g. "/bin:/lib:/usr:/proc". In case an empty
+    ///   string is provided, NO restrictions are applied.
+    /// * `access`: Set of access-rights allowed for each of the parsed paths.
+    fn populate_with_env(
         self,
-        paths: OsString,
+        name: &str,
         access: BitFlags<AccessFs>,
     ) -> Result<RulesetCreated, anyhow::Error>;
 }
 
 impl RulesetCreatedExt for RulesetCreated {
-    fn populate(
+    fn populate_with_env(
         self,
-        paths: OsString,
+        name: &str,
         access: BitFlags<AccessFs>,
     ) -> Result<RulesetCreated, anyhow::Error> {
+        let paths = env::var_os(name).ok_or(anyhow!("Missing environment variable {}", name))?;
         if paths.len() == 0 {
             return Ok(self);
         }
@@ -104,18 +105,16 @@ fn main() -> Result<(), anyhow::Error> {
         return Ok(());
     }
 
-    let fs_ro = env::var_os(ENV_FS_RO_NAME)
-        .expect(&format!("Missing environment variable {}", ENV_FS_RO_NAME));
-    let fs_rw = env::var_os(ENV_FS_RW_NAME)
-        .expect(&format!("Missing environment variable {}", ENV_FS_RW_NAME));
-
     let cmd_name = args.get(1).map(|s| s.to_string_lossy()).unwrap();
 
     let status = Ruleset::new()
         .handle_fs(ABI::V1)?
         .create()?
-        .populate(fs_ro, ACCESS_FS_ROUGHLY_READ)?
-        .populate(fs_rw, ACCESS_FS_ROUGHLY_READ | ACCESS_FS_ROUGHLY_WRITE)?
+        .populate_with_env(ENV_FS_RO_NAME, ACCESS_FS_ROUGHLY_READ)?
+        .populate_with_env(
+            ENV_FS_RW_NAME,
+            ACCESS_FS_ROUGHLY_READ | ACCESS_FS_ROUGHLY_WRITE,
+        )?
         .restrict_self()
         .expect("Failed to enforce ruleset");
 
