@@ -1,12 +1,11 @@
 use anyhow::{anyhow, bail};
 use landlock::{
-    make_bitflags, AccessFs, BitFlags, PathBeneath, Ruleset, RulesetCreated, RulesetStatus, ABI,
+    make_bitflags, AccessFs, BitFlags, PathBeneath, PathFd, Ruleset, RulesetCreated, RulesetStatus,
+    ABI,
 };
 use std::env;
 use std::ffi::OsStr;
-use std::fs::OpenOptions;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
-use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
 use std::process::Command;
 
@@ -53,24 +52,20 @@ impl RulesetCreatedExt for RulesetCreated {
             .split(|b| *b == b':')
             .try_fold(self, |ruleset, path| {
                 let path = OsStr::from_bytes(path);
-                match OpenOptions::new()
-                    .read(true)
-                    .custom_flags(libc::O_PATH | libc::O_CLOEXEC)
-                    .open(&path)
-                {
-                    Err(e) => {
-                        bail!("Failed to open \"{}\": {}", path.to_string_lossy(), e);
-                    }
-                    Ok(parent) => Ok(ruleset
-                        .add_rule(PathBeneath::new(&parent).allow_access(access))
-                        .map_err(|e| {
-                            anyhow!(
-                                "Failed to update ruleset with \"{}\": {}",
-                                path.to_string_lossy(),
-                                e
-                            )
-                        })?),
-                }
+                Ok(ruleset
+                    .add_rule(
+                        PathBeneath::new(&PathFd::new(&path).map_err(|e| {
+                            anyhow!("Failed to open \"{}\": {}", path.to_string_lossy(), e)
+                        })?)
+                        .allow_access(access),
+                    )
+                    .map_err(|e| {
+                        anyhow!(
+                            "Failed to update ruleset with \"{}\": {}",
+                            path.to_string_lossy(),
+                            e
+                        )
+                    })?)
             })
     }
 }

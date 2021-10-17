@@ -234,7 +234,6 @@ impl Compatible for RulesetCreated {
 
 #[test]
 fn ruleset_unsupported() {
-    use std::fs::File;
     use std::io::ErrorKind;
 
     let mut compat = Compatibility {
@@ -326,7 +325,7 @@ fn ruleset_unsupported() {
                 .create()
                 .unwrap()
                 .add_rule(
-                    PathBeneath::new(&File::open("/").unwrap()).allow_access(AccessFs::ReadFile)
+                    PathBeneath::new(&PathFd::new("/").unwrap()).allow_access(AccessFs::ReadFile)
                 )
                 .unwrap_err()
                 .kind(),

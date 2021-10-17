@@ -2,10 +2,13 @@ use crate::{
     uapi, CompatState, Compatibility, Compatible, PrivateRule, Rule, RulesetCreated, TryCompat, ABI,
 };
 use enumflags2::{bitflags, make_bitflags, BitFlags};
+use std::fs::{File, OpenOptions};
 use std::io::Error;
 use std::marker::PhantomData;
 use std::mem::zeroed;
-use std::os::unix::io::AsRawFd;
+use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::io::{AsRawFd, RawFd};
+use std::path::Path;
 
 /// WARNING: Don't use `BitFlags::<AccessFs>::all()` nor `BitFlags::ALL` but `ABI::V1.into()`
 /// instead.
@@ -149,7 +152,6 @@ impl Compatible for PathBeneath<'_> {
 #[test]
 fn path_beneath_try_compat() {
     use crate::*;
-    use std::fs::File;
     use std::io::ErrorKind;
 
     let compat = Compatibility {
@@ -161,7 +163,7 @@ fn path_beneath_try_compat() {
     for file in &["/etc/passwd", "/dev/null"] {
         let mut compat_copy = compat.clone();
         assert_eq!(
-            PathBeneath::new(&File::open(file).unwrap())
+            PathBeneath::new(&PathFd::new(file).unwrap())
                 .allow_access(AccessFs::ReadDir)
                 .set_best_effort(false)
                 .try_compat(&mut compat_copy)
@@ -175,7 +177,7 @@ fn path_beneath_try_compat() {
     let full_access: BitFlags<AccessFs> = ABI::V1.into();
     for best_effort in &[true, false] {
         let mut compat_copy = compat.clone();
-        let raw_access = PathBeneath::new(&File::open("/").unwrap())
+        let raw_access = PathBeneath::new(&PathFd::new("/").unwrap())
             .allow_access(full_access)
             .set_best_effort(*best_effort)
             .try_compat(&mut compat_copy)
@@ -216,4 +218,39 @@ impl PrivateRule for PathBeneath<'_> {
             Err(Error::from_raw_os_error(libc::EINVAL))
         }
     }
+}
+
+pub struct PathFd {
+    file: File,
+    // TODO: Keep path string for error handling.
+}
+
+impl PathFd {
+    pub fn new<T>(path: T) -> Result<Self, Error>
+    where
+        T: AsRef<Path>,
+    {
+        // TODO: Add fallback for kernel not supporting O_PATH.
+        Ok(PathFd {
+            file: OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_PATH | libc::O_CLOEXEC)
+                .open(path.as_ref())?,
+        })
+    }
+}
+
+impl AsRawFd for PathFd {
+    fn as_raw_fd(&self) -> RawFd {
+        self.file.as_raw_fd()
+    }
+}
+
+#[test]
+fn path_fd() {
+    use std::fs::File;
+
+    PathBeneath::new(&PathFd::new("/").unwrap());
+    PathBeneath::new(&File::open("/").unwrap());
+    // TODO: Test that reading the content doesn't work.
 }

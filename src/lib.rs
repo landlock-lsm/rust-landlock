@@ -3,7 +3,7 @@ extern crate enumflags2;
 use compat::{CompatState, Compatibility, TryCompat};
 pub use compat::{Compatible, ABI};
 pub use enumflags2::{make_bitflags, BitFlags};
-pub use fs::{AccessFs, PathBeneath};
+pub use fs::{AccessFs, PathBeneath, PathFd};
 use ruleset::PrivateRule;
 pub use ruleset::{RestrictionStatus, Rule, Ruleset, RulesetCreated, RulesetStatus};
 
@@ -18,14 +18,13 @@ mod uapi;
 #[cfg(test)]
 mod tests {
     use crate::*;
-    use std::fs::File;
 
     fn ruleset_root_compat() -> Result<RestrictionStatus, Error> {
         let ruleset: Ruleset = Compatibility::new().into();
         ruleset
             .handle_fs(ABI::V1)?
             .create()?
-            .add_rule(PathBeneath::new(&File::open("/")?).allow_access(ABI::V1))?
+            .add_rule(PathBeneath::new(&PathFd::new("/")?).allow_access(ABI::V1))?
             .restrict_self()
     }
 
@@ -40,7 +39,7 @@ mod tests {
             .handle_fs(ABI::V1)?
             .create()?
             .set_no_new_privs(true)
-            .add_rule(PathBeneath::new(&File::open("/")?).allow_access(ABI::V1))?
+            .add_rule(PathBeneath::new(&PathFd::new("/")?).allow_access(ABI::V1))?
             .restrict_self()
     }
 
