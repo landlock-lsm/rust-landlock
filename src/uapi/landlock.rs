@@ -41,16 +41,6 @@ fn bindgen_test_layout___kernel_fd_set() {
         8usize,
         concat!("Alignment of ", stringify!(__kernel_fd_set))
     );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<__kernel_fd_set>())).fds_bits as *const _ as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(__kernel_fd_set),
-            "::",
-            stringify!(fds_bits)
-        )
-    );
 }
 pub type __kernel_sighandler_t =
     ::std::option::Option<unsafe extern "C" fn(arg1: ::std::os::raw::c_int)>;
@@ -90,16 +80,6 @@ fn bindgen_test_layout___kernel_fsid_t() {
         ::std::mem::align_of::<__kernel_fsid_t>(),
         4usize,
         concat!("Alignment of ", stringify!(__kernel_fsid_t))
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<__kernel_fsid_t>())).val as *const _ as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(__kernel_fsid_t),
-            "::",
-            stringify!(val)
-        )
     );
 }
 pub type __kernel_off_t = __kernel_long_t;
@@ -147,18 +127,6 @@ fn bindgen_test_layout_landlock_ruleset_attr() {
         8usize,
         concat!("Alignment of ", stringify!(landlock_ruleset_attr))
     );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<landlock_ruleset_attr>())).handled_access_fs as *const _ as usize
-        },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(landlock_ruleset_attr),
-            "::",
-            stringify!(handled_access_fs)
-        )
-    );
 }
 #[doc = " @LANDLOCK_RULE_PATH_BENEATH: Type of a &struct"]
 #[doc = " landlock_path_beneath_attr ."]
@@ -191,30 +159,5 @@ fn bindgen_test_layout_landlock_path_beneath_attr() {
         ::std::mem::align_of::<landlock_path_beneath_attr>(),
         1usize,
         concat!("Alignment of ", stringify!(landlock_path_beneath_attr))
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<landlock_path_beneath_attr>())).allowed_access as *const _
-                as usize
-        },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(landlock_path_beneath_attr),
-            "::",
-            stringify!(allowed_access)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<landlock_path_beneath_attr>())).parent_fd as *const _ as usize
-        },
-        8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(landlock_path_beneath_attr),
-            "::",
-            stringify!(parent_fd)
-        )
     );
 }
