@@ -97,7 +97,7 @@ impl PathBeneath<'_> {
     }
 
     // Check with our own support requirement.
-    fn filter_access(&mut self) -> Result<(), Error> {
+    fn filter_access(mut self) -> Result<Self, Error> {
         let is_file = unsafe {
             let mut stat = zeroed();
             match libc::fstat(self.attr.parent_fd, &mut stat) {
@@ -120,18 +120,22 @@ impl PathBeneath<'_> {
                 return Err(Error::from_raw_os_error(libc::EINVAL));
             }
         }
-        Ok(())
+        Ok(self)
     }
 }
 
 impl TryCompat for PathBeneath<'_> {
-    fn try_compat(mut self, compat: &mut Compatibility) -> Result<Self, Error> {
-        if let Err(e) = self.filter_access() {
-            compat.state.update(CompatState::No);
-            return Err(e);
+    fn try_compat(self, compat: &mut Compatibility) -> Result<Self, Error> {
+        match self.filter_access() {
+            Err(e) => {
+                compat.state.update(CompatState::No);
+                Err(e)
+            }
+            Ok(mut filtered) => {
+                filtered.attr.allowed_access = filtered.allowed_access.try_compat(compat)?.bits();
+                Ok(filtered)
+            }
         }
-        self.attr.allowed_access = self.allowed_access.try_compat(compat)?.bits();
-        Ok(self)
     }
 }
 
