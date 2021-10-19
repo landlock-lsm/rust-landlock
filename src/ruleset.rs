@@ -1,4 +1,8 @@
-use crate::{uapi, AccessFs, BitFlags, CompatState, Compatibility, Compatible, TryCompat, ABI};
+use crate::{
+    uapi, AccessFs, AddRuleError, BitFlags, CompatState, Compatibility, Compatible,
+    CreateRulesetError, HandleFsError, RestrictSelfError, TryCompat, ABI,
+};
+use enumflags2::BitFlag;
 use libc::close;
 use std::io::Error;
 use std::mem::size_of_val;
@@ -8,14 +12,21 @@ use std::os::unix::io::RawFd;
 use crate::*;
 
 // Public interface without methods and which is impossible to implement outside this crate.
-pub trait Rule: PrivateRule {}
+pub trait Rule<T>: PrivateRule<T>
+where
+    T: BitFlag,
+{
+}
 
 // PrivateRule is not public outside this crate.
-pub trait PrivateRule: TryCompat {
+pub trait PrivateRule<T>: TryCompat<T>
+where
+    T: BitFlag,
+{
     fn as_ptr(&self) -> *const libc::c_void;
     fn get_type_id(&self) -> uapi::landlock_rule_type;
     fn get_flags(&self) -> u32;
-    fn check_consistency(&self, ruleset: &RulesetCreated) -> Result<(), Error>;
+    fn check_consistency(&self, ruleset: &RulesetCreated) -> Result<(), AddRuleError<T>>;
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -93,7 +104,9 @@ impl Ruleset {
         Compatibility::new().into()
     }
 
-    pub fn handle_fs<T>(mut self, access: T) -> Result<Self, Error>
+    // TODO: Implement with DerefMut<Target = Ruleset> once arbitrary_self_types is in stable:
+    // https://github.com/rust-lang/rust/issues/44874
+    pub fn handle_fs<T>(mut self, access: T) -> Result<Self, HandleFsError>
     where
         T: Into<BitFlags<AccessFs>>,
     {
@@ -102,7 +115,7 @@ impl Ruleset {
         Ok(self)
     }
 
-    pub fn create(self) -> Result<RulesetCreated, Error> {
+    pub fn create(self) -> Result<RulesetCreated, CreateRulesetError> {
         let attr = uapi::landlock_ruleset_attr {
             handled_access_fs: self.actual_handled_fs.bits(),
         };
@@ -112,7 +125,9 @@ impl Ruleset {
             ABI::V1 => match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) }
             {
                 fd if fd >= 0 => Ok(RulesetCreated::new(self, fd)),
-                _ => Err(Error::last_os_error()),
+                _ => Err(CreateRulesetError::CreateRulesetCall {
+                    source: Error::last_os_error(),
+                }),
             },
         }
     }
@@ -143,9 +158,10 @@ impl RulesetCreated {
         }
     }
 
-    pub fn add_rule<T>(mut self, rule: T) -> Result<Self, Error>
+    pub fn add_rule<T, U>(mut self, rule: T) -> Result<Self, AddRuleError<U>>
     where
-        T: Rule,
+        T: Rule<U>,
+        U: BitFlag,
     {
         rule.check_consistency(&self)?;
         let compat_rule = rule.try_compat(&mut self.compat)?;
@@ -160,7 +176,9 @@ impl RulesetCreated {
                 )
             } {
                 0 => Ok(self),
-                _ => Err(Error::last_os_error()),
+                _ => Err(AddRuleError::AddRuleCall {
+                    source: Error::last_os_error(),
+                }),
             },
         }
     }
@@ -170,7 +188,7 @@ impl RulesetCreated {
         self
     }
 
-    pub fn restrict_self(mut self) -> Result<RestrictionStatus, Error> {
+    pub fn restrict_self(mut self) -> Result<RestrictionStatus, RestrictSelfError> {
         let enforced_nnp = if self.no_new_privs {
             if let Err(e) = prctl_set_no_new_privs() {
                 // To get a consistent behavior, calls this prctl whether or not Landlock is
@@ -183,12 +201,12 @@ impl RulesetCreated {
                         if support_nnp {
                             // The kernel seems to be between 3.5 (included) and 5.13 (excluded),
                             // or Landlock is not enabled; no_new_privs should be supported anyway.
-                            return Err(e);
+                            return Err(RestrictSelfError::UnsupportedNoNewPrivs { source: e });
                         }
                     }
                     // A kernel supporting Landlock should also support no_new_privs (unless
                     // filtered by seccomp).
-                    _ => return Err(e),
+                    _ => return Err(RestrictSelfError::UnsupportedNoNewPrivs { source: e }),
                 }
                 false
             } else {
@@ -211,7 +229,10 @@ impl RulesetCreated {
                         no_new_privs: enforced_nnp,
                     })
                 }
-                _ => Err(Error::last_os_error()),
+                // TODO: match specific Landlock restrict self errors
+                _ => Err(RestrictSelfError::RestrictSelfCall {
+                    source: Error::last_os_error(),
+                }),
             },
         }
     }
@@ -234,7 +255,7 @@ impl Compatible for RulesetCreated {
 
 #[test]
 fn ruleset_unsupported() {
-    use std::io::ErrorKind;
+    use crate::errors::*;
 
     let mut compat = Compatibility {
         abi: ABI::Unsupported,
@@ -281,16 +302,29 @@ fn ruleset_unsupported() {
         }
     );
 
-    assert_eq!(
+    assert!(matches!(
         new_ruleset(&compat)
             // Empty access-rights
             .handle_fs(ABI::Unsupported)
-            .unwrap_err()
-            .kind(),
-        ErrorKind::Other
-    );
+            .unwrap_err(),
+        HandleFsError::Compat(CompatError::Access(AccessError::Empty))
+    ));
 
     compat.abi = ABI::V1;
+
+    // Restricting without rule execptions is legitimate to forbid a set of actions.
+    assert_eq!(
+        new_ruleset(&compat)
+            .create()
+            .unwrap()
+            .restrict_self()
+            .unwrap(),
+        RestrictionStatus {
+            ruleset: RulesetStatus::FullyEnforced,
+            no_new_privs: true,
+        }
+    );
+
     assert_eq!(
         new_ruleset(&compat)
             .handle_fs(AccessFs::Execute)
@@ -304,21 +338,21 @@ fn ruleset_unsupported() {
             no_new_privs: true,
         }
     );
-    assert_eq!(
+
+    assert!(matches!(
         new_ruleset(&compat)
             // Empty access-rights
             .handle_fs(ABI::Unsupported)
-            .unwrap_err()
-            .kind(),
-        ErrorKind::Other
-    );
+            .unwrap_err(),
+        HandleFsError::Compat(CompatError::Access(AccessError::Empty))
+    ));
 
     // Tests inconsistency between the ruleset handled access-rights and the rule access-rights.
     for handled_access in &[
         make_bitflags!(AccessFs::{Execute | WriteFile}),
         AccessFs::Execute.into(),
     ] {
-        assert_eq!(
+        assert!(matches!(
             new_ruleset(&compat)
                 .handle_fs(*handled_access)
                 .unwrap()
@@ -327,9 +361,8 @@ fn ruleset_unsupported() {
                 .add_rule(
                     PathBeneath::new(&PathFd::new("/").unwrap()).allow_access(AccessFs::ReadFile)
                 )
-                .unwrap_err()
-                .kind(),
-            ErrorKind::InvalidInput
-        );
+                .unwrap_err(),
+            AddRuleError::UnhandledAccess { .. }
+        ));
     }
 }

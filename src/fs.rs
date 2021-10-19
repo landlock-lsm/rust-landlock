@@ -1,5 +1,6 @@
 use crate::{
-    uapi, CompatState, Compatibility, Compatible, PrivateRule, Rule, RulesetCreated, TryCompat, ABI,
+    uapi, AddRuleError, CompatError, CompatState, Compatibility, Compatible, PathBeneathError,
+    PrivateRule, Rule, RulesetCreated, TryCompat, ABI,
 };
 use enumflags2::{bitflags, make_bitflags, BitFlags};
 use std::fs::{File, OpenOptions};
@@ -100,12 +101,16 @@ impl PathBeneath<'_> {
     }
 
     // Check with our own support requirement.
-    fn filter_access(mut self) -> Result<Self, Error> {
+    fn filter_access(mut self) -> Result<Self, PathBeneathError> {
         let is_file = unsafe {
             let mut stat = zeroed();
             match libc::fstat(self.attr.parent_fd, &mut stat) {
                 0 => (stat.st_mode & libc::S_IFMT) != libc::S_IFDIR,
-                _ => return Err(Error::last_os_error()),
+                _ => {
+                    return Err(PathBeneathError::StatCall {
+                        source: Error::last_os_error(),
+                    })
+                }
             }
         };
 
@@ -120,19 +125,23 @@ impl PathBeneath<'_> {
             if self.is_best_effort {
                 self.allowed_access = valid_access;
             } else {
-                return Err(Error::from_raw_os_error(libc::EINVAL));
+                // Linux would return EINVAL.
+                return Err(PathBeneathError::DirectoryAccess {
+                    access: self.allowed_access,
+                    incompatible: self.allowed_access ^ valid_access,
+                });
             }
         }
         Ok(self)
     }
 }
 
-impl TryCompat for PathBeneath<'_> {
-    fn try_compat(self, compat: &mut Compatibility) -> Result<Self, Error> {
+impl TryCompat<AccessFs> for PathBeneath<'_> {
+    fn try_compat(self, compat: &mut Compatibility) -> Result<Self, CompatError<AccessFs>> {
         match self.filter_access() {
             Err(e) => {
                 compat.state.update(CompatState::No);
-                Err(e)
+                Err(e.into())
             }
             Ok(mut filtered) => {
                 filtered.attr.allowed_access = filtered.allowed_access.try_compat(compat)?.bits();
@@ -152,7 +161,6 @@ impl Compatible for PathBeneath<'_> {
 #[test]
 fn path_beneath_try_compat() {
     use crate::*;
-    use std::io::ErrorKind;
 
     let compat = Compatibility {
         abi: ABI::V1,
@@ -162,15 +170,16 @@ fn path_beneath_try_compat() {
 
     for file in &["/etc/passwd", "/dev/null"] {
         let mut compat_copy = compat.clone();
-        assert_eq!(
+        let ro_access = AccessFs::ReadDir | AccessFs::ReadFile;
+        assert!(matches!(
             PathBeneath::new(&PathFd::new(file).unwrap())
-                .allow_access(AccessFs::ReadDir)
+                .allow_access(ro_access)
                 .set_best_effort(false)
                 .try_compat(&mut compat_copy)
-                .unwrap_err()
-                .kind(),
-            ErrorKind::InvalidInput
-        );
+                .unwrap_err(),
+            CompatError::PathBeneath(PathBeneathError::DirectoryAccess { access, incompatible })
+                if access == ro_access && incompatible == AccessFs::ReadDir
+        ));
         assert_eq!(compat_copy.state, CompatState::No);
     }
 
@@ -191,9 +200,9 @@ fn path_beneath_try_compat() {
 
 // It is useful for documentation generation to explicitely implement Rule for every types, instead
 // of doing it generically.
-impl Rule for PathBeneath<'_> {}
+impl Rule<AccessFs> for PathBeneath<'_> {}
 
-impl PrivateRule for PathBeneath<'_> {
+impl PrivateRule<AccessFs> for PathBeneath<'_> {
     fn as_ptr(&self) -> *const libc::c_void {
         &self.attr as *const _ as _
     }
@@ -206,7 +215,7 @@ impl PrivateRule for PathBeneath<'_> {
         0
     }
 
-    fn check_consistency(&self, ruleset: &RulesetCreated) -> Result<(), Error> {
+    fn check_consistency(&self, ruleset: &RulesetCreated) -> Result<(), AddRuleError<AccessFs>> {
         // Checks that this rule doesn't contain a superset of the access-rights handled by the
         // ruleset.  This check is about requested access-rights but not actual access-rights.
         // Indeed, we want to get a deterministic behavior, i.e. not based on the running kernel
@@ -214,10 +223,31 @@ impl PrivateRule for PathBeneath<'_> {
         if ruleset.requested_handled_fs.contains(self.allowed_access) {
             Ok(())
         } else {
-            // TODO: Replace all Error::from_raw_os_error() with high-level errors.
-            Err(Error::from_raw_os_error(libc::EINVAL))
+            Err(AddRuleError::UnhandledAccess {
+                access: self.allowed_access,
+                incompatible: self.allowed_access & !ruleset.requested_handled_fs,
+            })
         }
     }
+}
+
+#[test]
+fn path_beneath_check_consistency() {
+    use crate::*;
+
+    let ro_access = AccessFs::ReadDir | AccessFs::ReadFile;
+    let rx_access = AccessFs::Execute | AccessFs::ReadFile;
+    assert!(matches!(
+        Ruleset::new()
+            .handle_fs(ro_access)
+            .unwrap()
+            .create()
+            .unwrap()
+            .add_rule(PathBeneath::new(&PathFd::new("/").unwrap()).allow_access(rx_access))
+            .unwrap_err(),
+        AddRuleError::UnhandledAccess { access, incompatible }
+            if access == rx_access && incompatible == AccessFs::Execute
+    ));
 }
 
 pub struct PathFd {

@@ -1,6 +1,5 @@
-use crate::{uapi, BitFlags};
+use crate::{uapi, AccessError, BitFlags, CompatError};
 use enumflags2::BitFlag;
-use std::io::{Error, ErrorKind};
 
 #[cfg(test)]
 use crate::{make_bitflags, AccessFs};
@@ -172,29 +171,49 @@ pub trait Compatible {
 }
 
 // TryCompat is not public outside this crate.
-pub trait TryCompat {
-    fn try_compat(self, compat: &mut Compatibility) -> Result<Self, Error>
+pub trait TryCompat<T> {
+    fn try_compat(self, compat: &mut Compatibility) -> Result<Self, CompatError<T>>
     where
-        Self: Sized;
+        Self: Sized,
+        T: BitFlag;
 }
 
-impl<T> TryCompat for BitFlags<T>
+// Creates an illegal/overflowed BitFlags<T> with all its bits toggled, including undefined ones.
+fn full_negation<T>(flags: BitFlags<T>) -> BitFlags<T>
+where
+    T: BitFlag,
+{
+    unsafe { BitFlags::<T>::from_bits_unchecked(!flags.bits()) }
+}
+
+#[test]
+fn bit_flags_full_negation() {
+    let scoped_negation = !BitFlags::<AccessFs>::all();
+    assert_eq!(scoped_negation, BitFlags::<AccessFs>::empty());
+    // !BitFlags::<AccessFs>::all() could be equal to full_negation(BitFlags::<AccessFs>::all()))
+    // if all the 64-bits would be used, which is not currently the case.
+    assert_ne!(scoped_negation, full_negation(BitFlags::<AccessFs>::all()));
+}
+
+impl<T> TryCompat<T> for BitFlags<T>
 where
     T: BitFlag,
     BitFlags<T>: From<ABI>,
 {
-    fn try_compat(self, compat: &mut Compatibility) -> Result<Self, Error> {
+    fn try_compat(self, compat: &mut Compatibility) -> Result<Self, CompatError<T>> {
         let (state, ret) = if self.is_empty() {
             // Empty access-rights would result to a runtime error.
-            (
-                CompatState::Final,
-                Err(Error::from_raw_os_error(libc::ENOMSG)),
-            )
+            (CompatState::Final, Err(AccessError::Empty.into()))
         } else if !Self::all().contains(self) {
             // Unknown access-rights (at build time) would result to a runtime error.
+            // This can only be reached by using the unsafe BitFlags::from_bits_unchecked().
             (
                 CompatState::Final,
-                Err(Error::from_raw_os_error(libc::ENOMSG)),
+                Err(AccessError::Unknown {
+                    access: self,
+                    unknown: self & full_negation(Self::all()),
+                }
+                .into()),
             )
         } else {
             let compat_bits = self & Self::from(compat.abi);
@@ -202,9 +221,12 @@ where
                 (
                     CompatState::No,
                     if compat.is_best_effort {
+                        // TODO: This creates an empty access-right and could be an issue with
+                        // future ABIs.  This method should return Result<Option<Self>,
+                        // CompatError> instead, and in this case Ok(None).
                         Ok(compat_bits)
                     } else {
-                        Err(Error::new(ErrorKind::InvalidData, "Incompatibility"))
+                        Err(AccessError::Incompatible { access: self }.into())
                     },
                 )
             } else if compat_bits != self {
@@ -213,7 +235,11 @@ where
                     if compat.is_best_effort {
                         Ok(compat_bits)
                     } else {
-                        Err(Error::new(ErrorKind::InvalidData, "Partial compatibility"))
+                        Err(AccessError::PartiallyCompatible {
+                            access: self,
+                            incompatible: self & full_negation(compat_bits),
+                        }
+                        .into())
                     },
                 )
             } else {
@@ -237,28 +263,22 @@ fn compat_bit_flags() {
     assert_eq!(ro_access, ro_access.try_compat(&mut compat).unwrap());
 
     let empty_access = BitFlags::<AccessFs>::empty();
-    assert_eq!(
-        ErrorKind::Other,
-        empty_access.try_compat(&mut compat).unwrap_err().kind()
-    );
+    assert!(matches!(
+        empty_access.try_compat(&mut compat).unwrap_err(),
+        CompatError::Access(AccessError::Empty)
+    ));
 
     let all_unknown_access = unsafe { BitFlags::<AccessFs>::from_bits_unchecked(1 << 63) };
-    assert_eq!(
-        ErrorKind::Other,
-        all_unknown_access
-            .try_compat(&mut compat)
-            .unwrap_err()
-            .kind()
-    );
+    assert!(matches!(
+        all_unknown_access.try_compat(&mut compat).unwrap_err(),
+        CompatError::Access(AccessError::Unknown { access, unknown }) if access == all_unknown_access && unknown == all_unknown_access
+    ));
 
     let some_unknown_access = unsafe { BitFlags::<AccessFs>::from_bits_unchecked(1 << 63 | 1) };
-    assert_eq!(
-        ErrorKind::Other,
-        some_unknown_access
-            .try_compat(&mut compat)
-            .unwrap_err()
-            .kind()
-    );
+    assert!(matches!(
+        some_unknown_access.try_compat(&mut compat).unwrap_err(),
+        CompatError::Access(AccessError::Unknown { access, unknown }) if access == some_unknown_access && unknown == all_unknown_access
+    ));
 
     // Access-rights are valid (but ignored) when they are not required for the current ABI.
     compat.abi = ABI::Unsupported;
@@ -266,8 +286,8 @@ fn compat_bit_flags() {
 
     // Access-rights are not valid when they are required for the current ABI.
     compat.is_best_effort = false;
-    assert_eq!(
-        ErrorKind::InvalidData,
-        ro_access.try_compat(&mut compat).unwrap_err().kind()
-    );
+    assert!(matches!(
+        ro_access.try_compat(&mut compat).unwrap_err(),
+        CompatError::Access(AccessError::Incompatible { access }) if access == ro_access
+    ));
 }
