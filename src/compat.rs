@@ -184,19 +184,14 @@ where
     BitFlags<T>: From<ABI>,
 {
     fn try_compat(self, compat: &mut Compatibility) -> Result<Self, Error> {
-        let access_mask = if compat.is_best_effort {
-            Self::all()
-        } else {
-            Self::from(compat.abi)
-        };
         let (state, ret) = if self.is_empty() {
             // Empty access-rights would result to a runtime error.
             (
                 CompatState::Final,
                 Err(Error::from_raw_os_error(libc::ENOMSG)),
             )
-        } else if !access_mask.contains(self) {
-            // Unknown access-rights would result to a runtime error.
+        } else if !Self::all().contains(self) {
+            // Unknown access-rights (at build time) would result to a runtime error.
             (
                 CompatState::Final,
                 Err(Error::from_raw_os_error(libc::ENOMSG)),
@@ -272,7 +267,7 @@ fn compat_bit_flags() {
     // Access-rights are not valid when they are required for the current ABI.
     compat.is_best_effort = false;
     assert_eq!(
-        ErrorKind::Other,
+        ErrorKind::InvalidData,
         ro_access.try_compat(&mut compat).unwrap_err().kind()
     );
 }
