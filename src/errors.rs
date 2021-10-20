@@ -106,11 +106,9 @@ where
 #[non_exhaustive]
 pub enum RestrictSelfError {
     /// The `prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)` system call failed.
-    #[error(
-        "failed to use PR_SET_NO_NEW_PRIVS whereas it should be supported by the running kernel: {source}"
-    )]
+    #[error("failed to set no_new_privs: {source}")]
     #[non_exhaustive]
-    UnsupportedNoNewPrivs { source: io::Error },
+    SetNoNewPrivsCall { source: io::Error },
     /// The `landlock_restrict_self() `system call failed.
     #[error("failed to restrict the calling thread: {source}")]
     #[non_exhaustive]

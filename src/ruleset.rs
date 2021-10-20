@@ -191,6 +191,9 @@ impl RulesetCreated {
     pub fn restrict_self(mut self) -> Result<RestrictionStatus, RestrictSelfError> {
         let enforced_nnp = if self.no_new_privs {
             if let Err(e) = prctl_set_no_new_privs() {
+                if !self.compat.is_best_effort {
+                    return Err(RestrictSelfError::SetNoNewPrivsCall { source: e });
+                }
                 // To get a consistent behavior, calls this prctl whether or not Landlock is
                 // supported by the running kernel.
                 let support_nnp = support_no_new_privs();
@@ -201,12 +204,12 @@ impl RulesetCreated {
                         if support_nnp {
                             // The kernel seems to be between 3.5 (included) and 5.13 (excluded),
                             // or Landlock is not enabled; no_new_privs should be supported anyway.
-                            return Err(RestrictSelfError::UnsupportedNoNewPrivs { source: e });
+                            return Err(RestrictSelfError::SetNoNewPrivsCall { source: e });
                         }
                     }
                     // A kernel supporting Landlock should also support no_new_privs (unless
                     // filtered by seccomp).
-                    _ => return Err(RestrictSelfError::UnsupportedNoNewPrivs { source: e }),
+                    _ => return Err(RestrictSelfError::SetNoNewPrivsCall { source: e }),
                 }
                 false
             } else {
