@@ -42,7 +42,7 @@ pub enum RulesetStatus {
 impl From<CompatState> for RulesetStatus {
     fn from(state: CompatState) -> Self {
         match state {
-            CompatState::Start | CompatState::No | CompatState::Final => RulesetStatus::NotEnforced,
+            CompatState::No | CompatState::Final => RulesetStatus::NotEnforced,
             CompatState::Full => RulesetStatus::FullyEnforced,
             CompatState::Partial => RulesetStatus::PartiallyEnforced,
         }

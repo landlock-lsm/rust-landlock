@@ -57,8 +57,6 @@ fn abi_from() {
 #[cfg_attr(test, derive(Debug, PartialEq))]
 #[derive(Copy, Clone)]
 pub(crate) enum CompatState {
-    /// Initial unknown state.
-    Start,
     /// All requested restrictions are enforced.
     Full,
     /// Some requested restrictions are enforced, following a best-effort approach.
@@ -74,8 +72,6 @@ impl CompatState {
         *self = match (*self, other) {
             (CompatState::Final, _) => CompatState::Final,
             (_, CompatState::Final) => CompatState::Final,
-            (CompatState::Start, state) => state,
-            (state, CompatState::Start) => state,
             (CompatState::No, CompatState::No) => CompatState::No,
             (CompatState::Full, CompatState::Full) => CompatState::Full,
             (_, _) => CompatState::Partial,
@@ -85,21 +81,18 @@ impl CompatState {
 
 #[test]
 fn compat_state_update_1() {
-    let mut state = CompatState::Start;
+    let mut state = CompatState::Full;
 
-    state.update(CompatState::Start);
-    assert_eq!(state, CompatState::Start);
+    state.update(CompatState::Full);
+    assert_eq!(state, CompatState::Full);
 
     state.update(CompatState::No);
-    assert_eq!(state, CompatState::No);
-
-    state.update(CompatState::Start);
-    assert_eq!(state, CompatState::No);
+    assert_eq!(state, CompatState::Partial);
 
     state.update(CompatState::Full);
     assert_eq!(state, CompatState::Partial);
 
-    state.update(CompatState::Start);
+    state.update(CompatState::Full);
     assert_eq!(state, CompatState::Partial);
 
     state.update(CompatState::No);
@@ -109,9 +102,6 @@ fn compat_state_update_1() {
     assert_eq!(state, CompatState::Final);
 
     state.update(CompatState::Full);
-    assert_eq!(state, CompatState::Final);
-
-    state.update(CompatState::Start);
     assert_eq!(state, CompatState::Final);
 }
 
@@ -125,7 +115,7 @@ fn compat_state_update_2() {
     state.update(CompatState::No);
     assert_eq!(state, CompatState::Partial);
 
-    state.update(CompatState::Start);
+    state.update(CompatState::Full);
     assert_eq!(state, CompatState::Partial);
 }
 
@@ -156,7 +146,7 @@ impl From<ABI> for Compatibility {
             state: match abi {
                 // Forces the state as unsupported because all possible types will be useless.
                 ABI::Unsupported => CompatState::Final,
-                _ => CompatState::Start,
+                _ => CompatState::Full,
             },
         }
     }
