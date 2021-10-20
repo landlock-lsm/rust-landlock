@@ -121,7 +121,11 @@ impl Ruleset {
         };
 
         match self.compat.abi {
-            ABI::Unsupported => Ok(RulesetCreated::new(self, -1)),
+            ABI::Unsupported => {
+                #[cfg(test)]
+                assert_eq!(self.compat.state, CompatState::Final);
+                Ok(RulesetCreated::new(self, -1))
+            }
             ABI::V1 => match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) }
             {
                 fd if fd >= 0 => Ok(RulesetCreated::new(self, fd)),
@@ -166,7 +170,11 @@ impl RulesetCreated {
         rule.check_consistency(&self)?;
         let compat_rule = rule.try_compat(&mut self.compat)?;
         match self.compat.abi {
-            ABI::Unsupported => Ok(self),
+            ABI::Unsupported => {
+                #[cfg(test)]
+                assert_eq!(self.compat.state, CompatState::Final);
+                Ok(self)
+            }
             ABI::V1 => match unsafe {
                 uapi::landlock_add_rule(
                     self.fd,
@@ -220,10 +228,14 @@ impl RulesetCreated {
         };
 
         match self.compat.abi {
-            ABI::Unsupported => Ok(RestrictionStatus {
-                ruleset: self.compat.state.into(),
-                no_new_privs: enforced_nnp,
-            }),
+            ABI::Unsupported => {
+                #[cfg(test)]
+                assert_eq!(self.compat.state, CompatState::Final);
+                Ok(RestrictionStatus {
+                    ruleset: self.compat.state.into(),
+                    no_new_privs: enforced_nnp,
+                })
+            }
             ABI::V1 => match unsafe { uapi::landlock_restrict_self(self.fd, 0) } {
                 0 => {
                     self.compat.state.update(CompatState::Full);
@@ -260,11 +272,7 @@ impl Compatible for RulesetCreated {
 fn ruleset_unsupported() {
     use crate::errors::*;
 
-    let mut compat = Compatibility {
-        abi: ABI::Unsupported,
-        is_best_effort: true,
-        state: CompatState::Start,
-    };
+    let mut compat = ABI::Unsupported.into();
     let new_ruleset = |compat: &Compatibility| -> Ruleset { compat.clone().into() };
 
     assert_eq!(
@@ -313,9 +321,9 @@ fn ruleset_unsupported() {
         HandleFsError::Compat(CompatError::Access(AccessError::Empty))
     ));
 
-    compat.abi = ABI::V1;
+    compat = ABI::V1.into();
 
-    // Restricting without rule execptions is legitimate to forbid a set of actions.
+    // Restricting without rule exceptions is legitimate to forbid a set of actions.
     assert_eq!(
         new_ruleset(&compat)
             .create()

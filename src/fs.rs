@@ -162,11 +162,7 @@ impl Compatible for PathBeneath<'_> {
 fn path_beneath_try_compat() {
     use crate::*;
 
-    let compat = Compatibility {
-        abi: ABI::V1,
-        is_best_effort: true,
-        state: CompatState::Start,
-    };
+    let compat: Compatibility = ABI::V1.into();
 
     for file in &["/etc/passwd", "/dev/null"] {
         let mut compat_copy = compat.clone();

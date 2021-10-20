@@ -148,9 +148,8 @@ pub struct Compatibility {
     pub(crate) state: CompatState,
 }
 
-impl Compatibility {
-    pub fn new() -> Compatibility {
-        let abi = ABI::new_current();
+impl From<ABI> for Compatibility {
+    fn from(abi: ABI) -> Self {
         Compatibility {
             abi: abi,
             is_best_effort: true,
@@ -160,6 +159,12 @@ impl Compatibility {
                 _ => CompatState::Start,
             },
         }
+    }
+}
+
+impl Compatibility {
+    pub fn new() -> Compatibility {
+        ABI::new_current().into()
     }
 }
 
@@ -253,11 +258,7 @@ where
 
 #[test]
 fn compat_bit_flags() {
-    let mut compat = Compatibility {
-        abi: ABI::V1,
-        is_best_effort: true,
-        state: CompatState::Start,
-    };
+    let mut compat = ABI::V1.into();
 
     let ro_access = make_bitflags!(AccessFs::{Execute | ReadFile | ReadDir});
     assert_eq!(ro_access, ro_access.try_compat(&mut compat).unwrap());
