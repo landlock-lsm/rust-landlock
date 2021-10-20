@@ -1,6 +1,6 @@
 use crate::{
-    uapi, AddRuleError, CompatError, CompatState, Compatibility, Compatible, PathBeneathError,
-    PrivateRule, Rule, RulesetCreated, TryCompat, ABI,
+    uapi, AddRuleError, CompatError, Compatibility, Compatible, PathBeneathError, PrivateRule,
+    Rule, RulesetCreated, TryCompat, ABI,
 };
 use enumflags2::{bitflags, make_bitflags, BitFlags};
 use std::fs::{File, OpenOptions};
@@ -138,16 +138,9 @@ impl PathBeneath<'_> {
 
 impl TryCompat<AccessFs> for PathBeneath<'_> {
     fn try_compat(self, compat: &mut Compatibility) -> Result<Self, CompatError<AccessFs>> {
-        match self.filter_access() {
-            Err(e) => {
-                compat.state.update(CompatState::No);
-                Err(e.into())
-            }
-            Ok(mut filtered) => {
-                filtered.attr.allowed_access = filtered.allowed_access.try_compat(compat)?.bits();
-                Ok(filtered)
-            }
-        }
+        let mut filtered = self.filter_access()?;
+        filtered.attr.allowed_access = filtered.allowed_access.try_compat(compat)?.bits();
+        Ok(filtered)
     }
 }
 
@@ -176,7 +169,7 @@ fn path_beneath_try_compat() {
             CompatError::PathBeneath(PathBeneathError::DirectoryAccess { access, incompatible })
                 if access == ro_access && incompatible == AccessFs::ReadDir
         ));
-        assert_eq!(compat_copy.state, CompatState::No);
+        // compat_copy.state is not consistent when an error occurs.
     }
 
     let full_access: BitFlags<AccessFs> = ABI::V1.into();

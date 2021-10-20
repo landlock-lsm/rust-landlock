@@ -106,6 +106,8 @@ impl Ruleset {
 
     // TODO: Implement with DerefMut<Target = Ruleset> once arbitrary_self_types is in stable:
     // https://github.com/rust-lang/rust/issues/44874
+    // This would require to keep up-to-date the compatibility state even when an error occurs
+    // (anywhere), which would make the code more complex.
     pub fn handle_fs<T>(mut self, access: T) -> Result<Self, HandleFsError>
     where
         T: Into<BitFlags<AccessFs>>,

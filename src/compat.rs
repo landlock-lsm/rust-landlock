@@ -206,53 +206,44 @@ where
     BitFlags<T>: From<ABI>,
 {
     fn try_compat(self, compat: &mut Compatibility) -> Result<Self, CompatError<T>> {
-        let (state, ret) = if self.is_empty() {
+        let (state, new_access) = if self.is_empty() {
             // Empty access-rights would result to a runtime error.
-            (CompatState::Final, Err(AccessError::Empty.into()))
+            return Err(AccessError::Empty.into());
         } else if !Self::all().contains(self) {
             // Unknown access-rights (at build time) would result to a runtime error.
             // This can only be reached by using the unsafe BitFlags::from_bits_unchecked().
-            (
-                CompatState::Final,
-                Err(AccessError::Unknown {
-                    access: self,
-                    unknown: self & full_negation(Self::all()),
-                }
-                .into()),
-            )
+            return Err(AccessError::Unknown {
+                access: self,
+                unknown: self & full_negation(Self::all()),
+            }
+            .into());
         } else {
             let compat_bits = self & Self::from(compat.abi);
             if compat_bits.is_empty() {
-                (
-                    CompatState::No,
-                    if compat.is_best_effort {
-                        // TODO: This creates an empty access-right and could be an issue with
-                        // future ABIs.  This method should return Result<Option<Self>,
-                        // CompatError> instead, and in this case Ok(None).
-                        Ok(compat_bits)
-                    } else {
-                        Err(AccessError::Incompatible { access: self }.into())
-                    },
-                )
+                if compat.is_best_effort {
+                    // TODO: This creates an empty access-right and could be an issue with
+                    // future ABIs.  This method should return Result<Option<Self>,
+                    // CompatError> instead, and in this case Ok(None).
+                    (CompatState::No, compat_bits)
+                } else {
+                    return Err(AccessError::Incompatible { access: self }.into());
+                }
             } else if compat_bits != self {
-                (
-                    CompatState::Partial,
-                    if compat.is_best_effort {
-                        Ok(compat_bits)
-                    } else {
-                        Err(AccessError::PartiallyCompatible {
-                            access: self,
-                            incompatible: self & full_negation(compat_bits),
-                        }
-                        .into())
-                    },
-                )
+                if compat.is_best_effort {
+                    (CompatState::Partial, compat_bits)
+                } else {
+                    return Err(AccessError::PartiallyCompatible {
+                        access: self,
+                        incompatible: self & full_negation(compat_bits),
+                    }
+                    .into());
+                }
             } else {
-                (CompatState::Full, Ok(compat_bits))
+                (CompatState::Full, compat_bits)
             }
         };
         compat.state.update(state);
-        ret
+        Ok(new_access)
     }
 }
 
