@@ -1,6 +1,6 @@
 use crate::{
-    uapi, AddRuleError, CompatError, Compatibility, Compatible, PathBeneathError, PrivateRule,
-    Rule, RulesetCreated, TryCompat, ABI,
+    uapi, AddRuleError, CompatError, Compatibility, Compatible, PathBeneathError, PathFdError,
+    PrivateRule, Rule, RulesetCreated, TryCompat, ABI,
 };
 use enumflags2::{bitflags, make_bitflags, BitFlags};
 use std::fs::{File, OpenOptions};
@@ -241,11 +241,10 @@ fn path_beneath_check_consistency() {
 
 pub struct PathFd {
     file: File,
-    // TODO: Keep path string for error handling.
 }
 
 impl PathFd {
-    pub fn new<T>(path: T) -> Result<Self, Error>
+    pub fn new<T>(path: T) -> Result<Self, PathFdError>
     where
         T: AsRef<Path>,
     {
@@ -254,7 +253,11 @@ impl PathFd {
             file: OpenOptions::new()
                 .read(true)
                 .custom_flags(libc::O_PATH | libc::O_CLOEXEC)
-                .open(path.as_ref())?,
+                .open(path.as_ref())
+                .map_err(|e| PathFdError::OpenCall {
+                    source: e,
+                    path: path.as_ref().into(),
+                })?,
         })
     }
 }

@@ -1,7 +1,49 @@
 use crate::{AccessFs, BitFlags};
 use enumflags2::BitFlag;
 use std::io;
+use std::path::PathBuf;
 use thiserror::Error;
+
+/// Maps to all errors that can be returned by a ruleset action.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum RulesetError<T>
+where
+    T: BitFlag,
+{
+    #[error(transparent)]
+    HandleFs(#[from] HandleFsError),
+    #[error(transparent)]
+    CreateRuleset(#[from] CreateRulesetError),
+    #[error(transparent)]
+    AddRule(#[from] AddRuleError<T>),
+    #[error(transparent)]
+    RestrictSelf(#[from] RestrictSelfError),
+    #[error(transparent)]
+    PathFd(#[from] PathFdError),
+}
+
+#[test]
+fn ruleset_error_breaking_change() {
+    use crate::*;
+
+    // Generics are part of the API and modifying them can lead to a breaking change.
+    let _: RulesetError<AccessFs> = RulesetError::HandleFs(HandleFsError::Compat(
+        CompatError::Access(AccessError::Empty),
+    ));
+
+    // FIXME: This should not be possible.
+    use enumflags2::bitflags;
+    #[bitflags]
+    #[repr(u64)]
+    #[derive(Copy, Clone)]
+    enum WrongAccess {
+        Foo,
+    }
+    let _: RulesetError<WrongAccess> = RulesetError::HandleFs(HandleFsError::Compat(
+        CompatError::Access(AccessError::Empty),
+    ));
+}
 
 /// Identifies errors when updating the ruleset's handled file system access-rights.
 #[derive(Debug, Error)]
@@ -113,4 +155,13 @@ pub enum RestrictSelfError {
     #[error("failed to restrict the calling thread: {source}")]
     #[non_exhaustive]
     RestrictSelfCall { source: io::Error },
+}
+
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum PathFdError {
+    /// The `open()` system call failed.
+    #[error("failed to open \"{path}\": {source}")]
+    #[non_exhaustive]
+    OpenCall { source: io::Error, path: PathBuf },
 }
