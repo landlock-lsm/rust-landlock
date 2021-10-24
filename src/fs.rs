@@ -1,6 +1,6 @@
 use crate::{
-    uapi, AddRuleError, CompatError, Compatibility, Compatible, PathBeneathError, PathFdError,
-    PrivateRule, Rule, RulesetCreated, TryCompat, ABI,
+    uapi, Access, AddRuleError, CompatError, Compatibility, Compatible, PathBeneathError,
+    PathFdError, PrivateRule, Rule, RulesetCreated, TryCompat, ABI,
 };
 use enumflags2::{bitflags, make_bitflags, BitFlags};
 use std::fs::{File, OpenOptions};
@@ -59,6 +59,10 @@ impl From<ABI> for BitFlags<AccessFs> {
         }
     }
 }
+
+// It is useful for documentation generation to explicitely implement Access for every types,
+// instead of doing it generically.
+impl Access for AccessFs {}
 
 const ACCESS_FILE: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
     ReadFile | WriteFile | Execute

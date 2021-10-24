@@ -11,17 +11,23 @@ use std::os::unix::io::RawFd;
 #[cfg(test)]
 use crate::*;
 
+pub trait Access: PrivateAccess {}
+
+pub trait PrivateAccess: BitFlag {}
+
+impl<T> PrivateAccess for T where T: BitFlag {}
+
 // Public interface without methods and which is impossible to implement outside this crate.
 pub trait Rule<T>: PrivateRule<T>
 where
-    T: BitFlag,
+    T: Access,
 {
 }
 
 // PrivateRule is not public outside this crate.
 pub trait PrivateRule<T>: TryCompat<T>
 where
-    T: BitFlag,
+    T: Access,
 {
     fn as_ptr(&self) -> *const libc::c_void;
     fn get_type_id(&self) -> uapi::landlock_rule_type;
@@ -167,7 +173,7 @@ impl RulesetCreated {
     pub fn add_rule<T, U>(mut self, rule: T) -> Result<Self, AddRuleError<U>>
     where
         T: Rule<U>,
-        U: BitFlag,
+        U: Access,
     {
         rule.check_consistency(&self)?;
         let compat_rule = rule.try_compat(&mut self.compat)?;

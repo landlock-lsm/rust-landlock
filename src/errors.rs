@@ -1,5 +1,4 @@
-use crate::{AccessFs, BitFlags};
-use enumflags2::BitFlag;
+use crate::{Access, AccessFs, BitFlags};
 use std::io;
 use std::path::PathBuf;
 use thiserror::Error;
@@ -9,7 +8,7 @@ use thiserror::Error;
 #[non_exhaustive]
 pub enum RulesetError<T>
 where
-    T: BitFlag,
+    T: Access,
 {
     #[error(transparent)]
     HandleFs(#[from] HandleFsError),
@@ -29,18 +28,6 @@ fn ruleset_error_breaking_change() {
 
     // Generics are part of the API and modifying them can lead to a breaking change.
     let _: RulesetError<AccessFs> = RulesetError::HandleFs(HandleFsError::Compat(
-        CompatError::Access(AccessError::Empty),
-    ));
-
-    // FIXME: This should not be possible.
-    use enumflags2::bitflags;
-    #[bitflags]
-    #[repr(u64)]
-    #[derive(Copy, Clone)]
-    enum WrongAccess {
-        Foo,
-    }
-    let _: RulesetError<WrongAccess> = RulesetError::HandleFs(HandleFsError::Compat(
         CompatError::Access(AccessError::Empty),
     ));
 }
@@ -68,7 +55,7 @@ pub enum CreateRulesetError {
 #[non_exhaustive]
 pub enum AddRuleError<T>
 where
-    T: BitFlag,
+    T: Access,
 {
     /// The `landlock_add_rule()` system call failed.
     #[error("failed to add a rule: {source}")]
@@ -88,7 +75,7 @@ where
 #[non_exhaustive]
 pub enum CompatError<T>
 where
-    T: BitFlag,
+    T: Access,
 {
     #[error(transparent)]
     PathBeneath(#[from] PathBeneathError),
@@ -118,7 +105,7 @@ pub enum PathBeneathError {
 // Exhaustive enum
 pub enum AccessError<T>
 where
-    T: BitFlag,
+    T: Access,
 {
     /// The access-rights set is empty, which doesn't make sense and would be rejected by the
     /// kernel.

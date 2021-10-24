@@ -1,5 +1,4 @@
-use crate::{uapi, AccessError, BitFlags, CompatError};
-use enumflags2::BitFlag;
+use crate::{uapi, Access, AccessError, BitFlags, CompatError};
 
 #[cfg(test)]
 use crate::{make_bitflags, AccessFs};
@@ -170,13 +169,13 @@ pub trait TryCompat<T> {
     fn try_compat(self, compat: &mut Compatibility) -> Result<Self, CompatError<T>>
     where
         Self: Sized,
-        T: BitFlag;
+        T: Access;
 }
 
 // Creates an illegal/overflowed BitFlags<T> with all its bits toggled, including undefined ones.
 fn full_negation<T>(flags: BitFlags<T>) -> BitFlags<T>
 where
-    T: BitFlag,
+    T: Access,
 {
     unsafe { BitFlags::<T>::from_bits_unchecked(!flags.bits()) }
 }
@@ -192,7 +191,7 @@ fn bit_flags_full_negation() {
 
 impl<T> TryCompat<T> for BitFlags<T>
 where
-    T: BitFlag,
+    T: Access,
     BitFlags<T>: From<ABI>,
 {
     fn try_compat(self, compat: &mut Compatibility) -> Result<Self, CompatError<T>> {

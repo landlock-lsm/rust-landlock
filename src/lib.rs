@@ -11,7 +11,7 @@ pub use errors::{
 };
 pub use fs::{AccessFs, PathBeneath, PathFd};
 use ruleset::PrivateRule;
-pub use ruleset::{RestrictionStatus, Rule, Ruleset, RulesetCreated, RulesetStatus};
+pub use ruleset::{Access, RestrictionStatus, Rule, Ruleset, RulesetCreated, RulesetStatus};
 
 mod compat;
 mod errors;
