@@ -1,6 +1,6 @@
 use crate::{
     uapi, AccessFs, AddRuleError, BitFlags, CompatState, Compatibility, Compatible,
-    CreateRulesetError, HandleFsError, RestrictSelfError, TryCompat, ABI,
+    CreateRulesetError, HandleAccessError, RestrictSelfError, TryCompat, ABI,
 };
 use enumflags2::BitFlag;
 use libc::close;
@@ -11,11 +11,18 @@ use std::os::unix::io::RawFd;
 #[cfg(test)]
 use crate::*;
 
-pub trait Access: PrivateAccess {}
+pub trait Access: PrivateAccess {
+    fn from_all(abi: ABI) -> BitFlags<Self>;
+}
 
-pub trait PrivateAccess: BitFlag {}
-
-impl<T> PrivateAccess for T where T: BitFlag {}
+pub trait PrivateAccess: BitFlag {
+    fn ruleset_handle_access(
+        ruleset: Ruleset,
+        access: BitFlags<Self>,
+    ) -> Result<Ruleset, HandleAccessError<Self>>
+    where
+        Self: Access;
+}
 
 // Public interface without methods and which is impossible to implement outside this crate.
 pub trait Rule<T>: PrivateRule<T>
@@ -84,15 +91,14 @@ fn support_no_new_privs() -> bool {
 
 #[cfg_attr(test, derive(Debug))]
 pub struct Ruleset {
-    requested_handled_fs: BitFlags<AccessFs>,
-    actual_handled_fs: BitFlags<AccessFs>,
-    compat: Compatibility,
+    pub(crate) requested_handled_fs: BitFlags<AccessFs>,
+    pub(crate) actual_handled_fs: BitFlags<AccessFs>,
+    pub(crate) compat: Compatibility,
 }
 
 impl From<Compatibility> for Ruleset {
     fn from(compat: Compatibility) -> Self {
-        // TODO: Replace ABI::V1.into() with a Default implementation for BitFlags<_>
-        let handled_fs = ABI::V1.into();
+        let handled_fs = AccessFs::from_all(ABI::V1);
         Ruleset {
             requested_handled_fs: handled_fs,
             actual_handled_fs: handled_fs,
@@ -110,17 +116,12 @@ impl Ruleset {
         Compatibility::new().into()
     }
 
-    // TODO: Implement with DerefMut<Target = Ruleset> once arbitrary_self_types is in stable:
-    // https://github.com/rust-lang/rust/issues/44874
-    // This would require to keep up-to-date the compatibility state even when an error occurs
-    // (anywhere), which would make the code more complex.
-    pub fn handle_fs<T>(mut self, access: T) -> Result<Self, HandleFsError>
+    pub fn handle_access<T, U>(self, access: T) -> Result<Self, HandleAccessError<U>>
     where
-        T: Into<BitFlags<AccessFs>>,
+        T: Into<BitFlags<U>>,
+        U: Access,
     {
-        self.requested_handled_fs = access.into();
-        self.actual_handled_fs = self.requested_handled_fs.try_compat(&mut self.compat)?;
-        Ok(self)
+        U::ruleset_handle_access(self, access.into())
     }
 
     pub fn create(self) -> Result<RulesetCreated, CreateRulesetError> {
@@ -296,7 +297,7 @@ fn ruleset_unsupported() {
     );
     assert_eq!(
         new_ruleset(&compat)
-            .handle_fs(AccessFs::Execute)
+            .handle_access(AccessFs::Execute)
             .unwrap()
             .create()
             .unwrap()
@@ -324,9 +325,9 @@ fn ruleset_unsupported() {
     assert!(matches!(
         new_ruleset(&compat)
             // Empty access-rights
-            .handle_fs(ABI::Unsupported)
+            .handle_access(AccessFs::from_all(ABI::Unsupported))
             .unwrap_err(),
-        HandleFsError::Compat(CompatError::Access(AccessError::Empty))
+        HandleAccessError::Compat(CompatError::Access(AccessError::Empty))
     ));
 
     compat = ABI::V1.into();
@@ -346,7 +347,7 @@ fn ruleset_unsupported() {
 
     assert_eq!(
         new_ruleset(&compat)
-            .handle_fs(AccessFs::Execute)
+            .handle_access(AccessFs::Execute)
             .unwrap()
             .create()
             .unwrap()
@@ -361,9 +362,9 @@ fn ruleset_unsupported() {
     assert!(matches!(
         new_ruleset(&compat)
             // Empty access-rights
-            .handle_fs(ABI::Unsupported)
+            .handle_access(AccessFs::from_all(ABI::Unsupported))
             .unwrap_err(),
-        HandleFsError::Compat(CompatError::Access(AccessError::Empty))
+        HandleAccessError::Compat(CompatError::Access(AccessError::Empty))
     ));
 
     // Tests inconsistency between the ruleset handled access-rights and the rule access-rights.
@@ -373,7 +374,7 @@ fn ruleset_unsupported() {
     ] {
         assert!(matches!(
             new_ruleset(&compat)
-                .handle_fs(*handled_access)
+                .handle_access(*handled_access)
                 .unwrap()
                 .create()
                 .unwrap()

@@ -1,6 +1,7 @@
 use crate::{
-    uapi, Access, AddRuleError, CompatError, Compatibility, Compatible, PathBeneathError,
-    PathFdError, PrivateRule, Rule, RulesetCreated, TryCompat, ABI,
+    uapi, Access, AddRuleError, CompatError, Compatibility, Compatible, HandleAccessError,
+    PathBeneathError, PathFdError, PrivateAccess, PrivateRule, Rule, Ruleset, RulesetCreated,
+    TryCompat, ABI,
 };
 use enumflags2::{bitflags, make_bitflags, BitFlags};
 use std::fs::{File, OpenOptions};
@@ -33,14 +34,14 @@ pub enum AccessFs {
     MakeSym = uapi::LANDLOCK_ACCESS_FS_MAKE_SYM as u64,
 }
 
-impl From<ABI> for BitFlags<AccessFs> {
-    fn from(abi: ABI) -> Self {
+impl Access for AccessFs {
+    fn from_all(abi: ABI) -> BitFlags<Self> {
         match abi {
             // An empty access-right would be an error if passed to the kernel, but because the
             // kernel doesn't support Landlock, no Landlock syscall should be called.
             // try_compat() should also return RestrictionStatus::Unrestricted when called with
             // unsupported/empty access-righs.
-            ABI::Unsupported => BitFlags::<AccessFs>::empty(),
+            ABI::Unsupported => BitFlags::empty(),
             ABI::V1 => make_bitflags!(AccessFs::{
                 Execute
                 | WriteFile
@@ -60,9 +61,18 @@ impl From<ABI> for BitFlags<AccessFs> {
     }
 }
 
-// It is useful for documentation generation to explicitely implement Access for every types,
-// instead of doing it generically.
-impl Access for AccessFs {}
+impl PrivateAccess for AccessFs {
+    fn ruleset_handle_access(
+        mut ruleset: Ruleset,
+        access: BitFlags<Self>,
+    ) -> Result<Ruleset, HandleAccessError<Self>> {
+        ruleset.requested_handled_fs = access;
+        ruleset.actual_handled_fs = ruleset
+            .requested_handled_fs
+            .try_compat(&mut ruleset.compat)?;
+        Ok(ruleset)
+    }
+}
 
 const ACCESS_FILE: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
     ReadFile | WriteFile | Execute
@@ -90,7 +100,7 @@ impl PathBeneath<'_> {
                 parent_fd: parent.as_raw_fd(),
             },
             _parent_fd: PhantomData,
-            allowed_access: ABI::V1.into(),
+            allowed_access: AccessFs::from_all(ABI::V1),
             is_best_effort: true,
         }
     }
@@ -176,7 +186,7 @@ fn path_beneath_try_compat() {
         // compat_copy.state is not consistent when an error occurs.
     }
 
-    let full_access: BitFlags<AccessFs> = ABI::V1.into();
+    let full_access = AccessFs::from_all(ABI::V1);
     for best_effort in &[true, false] {
         let mut compat_copy = compat.clone();
         let raw_access = PathBeneath::new(&PathFd::new("/").unwrap())
@@ -232,7 +242,7 @@ fn path_beneath_check_consistency() {
     let rx_access = AccessFs::Execute | AccessFs::ReadFile;
     assert!(matches!(
         Ruleset::new()
-            .handle_fs(ro_access)
+            .handle_access(ro_access)
             .unwrap()
             .create()
             .unwrap()

@@ -192,7 +192,6 @@ fn bit_flags_full_negation() {
 impl<T> TryCompat<T> for BitFlags<T>
 where
     T: Access,
-    BitFlags<T>: From<ABI>,
 {
     fn try_compat(self, compat: &mut Compatibility) -> Result<Self, CompatError<T>> {
         let (state, new_access) = if self.is_empty() {
@@ -207,7 +206,7 @@ where
             }
             .into());
         } else {
-            let compat_bits = self & Self::from(compat.abi);
+            let compat_bits = self & T::from_all(compat.abi);
             if compat_bits.is_empty() {
                 if compat.is_best_effort {
                     // TODO: This creates an empty access-right and could be an issue with

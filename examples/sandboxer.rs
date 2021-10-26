@@ -1,7 +1,7 @@
 use anyhow::{anyhow, bail};
 use landlock::{
-    make_bitflags, AccessFs, BitFlags, PathBeneath, PathFd, Ruleset, RulesetCreated, RulesetStatus,
-    ABI,
+    make_bitflags, Access, AccessFs, BitFlags, PathBeneath, PathFd, Ruleset, RulesetCreated,
+    RulesetStatus, ABI,
 };
 use std::env;
 use std::ffi::OsStr;
@@ -103,7 +103,7 @@ fn main() -> Result<(), anyhow::Error> {
     })?;
 
     let status = Ruleset::new()
-        .handle_fs(ABI::V1)?
+        .handle_access(AccessFs::from_all(ABI::V1))?
         .create()?
         .populate_with_env(ENV_FS_RO_NAME, ACCESS_FS_ROUGHLY_READ)?
         .populate_with_env(

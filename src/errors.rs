@@ -11,7 +11,7 @@ where
     T: Access,
 {
     #[error(transparent)]
-    HandleFs(#[from] HandleFsError),
+    HandleAccess(#[from] HandleAccessError<T>),
     #[error(transparent)]
     CreateRuleset(#[from] CreateRulesetError),
     #[error(transparent)]
@@ -27,17 +27,20 @@ fn ruleset_error_breaking_change() {
     use crate::*;
 
     // Generics are part of the API and modifying them can lead to a breaking change.
-    let _: RulesetError<AccessFs> = RulesetError::HandleFs(HandleFsError::Compat(
+    let _: RulesetError<AccessFs> = RulesetError::HandleAccess(HandleAccessError::Compat(
         CompatError::Access(AccessError::Empty),
     ));
 }
 
-/// Identifies errors when updating the ruleset's handled file system access-rights.
+/// Identifies errors when updating the ruleset's handled access-rights.
 #[derive(Debug, Error)]
 #[non_exhaustive]
-pub enum HandleFsError {
+pub enum HandleAccessError<T>
+where
+    T: Access,
+{
     #[error(transparent)]
-    Compat(#[from] CompatError<AccessFs>),
+    Compat(#[from] CompatError<T>),
 }
 
 /// Identifies errors when creating a ruleset.
