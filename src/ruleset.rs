@@ -1,5 +1,5 @@
 use crate::{
-    uapi, AccessFs, AddRuleError, BitFlags, CompatState, Compatibility, Compatible,
+    uapi, AccessFs, AddRuleError, AddRulesError, BitFlags, CompatState, Compatibility, Compatible,
     CreateRulesetError, HandleAccessError, RestrictSelfError, TryCompat, ABI,
 };
 use enumflags2::BitFlag;
@@ -25,7 +25,11 @@ pub trait PrivateAccess: BitFlag {
 }
 
 // Public interface without methods and which is impossible to implement outside this crate.
-pub trait Rule<T>: PrivateRule<T>
+//
+// The IntoIterator implementation will never return an error but we need to add an error type
+// anyway to fit the return type.  Using AddRuleError<T> make it standalone.
+pub trait Rule<T>:
+    PrivateRule<T> + IntoIterator<Item = Result<Self, AddRuleError<T>>> + Sized
 where
     T: Access,
 {
@@ -105,6 +109,25 @@ impl From<Compatibility> for Ruleset {
             compat: compat,
         }
     }
+}
+
+#[test]
+fn ruleset_add_rule_iter() {
+    let compat = ABI::Unsupported.into();
+    let new_ruleset = |compat: &Compatibility| -> Ruleset { compat.clone().into() };
+
+    assert!(matches!(
+        new_ruleset(&compat)
+            .handle_access(AccessFs::Execute)
+            .unwrap()
+            .create()
+            .unwrap()
+            .add_rules(
+                PathBeneath::new(&PathFd::new("/").unwrap()).allow_access(AccessFs::ReadFile)
+            )
+            .unwrap_err(),
+        AddRulesError::AddRule(AddRuleError::UnhandledAccess { .. })
+    ));
 }
 
 impl Ruleset {
@@ -198,6 +221,24 @@ impl RulesetCreated {
                 }),
             },
         }
+    }
+
+    pub fn add_rules<I, T, U, E>(mut self, rules: I) -> Result<Self, AddRulesError<U, E>>
+    where
+        I: IntoIterator<Item = Result<T, E>>,
+        T: Rule<U>,
+        U: Access,
+        E: std::error::Error,
+    {
+        for rule in rules {
+            match rule {
+                // It is not possible to use collect() because E is too generic and makes
+                // impossible to implement From<E> for AddRulesError<T, E>.
+                Err(e) => return Err(AddRulesError::Iter(e)),
+                Ok(r) => self = self.add_rule(r)?,
+            }
+        }
+        Ok(self)
     }
 
     pub fn set_no_new_privs(mut self, no_new_privs: bool) -> Self {

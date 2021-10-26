@@ -205,6 +205,15 @@ fn path_beneath_try_compat() {
 // of doing it generically.
 impl Rule<AccessFs> for PathBeneath<'_> {}
 
+impl IntoIterator for PathBeneath<'_> {
+    type Item = Result<Self, AddRuleError<AccessFs>>;
+    type IntoIter = std::iter::Once<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        std::iter::once(Ok(self))
+    }
+}
+
 impl PrivateRule<AccessFs> for PathBeneath<'_> {
     fn as_ptr(&self) -> *const libc::c_void {
         &self.attr as *const _ as _

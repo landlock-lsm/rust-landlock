@@ -6,9 +6,10 @@ use thiserror::Error;
 /// Maps to all errors that can be returned by a ruleset action.
 #[derive(Debug, Error)]
 #[non_exhaustive]
-pub enum RulesetError<T>
+pub enum RulesetError<T, E>
 where
     T: Access,
+    E: std::error::Error,
 {
     #[error(transparent)]
     HandleAccess(#[from] HandleAccessError<T>),
@@ -16,6 +17,8 @@ where
     CreateRuleset(#[from] CreateRulesetError),
     #[error(transparent)]
     AddRule(#[from] AddRuleError<T>),
+    #[error(transparent)]
+    AddRules(#[from] AddRulesError<T, E>),
     #[error(transparent)]
     RestrictSelf(#[from] RestrictSelfError),
     #[error(transparent)]
@@ -27,9 +30,9 @@ fn ruleset_error_breaking_change() {
     use crate::*;
 
     // Generics are part of the API and modifying them can lead to a breaking change.
-    let _: RulesetError<AccessFs> = RulesetError::HandleAccess(HandleAccessError::Compat(
-        CompatError::Access(AccessError::Empty),
-    ));
+    let _: RulesetError<AccessFs, std::io::Error> = RulesetError::HandleAccess(
+        HandleAccessError::Compat(CompatError::Access(AccessError::Empty)),
+    );
 }
 
 /// Identifies errors when updating the ruleset's handled access-rights.
@@ -72,6 +75,21 @@ where
     },
     #[error(transparent)]
     Compat(#[from] CompatError<T>),
+}
+
+/// Identifies errors when adding rules to a ruleset thanks to an iterator returning
+/// Result<Rule, E> items.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum AddRulesError<T, E>
+where
+    T: Access,
+    E: std::error::Error,
+{
+    #[error(transparent)]
+    AddRule(#[from] AddRuleError<T>),
+    #[error(transparent)]
+    Iter(E),
 }
 
 #[derive(Debug, Error)]
