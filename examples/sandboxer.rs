@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail};
 use landlock::{
-    make_bitflags, Access, AccessFs, BitFlags, PathBeneath, PathFd, Ruleset, RulesetCreated,
+    make_bitflags, Access, AccessFs, BitFlags, PathBeneath, PathFd, PathFdError, Ruleset,
     RulesetStatus, ABI,
 };
 use std::env;
@@ -20,8 +20,13 @@ const ACCESS_FS_ROUGHLY_WRITE: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
         MakeBlock | MakeSym
 });
 
-trait RulesetCreatedExt {
-    /// Populates a given ruleset with PathBeneath landlock rules
+struct PathEnv {
+    paths: Vec<u8>,
+    access: BitFlags<AccessFs>,
+}
+
+impl PathEnv {
+    /// Create an object able to iterate PathBeneath rules
     ///
     /// # Arguments
     ///
@@ -29,44 +34,23 @@ trait RulesetCreatedExt {
     ///   allowed. Paths are separated with ":", e.g. "/bin:/lib:/usr:/proc". In case an empty
     ///   string is provided, NO restrictions are applied.
     /// * `access`: Set of access-rights allowed for each of the parsed paths.
-    fn populate_with_env(
-        self,
-        name: &str,
-        access: BitFlags<AccessFs>,
-    ) -> Result<RulesetCreated, anyhow::Error>;
-}
+    fn new(name: &str, access: BitFlags<AccessFs>) -> Result<Self, anyhow::Error> {
+        Ok(Self {
+            paths: env::var_os(name)
+                .ok_or(anyhow!("Missing environment variable {}", name))?
+                .into_vec(),
+            access,
+        })
+    }
 
-impl RulesetCreatedExt for RulesetCreated {
-    fn populate_with_env(
-        self,
-        name: &str,
-        access: BitFlags<AccessFs>,
-    ) -> Result<RulesetCreated, anyhow::Error> {
-        let paths = env::var_os(name).ok_or(anyhow!("Missing environment variable {}", name))?;
-        if paths.len() == 0 {
-            return Ok(self);
-        }
-
-        paths
-            .into_vec()
+    fn iter(&self) -> impl Iterator<Item = Result<PathBeneath<PathFd>, PathFdError>> + '_ {
+        let is_empty = self.paths.is_empty();
+        self.paths
             .split(|b| *b == b':')
-            .try_fold(self, |ruleset, path| {
-                let path = OsStr::from_bytes(path);
-                Ok(ruleset
-                    .add_rule(
-                        PathBeneath::new(PathFd::new(&path).map_err(|e| {
-                            anyhow!("Failed to open \"{}\": {}", path.to_string_lossy(), e)
-                        })?)
-                        .allow_access(access),
-                    )
-                    .map_err(|e| {
-                        anyhow!(
-                            "Failed to update ruleset with \"{}\": {}",
-                            path.to_string_lossy(),
-                            e
-                        )
-                    })?)
-            })
+            // Skips the first empty element from of an empty string.
+            .skip_while(move |_| is_empty)
+            .map(OsStr::from_bytes)
+            .map(move |path| Ok(PathBeneath::new(PathFd::new(path)?).allow_access(self.access)))
     }
 }
 
@@ -105,10 +89,13 @@ fn main() -> Result<(), anyhow::Error> {
     let status = Ruleset::new()
         .handle_access(AccessFs::from_all(ABI::V1))?
         .create()?
-        .populate_with_env(ENV_FS_RO_NAME, ACCESS_FS_ROUGHLY_READ)?
-        .populate_with_env(
-            ENV_FS_RW_NAME,
-            ACCESS_FS_ROUGHLY_READ | ACCESS_FS_ROUGHLY_WRITE,
+        .add_rules(PathEnv::new(ENV_FS_RO_NAME, ACCESS_FS_ROUGHLY_READ)?.iter())?
+        .add_rules(
+            PathEnv::new(
+                ENV_FS_RW_NAME,
+                ACCESS_FS_ROUGHLY_READ | ACCESS_FS_ROUGHLY_WRITE,
+            )?
+            .iter(),
         )?
         .restrict_self()
         .expect("Failed to enforce ruleset");
