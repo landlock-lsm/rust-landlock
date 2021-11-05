@@ -54,7 +54,7 @@ impl RulesetCreatedExt for RulesetCreated {
                 let path = OsStr::from_bytes(path);
                 Ok(ruleset
                     .add_rule(
-                        PathBeneath::new(&PathFd::new(&path).map_err(|e| {
+                        PathBeneath::new(PathFd::new(&path).map_err(|e| {
                             anyhow!("Failed to open \"{}\": {}", path.to_string_lossy(), e)
                         })?)
                         .allow_access(access),

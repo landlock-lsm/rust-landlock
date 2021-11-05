@@ -28,7 +28,7 @@ mod tests {
             .handle_access(AccessFs::from_all(ABI::V1))?
             .create()?
             .add_rule(
-                PathBeneath::new(&PathFd::new("/")?).allow_access(AccessFs::from_all(ABI::V1)),
+                PathBeneath::new(PathFd::new("/")?).allow_access(AccessFs::from_all(ABI::V1)),
             )?
             .restrict_self()?)
     }
@@ -45,7 +45,7 @@ mod tests {
             .create()?
             .set_no_new_privs(true)
             .add_rule(
-                PathBeneath::new(&PathFd::new("/")?).allow_access(AccessFs::from_all(ABI::V1)),
+                PathBeneath::new(PathFd::new("/")?).allow_access(AccessFs::from_all(ABI::V1)),
             )?
             .restrict_self()?)
     }

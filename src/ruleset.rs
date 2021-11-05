@@ -122,9 +122,7 @@ fn ruleset_add_rule_iter() {
             .unwrap()
             .create()
             .unwrap()
-            .add_rules(
-                PathBeneath::new(&PathFd::new("/").unwrap()).allow_access(AccessFs::ReadFile)
-            )
+            .add_rules(PathBeneath::new(PathFd::new("/").unwrap()).allow_access(AccessFs::ReadFile))
             .unwrap_err(),
         AddRulesError::AddRule(AddRuleError::UnhandledAccess { .. })
     ));
@@ -420,7 +418,7 @@ fn ruleset_unsupported() {
                 .create()
                 .unwrap()
                 .add_rule(
-                    PathBeneath::new(&PathFd::new("/").unwrap()).allow_access(AccessFs::ReadFile)
+                    PathBeneath::new(PathFd::new("/").unwrap()).allow_access(AccessFs::ReadFile)
                 )
                 .unwrap_err(),
             AddRuleError::UnhandledAccess { .. }

@@ -6,7 +6,6 @@ use crate::{
 use enumflags2::{bitflags, make_bitflags, BitFlags};
 use std::fs::{File, OpenOptions};
 use std::io::Error;
-use std::marker::PhantomData;
 use std::mem::zeroed;
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::io::{AsRawFd, RawFd};
@@ -79,19 +78,19 @@ const ACCESS_FILE: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
 });
 
 #[cfg_attr(test, derive(Debug))]
-pub struct PathBeneath<'a> {
+pub struct PathBeneath<F> {
     attr: uapi::landlock_path_beneath_attr,
-    // Ties the lifetime of a PathBeneath instance to the litetime of its wrapped attr.parent_fd .
-    _parent_fd: PhantomData<&'a u32>,
+    // Ties the lifetime of a file descriptor to this object.
+    _parent_fd: F,
     allowed_access: BitFlags<AccessFs>,
     is_best_effort: bool,
 }
 
-impl<'a> PathBeneath<'a> {
-    pub fn new<T>(parent: &'a T) -> Self
-    where
-        T: AsRawFd,
-    {
+impl<F> PathBeneath<F>
+where
+    F: AsRawFd,
+{
+    pub fn new(parent: F) -> Self {
         // By default, allows all v1 accesses on this path exception.
         PathBeneath {
             attr: uapi::landlock_path_beneath_attr {
@@ -99,7 +98,7 @@ impl<'a> PathBeneath<'a> {
                 allowed_access: 0,
                 parent_fd: parent.as_raw_fd(),
             },
-            _parent_fd: PhantomData,
+            _parent_fd: parent,
             allowed_access: AccessFs::from_all(ABI::V1),
             is_best_effort: true,
         }
@@ -150,7 +149,10 @@ impl<'a> PathBeneath<'a> {
     }
 }
 
-impl TryCompat<AccessFs> for PathBeneath<'_> {
+impl<F> TryCompat<AccessFs> for PathBeneath<F>
+where
+    F: AsRawFd,
+{
     fn try_compat(self, compat: &mut Compatibility) -> Result<Self, CompatError<AccessFs>> {
         let mut filtered = self.filter_access()?;
         filtered.attr.allowed_access = filtered.allowed_access.try_compat(compat)?.bits();
@@ -158,7 +160,7 @@ impl TryCompat<AccessFs> for PathBeneath<'_> {
     }
 }
 
-impl Compatible for PathBeneath<'_> {
+impl<F> Compatible for PathBeneath<F> {
     fn set_best_effort(mut self, best_effort: bool) -> Self {
         self.is_best_effort = best_effort;
         self
@@ -175,7 +177,7 @@ fn path_beneath_try_compat() {
         let mut compat_copy = compat.clone();
         let ro_access = AccessFs::ReadDir | AccessFs::ReadFile;
         assert!(matches!(
-            PathBeneath::new(&PathFd::new(file).unwrap())
+            PathBeneath::new(PathFd::new(file).unwrap())
                 .allow_access(ro_access)
                 .set_best_effort(false)
                 .try_compat(&mut compat_copy)
@@ -189,7 +191,7 @@ fn path_beneath_try_compat() {
     let full_access = AccessFs::from_all(ABI::V1);
     for best_effort in &[true, false] {
         let mut compat_copy = compat.clone();
-        let raw_access = PathBeneath::new(&PathFd::new("/").unwrap())
+        let raw_access = PathBeneath::new(PathFd::new("/").unwrap())
             .allow_access(full_access)
             .set_best_effort(*best_effort)
             .try_compat(&mut compat_copy)
@@ -203,9 +205,12 @@ fn path_beneath_try_compat() {
 
 // It is useful for documentation generation to explicitely implement Rule for every types, instead
 // of doing it generically.
-impl Rule<AccessFs> for PathBeneath<'_> {}
+impl<F> Rule<AccessFs> for PathBeneath<F> where F: AsRawFd {}
 
-impl IntoIterator for PathBeneath<'_> {
+impl<F> IntoIterator for PathBeneath<F>
+where
+    F: AsRawFd,
+{
     type Item = Result<Self, AddRuleError<AccessFs>>;
     type IntoIter = std::iter::Once<Self::Item>;
 
@@ -214,7 +219,10 @@ impl IntoIterator for PathBeneath<'_> {
     }
 }
 
-impl PrivateRule<AccessFs> for PathBeneath<'_> {
+impl<F> PrivateRule<AccessFs> for PathBeneath<F>
+where
+    F: AsRawFd,
+{
     fn as_ptr(&self) -> *const libc::c_void {
         &self.attr as *const _ as _
     }
@@ -255,13 +263,14 @@ fn path_beneath_check_consistency() {
             .unwrap()
             .create()
             .unwrap()
-            .add_rule(PathBeneath::new(&PathFd::new("/").unwrap()).allow_access(rx_access))
+            .add_rule(PathBeneath::new(PathFd::new("/").unwrap()).allow_access(rx_access))
             .unwrap_err(),
         AddRuleError::UnhandledAccess { access, incompatible }
             if access == rx_access && incompatible == AccessFs::Execute
     ));
 }
 
+#[cfg_attr(test, derive(Debug))]
 pub struct PathFd {
     file: File,
 }
@@ -295,7 +304,7 @@ impl AsRawFd for PathFd {
 fn path_fd() {
     use std::fs::File;
 
-    PathBeneath::new(&PathFd::new("/").unwrap());
-    PathBeneath::new(&File::open("/").unwrap());
+    PathBeneath::new(PathFd::new("/").unwrap());
+    PathBeneath::new(File::open("/").unwrap());
     // TODO: Test that reading the content doesn't work.
 }
