@@ -87,8 +87,8 @@ pub struct PathBeneath<'a> {
     is_best_effort: bool,
 }
 
-impl PathBeneath<'_> {
-    pub fn new<'a, T>(parent: &'a T) -> Self
+impl<'a> PathBeneath<'a> {
+    pub fn new<T>(parent: &'a T) -> Self
     where
         T: AsRawFd,
     {
