@@ -22,6 +22,11 @@ pub trait PrivateAccess: BitFlag {
     ) -> Result<Ruleset, HandleAccessError<Self>>
     where
         Self: Access;
+
+    fn into_add_rules_error<E>(error: AddRuleError<Self>) -> AddRulesError<E>
+    where
+        Self: Access,
+        E: std::error::Error;
 }
 
 // Public interface without methods and which is impossible to implement outside this crate.
@@ -124,7 +129,7 @@ fn ruleset_add_rule_iter() {
             .unwrap()
             .add_rules(PathBeneath::new(PathFd::new("/").unwrap()).allow_access(AccessFs::ReadFile))
             .unwrap_err(),
-        AddRulesError::AddRule(AddRuleError::UnhandledAccess { .. })
+        AddRulesError::AddRuleFs(AddRuleError::UnhandledAccess { .. })
     ));
 }
 
@@ -221,7 +226,7 @@ impl RulesetCreated {
         }
     }
 
-    pub fn add_rules<I, T, U, E>(mut self, rules: I) -> Result<Self, AddRulesError<U, E>>
+    pub fn add_rules<I, T, U, E>(mut self, rules: I) -> Result<Self, AddRulesError<E>>
     where
         I: IntoIterator<Item = Result<T, E>>,
         T: Rule<U>,
@@ -231,7 +236,7 @@ impl RulesetCreated {
         for rule in rules {
             match rule {
                 // It is not possible to use collect() because E is too generic and makes
-                // impossible to implement From<E> for AddRulesError<T, E>.
+                // impossible to implement From<E> for AddRulesError<E>.
                 Err(e) => return Err(AddRulesError::Iter(e)),
                 Ok(r) => self = self.add_rule(r)?,
             }

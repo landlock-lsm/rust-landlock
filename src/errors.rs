@@ -18,7 +18,7 @@ where
     #[error(transparent)]
     AddRule(#[from] AddRuleError<T>),
     #[error(transparent)]
-    AddRules(#[from] AddRulesError<T, E>),
+    AddRules(#[from] AddRulesError<E>),
     #[error(transparent)]
     RestrictSelf(#[from] RestrictSelfError),
     #[error(transparent)]
@@ -77,17 +77,28 @@ where
     Compat(#[from] CompatError<T>),
 }
 
+// Generically implement for all the access implementations rather than for the cases listed in
+// AddRulesError (with #[from]).
+impl<A, E> From<AddRuleError<A>> for AddRulesError<E>
+where
+    A: Access,
+    E: std::error::Error,
+{
+    fn from(error: AddRuleError<A>) -> Self {
+        A::into_add_rules_error(error)
+    }
+}
+
 /// Identifies errors when adding rules to a ruleset thanks to an iterator returning
 /// Result<Rule, E> items.
 #[derive(Debug, Error)]
 #[non_exhaustive]
-pub enum AddRulesError<T, E>
+pub enum AddRulesError<E>
 where
-    T: Access,
     E: std::error::Error,
 {
     #[error(transparent)]
-    AddRule(#[from] AddRuleError<T>),
+    AddRuleFs(AddRuleError<AccessFs>),
     #[error(transparent)]
     Iter(E),
 }
