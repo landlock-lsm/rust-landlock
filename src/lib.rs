@@ -7,7 +7,7 @@ pub use compat::{Compatible, ABI};
 pub use enumflags2::{make_bitflags, BitFlags};
 pub use errors::{
     AccessError, AddRuleError, AddRulesError, CompatError, CreateRulesetError, HandleAccessError,
-    PathBeneathError, PathFdError, RestrictSelfError, RulesetError,
+    HandleAccessesError, PathBeneathError, PathFdError, RestrictSelfError, RulesetError,
 };
 pub use fs::{AccessFs, PathBeneath, PathFd};
 pub use ruleset::{Access, RestrictionStatus, Rule, Ruleset, RulesetCreated, RulesetStatus};
@@ -23,7 +23,7 @@ mod uapi;
 mod tests {
     use crate::*;
 
-    fn ruleset_root_compat() -> Result<RestrictionStatus, RulesetError<AccessFs, std::io::Error>> {
+    fn ruleset_root_compat() -> Result<RestrictionStatus, RulesetError<std::io::Error>> {
         Ok(Ruleset::new()
             .handle_access(AccessFs::from_all(ABI::V1))?
             .create()?
@@ -33,7 +33,7 @@ mod tests {
             .restrict_self()?)
     }
 
-    fn ruleset_root_fragile() -> Result<RestrictionStatus, RulesetError<AccessFs, std::io::Error>> {
+    fn ruleset_root_fragile() -> Result<RestrictionStatus, RulesetError<std::io::Error>> {
         // Sets default support requirement: abort the whole sandboxing for any Landlock error.
         Ok(Ruleset::new()
             // Must have at least the execute check…

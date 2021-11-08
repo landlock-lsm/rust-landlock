@@ -1,7 +1,7 @@
 use crate::{
     uapi, Access, AddRuleError, AddRulesError, CompatError, Compatibility, Compatible,
-    HandleAccessError, PathBeneathError, PathFdError, PrivateAccess, PrivateRule, Rule, Ruleset,
-    RulesetCreated, TryCompat, ABI,
+    HandleAccessError, HandleAccessesError, PathBeneathError, PathFdError, PrivateAccess,
+    PrivateRule, Rule, Ruleset, RulesetCreated, TryCompat, ABI,
 };
 use enumflags2::{bitflags, make_bitflags, BitFlags};
 use std::fs::{File, OpenOptions};
@@ -76,7 +76,11 @@ impl PrivateAccess for AccessFs {
     where
         E: std::error::Error,
     {
-        AddRulesError::AddRuleFs(error)
+        AddRulesError::Fs(error)
+    }
+
+    fn into_handle_accesses_error(error: HandleAccessError<Self>) -> HandleAccessesError {
+        HandleAccessesError::Fs(error)
     }
 }
 

@@ -1,6 +1,6 @@
 use crate::{
     uapi, AccessFs, AddRuleError, AddRulesError, BitFlags, CompatState, Compatibility, Compatible,
-    CreateRulesetError, HandleAccessError, RestrictSelfError, TryCompat, ABI,
+    CreateRulesetError, HandleAccessError, HandleAccessesError, RestrictSelfError, TryCompat, ABI,
 };
 use enumflags2::BitFlag;
 use libc::close;
@@ -27,6 +27,10 @@ pub trait PrivateAccess: BitFlag {
     where
         Self: Access,
         E: std::error::Error;
+
+    fn into_handle_accesses_error(error: HandleAccessError<Self>) -> HandleAccessesError
+    where
+        Self: Access;
 }
 
 // Public interface without methods and which is impossible to implement outside this crate.
@@ -129,7 +133,7 @@ fn ruleset_add_rule_iter() {
             .unwrap()
             .add_rules(PathBeneath::new(PathFd::new("/").unwrap()).allow_access(AccessFs::ReadFile))
             .unwrap_err(),
-        AddRulesError::AddRuleFs(AddRuleError::UnhandledAccess { .. })
+        AddRulesError::Fs(AddRuleError::UnhandledAccess { .. })
     ));
 }
 

@@ -6,17 +6,14 @@ use thiserror::Error;
 /// Maps to all errors that can be returned by a ruleset action.
 #[derive(Debug, Error)]
 #[non_exhaustive]
-pub enum RulesetError<T, E>
+pub enum RulesetError<E>
 where
-    T: Access,
     E: std::error::Error,
 {
     #[error(transparent)]
-    HandleAccess(#[from] HandleAccessError<T>),
+    HandleAccesses(#[from] HandleAccessesError),
     #[error(transparent)]
     CreateRuleset(#[from] CreateRulesetError),
-    #[error(transparent)]
-    AddRule(#[from] AddRuleError<T>),
     #[error(transparent)]
     AddRules(#[from] AddRulesError<E>),
     #[error(transparent)]
@@ -30,9 +27,9 @@ fn ruleset_error_breaking_change() {
     use crate::*;
 
     // Generics are part of the API and modifying them can lead to a breaking change.
-    let _: RulesetError<AccessFs, std::io::Error> = RulesetError::HandleAccess(
+    let _: RulesetError<std::io::Error> = RulesetError::HandleAccesses(HandleAccessesError::Fs(
         HandleAccessError::Compat(CompatError::Access(AccessError::Empty)),
-    );
+    ));
 }
 
 /// Identifies errors when updating the ruleset's handled access-rights.
@@ -44,6 +41,34 @@ where
 {
     #[error(transparent)]
     Compat(#[from] CompatError<T>),
+}
+
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum HandleAccessesError {
+    #[error(transparent)]
+    Fs(HandleAccessError<AccessFs>),
+}
+
+// Generically implement for all the access implementations rather than for the cases listed in
+// HandleAccessesError (with #[from]).
+impl<A> From<HandleAccessError<A>> for HandleAccessesError
+where
+    A: Access,
+{
+    fn from(error: HandleAccessError<A>) -> Self {
+        A::into_handle_accesses_error(error)
+    }
+}
+
+impl<A, E> From<HandleAccessError<A>> for RulesetError<E>
+where
+    A: Access,
+    E: std::error::Error,
+{
+    fn from(error: HandleAccessError<A>) -> Self {
+        error.into()
+    }
 }
 
 /// Identifies errors when creating a ruleset.
@@ -89,6 +114,16 @@ where
     }
 }
 
+impl<A, E> From<AddRuleError<A>> for RulesetError<E>
+where
+    A: Access,
+    E: std::error::Error,
+{
+    fn from(error: AddRuleError<A>) -> Self {
+        error.into()
+    }
+}
+
 /// Identifies errors when adding rules to a ruleset thanks to an iterator returning
 /// Result<Rule, E> items.
 #[derive(Debug, Error)]
@@ -98,7 +133,7 @@ where
     E: std::error::Error,
 {
     #[error(transparent)]
-    AddRuleFs(AddRuleError<AccessFs>),
+    Fs(AddRuleError<AccessFs>),
     #[error(transparent)]
     Iter(E),
 }
