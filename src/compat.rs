@@ -140,7 +140,7 @@ pub struct Compatibility {
 impl From<ABI> for Compatibility {
     fn from(abi: ABI) -> Self {
         Compatibility {
-            abi: abi,
+            abi,
             is_best_effort: true,
             state: match abi {
                 // Forces the state as unsupported because all possible types will be useless.

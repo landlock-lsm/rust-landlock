@@ -111,7 +111,7 @@ impl From<Compatibility> for Ruleset {
         Ruleset {
             requested_handled_fs: handled_fs,
             actual_handled_fs: handled_fs,
-            compat: compat,
+            compat,
         }
     }
 }
@@ -197,7 +197,7 @@ pub struct RulesetCreated {
 impl RulesetCreated {
     fn new(ruleset: Ruleset, fd: RawFd) -> Self {
         RulesetCreated {
-            fd: fd,
+            fd,
             no_new_privs: true,
             requested_handled_fs: ruleset.requested_handled_fs,
             compat: ruleset.compat,
