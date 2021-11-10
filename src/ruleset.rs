@@ -91,11 +91,11 @@ fn prctl_set_no_new_privs() -> Result<(), Error> {
 }
 
 fn support_no_new_privs() -> bool {
-    match unsafe { libc::prctl(libc::PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) } {
-        0 | 1 => true,
-        // Only Linux < 3.5 or kernel with seccomp filters should return an error.
-        _ => false,
-    }
+    // Only Linux < 3.5 or kernel with seccomp filters should return an error.
+    matches!(
+        unsafe { libc::prctl(libc::PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) },
+        0 | 1
+    )
 }
 
 #[cfg_attr(test, derive(Debug))]
