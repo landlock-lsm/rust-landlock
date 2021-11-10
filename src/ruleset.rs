@@ -134,6 +134,8 @@ fn ruleset_add_rule_iter() {
 }
 
 impl Ruleset {
+    // Ruleset is an opaque struct.
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         // The API should be future-proof: one Rust program or library should have the same
         // behavior if built with an old or a newer crate (e.g. with an extended ruleset_attr

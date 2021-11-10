@@ -152,7 +152,9 @@ impl From<ABI> for Compatibility {
 }
 
 impl Compatibility {
-    pub fn new() -> Compatibility {
+    // Compatibility is an opaque struct.
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
         ABI::new_current().into()
     }
 }
