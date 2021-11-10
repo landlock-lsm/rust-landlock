@@ -1,6 +1,7 @@
 use crate::{
     uapi, AccessFs, AddRuleError, AddRulesError, BitFlags, CompatState, Compatibility, Compatible,
-    CreateRulesetError, HandleAccessError, HandleAccessesError, RestrictSelfError, TryCompat, ABI,
+    CreateRulesetError, HandleAccessError, HandleAccessesError, RestrictSelfError, RulesetError,
+    TryCompat, ABI,
 };
 use enumflags2::BitFlag;
 use libc::close;
@@ -19,14 +20,13 @@ pub trait PrivateAccess: BitFlag {
     fn ruleset_handle_access(
         ruleset: Ruleset,
         access: BitFlags<Self>,
-    ) -> Result<Ruleset, HandleAccessError<Self>>
+    ) -> Result<Ruleset, HandleAccessesError>
     where
         Self: Access;
 
-    fn into_add_rules_error<E>(error: AddRuleError<Self>) -> AddRulesError<E>
+    fn into_add_rules_error(error: AddRuleError<Self>) -> AddRulesError
     where
-        Self: Access,
-        E: std::error::Error;
+        Self: Access;
 
     fn into_handle_accesses_error(error: HandleAccessError<Self>) -> HandleAccessesError
     where
@@ -34,11 +34,7 @@ pub trait PrivateAccess: BitFlag {
 }
 
 // Public interface without methods and which is impossible to implement outside this crate.
-//
-// The IntoIterator implementation will never return an error but we need to add an error type
-// anyway to fit the return type.  Using AddRuleError<T> make it standalone.
-pub trait Rule<T>:
-    PrivateRule<T> + IntoIterator<Item = Result<Self, AddRuleError<T>>> + Sized
+pub trait Rule<T>: PrivateRule<T>
 where
     T: Access,
 {
@@ -52,7 +48,7 @@ where
     fn as_ptr(&self) -> *const libc::c_void;
     fn get_type_id(&self) -> uapi::landlock_rule_type;
     fn get_flags(&self) -> u32;
-    fn check_consistency(&self, ruleset: &RulesetCreated) -> Result<(), AddRuleError<T>>;
+    fn check_consistency(&self, ruleset: &RulesetCreated) -> Result<(), AddRulesError>;
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -131,9 +127,9 @@ fn ruleset_add_rule_iter() {
             .unwrap()
             .create()
             .unwrap()
-            .add_rules(PathBeneath::new(PathFd::new("/").unwrap()).allow_access(AccessFs::ReadFile))
+            .add_rule(PathBeneath::new(PathFd::new("/").unwrap()).allow_access(AccessFs::ReadFile))
             .unwrap_err(),
-        AddRulesError::Fs(AddRuleError::UnhandledAccess { .. })
+        RulesetError::AddRules(AddRulesError::Fs(AddRuleError::UnhandledAccess { .. }))
     ));
 }
 
@@ -146,33 +142,40 @@ impl Ruleset {
         Compatibility::new().into()
     }
 
-    pub fn handle_access<T, U>(self, access: T) -> Result<Self, HandleAccessError<U>>
+    /// On error, returns a wrapped `HandleAccessesError`
+    /// E.g., `RulesetError::HandleAccesses(HandleAccessesError::Fs(HandleAccessError<AccessFs>))`
+    pub fn handle_access<T, U>(self, access: T) -> Result<Self, RulesetError>
     where
         T: Into<BitFlags<U>>,
         U: Access,
     {
-        U::ruleset_handle_access(self, access.into())
+        Ok(U::ruleset_handle_access(self, access.into())?)
     }
 
-    pub fn create(self) -> Result<RulesetCreated, CreateRulesetError> {
-        let attr = uapi::landlock_ruleset_attr {
-            handled_access_fs: self.actual_handled_fs.bits(),
-        };
+    /// On error, returns a wrapped `CreateRulesetError`
+    pub fn create(self) -> Result<RulesetCreated, RulesetError> {
+        let body = || -> Result<RulesetCreated, CreateRulesetError> {
+            let attr = uapi::landlock_ruleset_attr {
+                handled_access_fs: self.actual_handled_fs.bits(),
+            };
 
-        match self.compat.abi {
-            ABI::Unsupported => {
-                #[cfg(test)]
-                assert_eq!(self.compat.state, CompatState::Final);
-                Ok(RulesetCreated::new(self, -1))
+            match self.compat.abi {
+                ABI::Unsupported => {
+                    #[cfg(test)]
+                    assert_eq!(self.compat.state, CompatState::Final);
+                    Ok(RulesetCreated::new(self, -1))
+                }
+                ABI::V1 => {
+                    match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) } {
+                        fd if fd >= 0 => Ok(RulesetCreated::new(self, fd)),
+                        _ => Err(CreateRulesetError::CreateRulesetCall {
+                            source: Error::last_os_error(),
+                        }),
+                    }
+                }
             }
-            ABI::V1 => match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) }
-            {
-                fd if fd >= 0 => Ok(RulesetCreated::new(self, fd)),
-                _ => Err(CreateRulesetError::CreateRulesetCall {
-                    source: Error::last_os_error(),
-                }),
-            },
-        }
+        };
+        Ok(body()?)
     }
 }
 
@@ -201,49 +204,53 @@ impl RulesetCreated {
         }
     }
 
-    pub fn add_rule<T, U>(mut self, rule: T) -> Result<Self, AddRuleError<U>>
+    /// On error, returns a wrapped `AddRulesError`
+    pub fn add_rule<T, U>(mut self, rule: T) -> Result<Self, RulesetError>
     where
         T: Rule<U>,
         U: Access,
     {
-        rule.check_consistency(&self)?;
-        let compat_rule = rule.try_compat(&mut self.compat)?;
-        match self.compat.abi {
-            ABI::Unsupported => {
-                #[cfg(test)]
-                assert_eq!(self.compat.state, CompatState::Final);
-                Ok(self)
+        let body = || -> Result<Self, AddRulesError> {
+            rule.check_consistency(&self)?;
+            let compat_rule = rule
+                .try_compat(&mut self.compat)
+                .map_err(AddRuleError::Compat)?;
+            match self.compat.abi {
+                ABI::Unsupported => {
+                    #[cfg(test)]
+                    assert_eq!(self.compat.state, CompatState::Final);
+                    Ok(self)
+                }
+                ABI::V1 => match unsafe {
+                    uapi::landlock_add_rule(
+                        self.fd,
+                        compat_rule.get_type_id(),
+                        compat_rule.as_ptr(),
+                        compat_rule.get_flags(),
+                    )
+                } {
+                    0 => Ok(self),
+                    _ => Err(AddRuleError::<U>::AddRuleCall {
+                        source: Error::last_os_error(),
+                    }
+                    .into()),
+                },
             }
-            ABI::V1 => match unsafe {
-                uapi::landlock_add_rule(
-                    self.fd,
-                    compat_rule.get_type_id(),
-                    compat_rule.as_ptr(),
-                    compat_rule.get_flags(),
-                )
-            } {
-                0 => Ok(self),
-                _ => Err(AddRuleError::AddRuleCall {
-                    source: Error::last_os_error(),
-                }),
-            },
-        }
+        };
+        Ok(body()?)
     }
 
-    pub fn add_rules<I, T, U, E>(mut self, rules: I) -> Result<Self, AddRulesError<E>>
+    /// On error, returns a (double) wrapped `AddRulesError`
+    pub fn add_rules<I, T, U, E>(mut self, rules: I) -> Result<Self, E>
     where
         I: IntoIterator<Item = Result<T, E>>,
         T: Rule<U>,
         U: Access,
         E: std::error::Error,
+        E: From<RulesetError>,
     {
         for rule in rules {
-            match rule {
-                // It is not possible to use collect() because E is too generic and makes
-                // impossible to implement From<E> for AddRulesError<E>.
-                Err(e) => return Err(AddRulesError::Iter(e)),
-                Ok(r) => self = self.add_rule(r)?,
-            }
+            self = self.add_rule(rule?)?;
         }
         Ok(self)
     }
@@ -253,60 +260,64 @@ impl RulesetCreated {
         self
     }
 
-    pub fn restrict_self(mut self) -> Result<RestrictionStatus, RestrictSelfError> {
-        let enforced_nnp = if self.no_new_privs {
-            if let Err(e) = prctl_set_no_new_privs() {
-                if !self.compat.is_best_effort {
-                    return Err(RestrictSelfError::SetNoNewPrivsCall { source: e });
-                }
-                // To get a consistent behavior, calls this prctl whether or not Landlock is
-                // supported by the running kernel.
-                let support_nnp = support_no_new_privs();
-                match self.compat.abi {
-                    // It should not be an error for kernel (older than 3.5) not supporting
-                    // no_new_privs.
-                    ABI::Unsupported => {
-                        if support_nnp {
-                            // The kernel seems to be between 3.5 (included) and 5.13 (excluded),
-                            // or Landlock is not enabled; no_new_privs should be supported anyway.
-                            return Err(RestrictSelfError::SetNoNewPrivsCall { source: e });
-                        }
+    /// On error, returns a wrapped `RestrictSelfError`
+    pub fn restrict_self(mut self) -> Result<RestrictionStatus, RulesetError> {
+        let mut body = || -> Result<RestrictionStatus, RestrictSelfError> {
+            let enforced_nnp = if self.no_new_privs {
+                if let Err(e) = prctl_set_no_new_privs() {
+                    if !self.compat.is_best_effort {
+                        return Err(RestrictSelfError::SetNoNewPrivsCall { source: e });
                     }
-                    // A kernel supporting Landlock should also support no_new_privs (unless
-                    // filtered by seccomp).
-                    _ => return Err(RestrictSelfError::SetNoNewPrivsCall { source: e }),
+                    // To get a consistent behavior, calls this prctl whether or not Landlock is
+                    // supported by the running kernel.
+                    let support_nnp = support_no_new_privs();
+                    match self.compat.abi {
+                        // It should not be an error for kernel (older than 3.5) not supporting
+                        // no_new_privs.
+                        ABI::Unsupported => {
+                            if support_nnp {
+                                // The kernel seems to be between 3.5 (included) and 5.13 (excluded),
+                                // or Landlock is not enabled; no_new_privs should be supported anyway.
+                                return Err(RestrictSelfError::SetNoNewPrivsCall { source: e });
+                            }
+                        }
+                        // A kernel supporting Landlock should also support no_new_privs (unless
+                        // filtered by seccomp).
+                        _ => return Err(RestrictSelfError::SetNoNewPrivsCall { source: e }),
+                    }
+                    false
+                } else {
+                    true
                 }
-                false
             } else {
-                true
-            }
-        } else {
-            false
-        };
+                false
+            };
 
-        match self.compat.abi {
-            ABI::Unsupported => {
-                #[cfg(test)]
-                assert_eq!(self.compat.state, CompatState::Final);
-                Ok(RestrictionStatus {
-                    ruleset: self.compat.state.into(),
-                    no_new_privs: enforced_nnp,
-                })
-            }
-            ABI::V1 => match unsafe { uapi::landlock_restrict_self(self.fd, 0) } {
-                0 => {
-                    self.compat.state.update(CompatState::Full);
+            match self.compat.abi {
+                ABI::Unsupported => {
+                    #[cfg(test)]
+                    assert_eq!(self.compat.state, CompatState::Final);
                     Ok(RestrictionStatus {
                         ruleset: self.compat.state.into(),
                         no_new_privs: enforced_nnp,
                     })
                 }
-                // TODO: match specific Landlock restrict self errors
-                _ => Err(RestrictSelfError::RestrictSelfCall {
-                    source: Error::last_os_error(),
-                }),
-            },
-        }
+                ABI::V1 => match unsafe { uapi::landlock_restrict_self(self.fd, 0) } {
+                    0 => {
+                        self.compat.state.update(CompatState::Full);
+                        Ok(RestrictionStatus {
+                            ruleset: self.compat.state.into(),
+                            no_new_privs: enforced_nnp,
+                        })
+                    }
+                    // TODO: match specific Landlock restrict self errors
+                    _ => Err(RestrictSelfError::RestrictSelfCall {
+                        source: Error::last_os_error(),
+                    }),
+                },
+            }
+        };
+        Ok(body()?)
     }
 }
 
@@ -375,7 +386,9 @@ fn ruleset_unsupported() {
             // Empty access-rights
             .handle_access(AccessFs::from_all(ABI::Unsupported))
             .unwrap_err(),
-        HandleAccessError::Compat(CompatError::Access(AccessError::Empty))
+        RulesetError::HandleAccesses(HandleAccessesError::Fs(HandleAccessError::Compat(
+            CompatError::Access(AccessError::Empty)
+        )))
     ));
 
     compat = ABI::V1.into();
@@ -412,7 +425,9 @@ fn ruleset_unsupported() {
             // Empty access-rights
             .handle_access(AccessFs::from_all(ABI::Unsupported))
             .unwrap_err(),
-        HandleAccessError::Compat(CompatError::Access(AccessError::Empty))
+        RulesetError::HandleAccesses(HandleAccessesError::Fs(HandleAccessError::Compat(
+            CompatError::Access(AccessError::Empty)
+        )))
     ));
 
     // Tests inconsistency between the ruleset handled access-rights and the rule access-rights.
@@ -430,7 +445,7 @@ fn ruleset_unsupported() {
                     PathBeneath::new(PathFd::new("/").unwrap()).allow_access(AccessFs::ReadFile)
                 )
                 .unwrap_err(),
-            AddRuleError::UnhandledAccess { .. }
+            RulesetError::AddRules(AddRulesError::Fs(AddRuleError::UnhandledAccess { .. }))
         ));
     }
 }

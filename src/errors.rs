@@ -6,20 +6,15 @@ use thiserror::Error;
 /// Maps to all errors that can be returned by a ruleset action.
 #[derive(Debug, Error)]
 #[non_exhaustive]
-pub enum RulesetError<E>
-where
-    E: std::error::Error,
-{
+pub enum RulesetError {
     #[error(transparent)]
     HandleAccesses(#[from] HandleAccessesError),
     #[error(transparent)]
     CreateRuleset(#[from] CreateRulesetError),
     #[error(transparent)]
-    AddRules(#[from] AddRulesError<E>),
+    AddRules(#[from] AddRulesError),
     #[error(transparent)]
     RestrictSelf(#[from] RestrictSelfError),
-    #[error(transparent)]
-    PathFd(#[from] PathFdError),
 }
 
 #[test]
@@ -27,7 +22,7 @@ fn ruleset_error_breaking_change() {
     use crate::*;
 
     // Generics are part of the API and modifying them can lead to a breaking change.
-    let _: RulesetError<std::io::Error> = RulesetError::HandleAccesses(HandleAccessesError::Fs(
+    let _: RulesetError = RulesetError::HandleAccesses(HandleAccessesError::Fs(
         HandleAccessError::Compat(CompatError::Access(AccessError::Empty)),
     ));
 }
@@ -58,16 +53,6 @@ where
 {
     fn from(error: HandleAccessError<A>) -> Self {
         A::into_handle_accesses_error(error)
-    }
-}
-
-impl<A, E> From<HandleAccessError<A>> for RulesetError<E>
-where
-    A: Access,
-    E: std::error::Error,
-{
-    fn from(error: HandleAccessError<A>) -> Self {
-        error.into()
     }
 }
 
@@ -104,23 +89,12 @@ where
 
 // Generically implement for all the access implementations rather than for the cases listed in
 // AddRulesError (with #[from]).
-impl<A, E> From<AddRuleError<A>> for AddRulesError<E>
+impl<A> From<AddRuleError<A>> for AddRulesError
 where
     A: Access,
-    E: std::error::Error,
 {
     fn from(error: AddRuleError<A>) -> Self {
         A::into_add_rules_error(error)
-    }
-}
-
-impl<A, E> From<AddRuleError<A>> for RulesetError<E>
-where
-    A: Access,
-    E: std::error::Error,
-{
-    fn from(error: AddRuleError<A>) -> Self {
-        error.into()
     }
 }
 
@@ -128,14 +102,9 @@ where
 /// Result<Rule, E> items.
 #[derive(Debug, Error)]
 #[non_exhaustive]
-pub enum AddRulesError<E>
-where
-    E: std::error::Error,
-{
+pub enum AddRulesError {
     #[error(transparent)]
     Fs(AddRuleError<AccessFs>),
-    #[error(transparent)]
-    Iter(E),
 }
 
 #[derive(Debug, Error)]
@@ -218,4 +187,15 @@ pub enum PathFdError {
     #[error("failed to open \"{path}\": {source}")]
     #[non_exhaustive]
     OpenCall { source: io::Error, path: PathBuf },
+}
+
+#[cfg(test)]
+#[derive(Debug, Error)]
+pub enum TestRulesetError {
+    #[error(transparent)]
+    Ruleset(#[from] RulesetError),
+    #[error(transparent)]
+    PathFd(#[from] PathFdError),
+    #[error(transparent)]
+    File(#[from] std::io::Error),
 }

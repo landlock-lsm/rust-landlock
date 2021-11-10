@@ -13,6 +13,9 @@ pub use fs::{AccessFs, PathBeneath, PathFd};
 pub use ruleset::{Access, RestrictionStatus, Rule, Ruleset, RulesetCreated, RulesetStatus};
 use ruleset::{PrivateAccess, PrivateRule};
 
+#[cfg(test)]
+pub use errors::TestRulesetError;
+
 mod compat;
 mod errors;
 mod fs;
@@ -23,7 +26,7 @@ mod uapi;
 mod tests {
     use crate::*;
 
-    fn ruleset_root_compat() -> Result<RestrictionStatus, RulesetError<std::io::Error>> {
+    fn ruleset_root_compat() -> Result<RestrictionStatus, TestRulesetError> {
         Ok(Ruleset::new()
             .handle_access(AccessFs::from_all(ABI::V1))?
             .create()?
@@ -33,7 +36,7 @@ mod tests {
             .restrict_self()?)
     }
 
-    fn ruleset_root_fragile() -> Result<RestrictionStatus, RulesetError<std::io::Error>> {
+    fn ruleset_root_fragile() -> Result<RestrictionStatus, TestRulesetError> {
         // Sets default support requirement: abort the whole sandboxing for any Landlock error.
         Ok(Ruleset::new()
             // Must have at least the execute check…

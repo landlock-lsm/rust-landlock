@@ -1,13 +1,14 @@
 use anyhow::{anyhow, bail};
 use landlock::{
     make_bitflags, Access, AccessFs, BitFlags, PathBeneath, PathFd, PathFdError, Ruleset,
-    RulesetStatus, ABI,
+    RulesetError, RulesetStatus, ABI,
 };
 use std::env;
 use std::ffi::OsStr;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::process::CommandExt;
 use std::process::Command;
+use thiserror::Error;
 
 const ENV_FS_RO_NAME: &str = "LL_FS_RO";
 const ENV_FS_RW_NAME: &str = "LL_FS_RW";
@@ -19,6 +20,16 @@ const ACCESS_FS_ROUGHLY_WRITE: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
     WriteFile | RemoveDir | RemoveFile | MakeChar | MakeDir | MakeReg | MakeSock | MakeFifo |
         MakeBlock | MakeSym
 });
+
+#[derive(Debug, Error)]
+enum PathEnvError<'a> {
+    #[error(transparent)]
+    Ruleset(#[from] RulesetError),
+    #[error(transparent)]
+    AddRuleIter(#[from] PathFdError),
+    #[error("missing environment variable {0}")]
+    MissingVar(&'a str),
+}
 
 struct PathEnv {
     paths: Vec<u8>,
@@ -34,16 +45,18 @@ impl PathEnv {
     ///   allowed. Paths are separated with ":", e.g. "/bin:/lib:/usr:/proc". In case an empty
     ///   string is provided, NO restrictions are applied.
     /// * `access`: Set of access-rights allowed for each of the parsed paths.
-    fn new(name: &str, access: BitFlags<AccessFs>) -> Result<Self, anyhow::Error> {
+    fn new<'a>(name: &'a str, access: BitFlags<AccessFs>) -> Result<Self, PathEnvError<'a>> {
         Ok(Self {
             paths: env::var_os(name)
-                .ok_or(anyhow!("Missing environment variable {}", name))?
+                .ok_or(PathEnvError::MissingVar(name))?
                 .into_vec(),
             access,
         })
     }
 
-    fn iter(&self) -> impl Iterator<Item = Result<PathBeneath<PathFd>, PathFdError>> + '_ {
+    fn iter(
+        &self,
+    ) -> impl Iterator<Item = Result<PathBeneath<PathFd>, PathEnvError<'static>>> + '_ {
         let is_empty = self.paths.is_empty();
         self.paths
             .split(|b| *b == b':')

@@ -64,18 +64,16 @@ impl PrivateAccess for AccessFs {
     fn ruleset_handle_access(
         mut ruleset: Ruleset,
         access: BitFlags<Self>,
-    ) -> Result<Ruleset, HandleAccessError<Self>> {
+    ) -> Result<Ruleset, HandleAccessesError> {
         ruleset.requested_handled_fs = access;
         ruleset.actual_handled_fs = ruleset
             .requested_handled_fs
-            .try_compat(&mut ruleset.compat)?;
+            .try_compat(&mut ruleset.compat)
+            .map_err(HandleAccessError::Compat)?;
         Ok(ruleset)
     }
 
-    fn into_add_rules_error<E>(error: AddRuleError<Self>) -> AddRulesError<E>
-    where
-        E: std::error::Error,
-    {
+    fn into_add_rules_error(error: AddRuleError<Self>) -> AddRulesError {
         AddRulesError::Fs(error)
     }
 
@@ -218,18 +216,6 @@ fn path_beneath_try_compat() {
 // of doing it generically.
 impl<F> Rule<AccessFs> for PathBeneath<F> where F: AsRawFd {}
 
-impl<F> IntoIterator for PathBeneath<F>
-where
-    F: AsRawFd,
-{
-    type Item = Result<Self, AddRuleError<AccessFs>>;
-    type IntoIter = std::iter::Once<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        std::iter::once(Ok(self))
-    }
-}
-
 impl<F> PrivateRule<AccessFs> for PathBeneath<F>
 where
     F: AsRawFd,
@@ -246,7 +232,7 @@ where
         0
     }
 
-    fn check_consistency(&self, ruleset: &RulesetCreated) -> Result<(), AddRuleError<AccessFs>> {
+    fn check_consistency(&self, ruleset: &RulesetCreated) -> Result<(), AddRulesError> {
         // Checks that this rule doesn't contain a superset of the access-rights handled by the
         // ruleset.  This check is about requested access-rights but not actual access-rights.
         // Indeed, we want to get a deterministic behavior, i.e. not based on the running kernel
@@ -257,7 +243,8 @@ where
             Err(AddRuleError::UnhandledAccess {
                 access: self.allowed_access,
                 incompatible: self.allowed_access & !ruleset.requested_handled_fs,
-            })
+            }
+            .into())
         }
     }
 }
@@ -276,7 +263,7 @@ fn path_beneath_check_consistency() {
             .unwrap()
             .add_rule(PathBeneath::new(PathFd::new("/").unwrap()).allow_access(rx_access))
             .unwrap_err(),
-        AddRuleError::UnhandledAccess { access, incompatible }
+        RulesetError::AddRules(AddRulesError::Fs(AddRuleError::UnhandledAccess { access, incompatible }))
             if access == rx_access && incompatible == AccessFs::Execute
     ));
 }
