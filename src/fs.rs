@@ -278,10 +278,10 @@ impl PathFd {
     where
         T: AsRef<Path>,
     {
-        // TODO: Add fallback for kernel not supporting O_PATH.
         Ok(PathFd {
             file: OpenOptions::new()
                 .read(true)
+                // If the O_PATH is not supported, it is automatically ignored (Linux < 2.6.39).
                 .custom_flags(libc::O_PATH | libc::O_CLOEXEC)
                 .open(path.as_ref())
                 .map_err(|e| PathFdError::OpenCall {
@@ -301,8 +301,17 @@ impl AsRawFd for PathFd {
 #[test]
 fn path_fd() {
     use std::fs::File;
+    use std::io::Read;
+    use std::os::unix::io::FromRawFd;
 
     PathBeneath::new(PathFd::new("/").unwrap());
     PathBeneath::new(File::open("/").unwrap());
-    // TODO: Test that reading the content doesn't work.
+
+    let mut buffer = [0; 1];
+    // Checks that PathFd really returns an FD opened with O_PATH (Bad file descriptor error).
+    unsafe {
+        File::from_raw_fd(PathFd::new("/etc/passwd").unwrap().as_raw_fd())
+            .read(&mut buffer)
+            .unwrap_err()
+    };
 }
