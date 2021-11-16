@@ -11,25 +11,65 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::Path;
 
-/// WARNING: Don't use `BitFlags::<AccessFs>::all()` nor `BitFlags::ALL` but `ABI::V1.into()`
-/// instead.
+/// File system access right.
+///
+/// Each variant of `AccessFs` is an [access right](https://www.kernel.org/doc/html/latest/userspace-api/landlock.html#access-rights)
+/// for the file system.
+/// A set of access rights can be created with [`BitFlags<AccessFs>`](BitFlags).
+///
+/// # Example
+///
+/// ```
+/// use landlock::{ABI, Access, AccessFs, BitFlags, make_bitflags};
+///
+/// let exec = AccessFs::Execute;
+///
+/// let exec_set: BitFlags<AccessFs> = exec.into();
+///
+/// let file_content = make_bitflags!(AccessFs::{Execute | WriteFile | ReadFile});
+///
+/// let fs_v1 = AccessFs::from_all(ABI::V1);
+///
+/// let without_exec = fs_v1 & !AccessFs::Execute;
+/// ```
+///
+/// # Warning
+///
+/// To avoid compile time behavior at run time,
+/// which may look like undefined behavior,
+/// don't use `BitFlags::<AccessFs>::all()` nor `BitFlags::ALL`,
+/// but [`AccessFs::from_all(ABI::V1)`](Access::from_all) instead.
+/// See [`ABI`] for the rational.
 #[bitflags]
 #[repr(u64)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum AccessFs {
+    /// Execute a file.
     Execute = uapi::LANDLOCK_ACCESS_FS_EXECUTE as u64,
+    /// Open a file with write access.
     WriteFile = uapi::LANDLOCK_ACCESS_FS_WRITE_FILE as u64,
+    /// Open a file with read access.
     ReadFile = uapi::LANDLOCK_ACCESS_FS_READ_FILE as u64,
+    /// Open a directory or list its content.
     ReadDir = uapi::LANDLOCK_ACCESS_FS_READ_DIR as u64,
+    /// Remove an empty directory or rename one.
     RemoveDir = uapi::LANDLOCK_ACCESS_FS_REMOVE_DIR as u64,
+    /// Unlink (or rename) a file.
     RemoveFile = uapi::LANDLOCK_ACCESS_FS_REMOVE_FILE as u64,
+    /// Create (or rename or link) a character device.
     MakeChar = uapi::LANDLOCK_ACCESS_FS_MAKE_CHAR as u64,
+    /// Create (or rename) a directory.
     MakeDir = uapi::LANDLOCK_ACCESS_FS_MAKE_DIR as u64,
+    /// Create (or rename or link) a regular file.
     MakeReg = uapi::LANDLOCK_ACCESS_FS_MAKE_REG as u64,
+    /// Create (or rename or link) a UNIX domain socket.
     MakeSock = uapi::LANDLOCK_ACCESS_FS_MAKE_SOCK as u64,
+    /// Create (or rename or link) a named pipe.
     MakeFifo = uapi::LANDLOCK_ACCESS_FS_MAKE_FIFO as u64,
+    /// Create (or rename or link) a block device.
     MakeBlock = uapi::LANDLOCK_ACCESS_FS_MAKE_BLOCK as u64,
+    /// Create (or rename or link) a symbolic link.
     MakeSym = uapi::LANDLOCK_ACCESS_FS_MAKE_SYM as u64,
 }
 
@@ -86,6 +126,17 @@ const ACCESS_FILE: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
     ReadFile | WriteFile | Execute
 });
 
+/// Landlock rule for a file hierarchy.
+///
+/// # Example
+///
+/// ```
+/// use landlock::{PathBeneath, PathFd, PathFdError};
+///
+/// fn home_dir() -> Result<PathBeneath<PathFd>, PathFdError> {
+///     Ok(PathBeneath::new(PathFd::new("/home")?))
+/// }
+/// ```
 #[cfg_attr(test, derive(Debug))]
 pub struct PathBeneath<F> {
     attr: uapi::landlock_path_beneath_attr,
@@ -99,6 +150,9 @@ impl<F> PathBeneath<F>
 where
     F: AsRawFd,
 {
+    /// Create a new `PathBeneath` rule identifying the `parent` directory of a file hierarchy,
+    /// or just a file.
+    /// The `parent` file descriptor will be automatically closed with the returned `PathBeneath`.
     pub fn new(parent: F) -> Self {
         // By default, allows all v1 accesses on this path exception.
         PathBeneath {
@@ -113,7 +167,7 @@ where
         }
     }
 
-    // TODO: Replace with `append_allowed_accesses()`?
+    ///  Set of allowed accesses for this file hierarchy.
     pub fn allow_access<T>(mut self, access: T) -> Self
     where
         T: Into<BitFlags<AccessFs>>,
@@ -268,6 +322,23 @@ fn path_beneath_check_consistency() {
     ));
 }
 
+/// Simple helper to open a file or a directory with the `O_PATH` flag.
+///
+/// This is the recommended way to identify a path
+/// and manage the lifetime of the underlying opened file descriptor.
+/// Indeed, using other [`AsRawFd`] implementations such as [`File`] brings more complexity
+/// and may lead to unexpected errors (e.g., denied access).
+///
+/// # Example
+///
+/// ```
+/// use landlock::{AccessFs, PathBeneath, PathFd, PathFdError};
+///
+/// fn allowed_root_dir(access: AccessFs) -> Result<PathBeneath<PathFd>, PathFdError> {
+///     let fd = PathFd::new("/")?;
+///     Ok(PathBeneath::new(fd).allow_access(access))
+/// }
+/// ```
 #[cfg_attr(test, derive(Debug))]
 pub struct PathFd {
     file: File,
