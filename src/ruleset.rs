@@ -13,6 +13,7 @@ use std::os::unix::io::RawFd;
 use crate::*;
 
 pub trait Access: PrivateAccess {
+    /// Gets the access rights defined by a specific [`ABI`].
     fn from_all(abi: ABI) -> BitFlags<Self>;
 }
 
@@ -51,13 +52,16 @@ where
     fn check_consistency(&self, ruleset: &RulesetCreated) -> Result<(), AddRulesError>;
 }
 
+/// Enforcement status of a ruleset.
 #[derive(Debug, PartialEq, Eq)]
 pub enum RulesetStatus {
     /// All requested restrictions are enforced.
     FullyEnforced,
-    /// Some requested restrictions are enforced, following a best-effort approach.
+    /// Some requested restrictions are enforced,
+    /// following a best-effort approach.
     PartiallyEnforced,
-    /// The running system doesn't support Landlock or a subset of the requested Landlock features.
+    /// The running system doesn't support Landlock
+    /// or a subset of the requested Landlock features.
     NotEnforced,
 }
 
@@ -73,13 +77,14 @@ impl From<CompatState> for RulesetStatus {
 
 // The Debug, PartialEq and Eq implementations are useful for crate users to debug and check the
 // result of a Landlock ruleset enforcement.
-/// Returned by ruleset builder.
+/// Status of a [`RulesetCreated`]
+/// after calling [`restrict_self()`](RulesetCreated::restrict_self).
 #[derive(Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct RestrictionStatus {
     /// Status of the Landlock ruleset enforcement.
     pub ruleset: RulesetStatus,
-    /// Status of prctl(2)'s PR_SET_NO_NEW_PRIVS enforcement.
+    /// Status of `prctl(2)`'s `PR_SET_NO_NEW_PRIVS` enforcement.
     pub no_new_privs: bool,
 }
 
@@ -98,6 +103,81 @@ fn support_no_new_privs() -> bool {
     )
 }
 
+/// Landlock ruleset builder.
+///
+/// `Ruleset` enables to create a Landlock ruleset in a flexible way
+/// following the builder pattern.
+/// Most build steps return a [`Result`] with [`RulesetError`].
+///
+/// You should probably not create more than one ruleset per application.
+/// Creating multiple rulesets is only useful when gradually restricting an application
+/// (e.g., a first set of generic restrictions before reading any file,
+/// then a second set of tailored restrictions after reading the configuration).
+///
+/// # Simple example
+///
+/// Simple helper handling only Landlock-related errors.
+///
+/// ```
+/// use landlock::{
+///     Access, AccessFs, PathBeneath, PathFd, RestrictionStatus, Ruleset, RulesetError, ABI,
+/// };
+/// use std::os::unix::io::AsRawFd;
+///
+/// fn restrict_fd<T>(hierarchy: T) -> Result<RestrictionStatus, RulesetError>
+/// where
+///     T: AsRawFd,
+/// {
+///     let accesses = AccessFs::from_all(ABI::V1);
+///     Ok(Ruleset::new()
+///         .handle_access(accesses)?
+///         .create()?
+///         .add_rule(PathBeneath::new(hierarchy).allow_access(accesses))?
+///         .restrict_self()?)
+/// }
+///
+/// let fd = PathFd::new("/home").expect("failed to open /home");
+/// let status = restrict_fd(fd).expect("failed to build the ruleset");
+/// ```
+///
+/// # Generic example
+///
+/// More generic helper handling a set of file hierarchies
+/// and multiple types of error (i.e. [`RulesetError`](crate::RulesetError)
+/// and [`PathFdError`](crate::PathFdError).
+///
+/// ```
+/// use landlock::{
+///     Access, AccessFs, PathBeneath, PathFd, PathFdError, RestrictionStatus, Ruleset,
+///     RulesetError, ABI,
+/// };
+/// use thiserror::Error;
+///
+/// #[derive(Debug, Error)]
+/// enum MyRestrictError {
+///     #[error(transparent)]
+///     Ruleset(#[from] RulesetError),
+///     #[error(transparent)]
+///     AddRule(#[from] PathFdError),
+/// }
+///
+/// fn restrict_paths(hierarchies: &[&str]) -> Result<RestrictionStatus, MyRestrictError> {
+///     let accesses = AccessFs::from_all(ABI::V1);
+///     Ok(Ruleset::new()
+///         .handle_access(accesses)?
+///         .create()?
+///         .add_rules(
+///             hierarchies
+///                 .iter()
+///                 .map::<Result<_, MyRestrictError>, _>(|p| {
+///                     Ok(PathBeneath::new(PathFd::new(p)?).allow_access(accesses))
+///                 }),
+///         )?
+///         .restrict_self()?)
+/// }
+///
+/// let status = restrict_paths(&["/usr", "/home"]).expect("failed to build the ruleset");
+/// ```
 #[cfg_attr(test, derive(Debug))]
 pub struct Ruleset {
     pub(crate) requested_handled_fs: BitFlags<AccessFs>,
@@ -135,6 +215,8 @@ fn ruleset_add_rule_iter() {
 
 impl Ruleset {
     // Ruleset is an opaque struct.
+    /// Returns a new `Ruleset`.
+    /// This call automatically probes the running kernel to know if it supports Landlock.
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         // The API should be future-proof: one Rust program or library should have the same
@@ -144,7 +226,10 @@ impl Ruleset {
         Compatibility::new().into()
     }
 
-    /// On error, returns a wrapped `HandleAccessesError`
+    /// Attempts to define the set of access rights that will be supported by this ruleset.
+    /// By default, all actions requiring these access rights will be denied.
+    ///
+    /// On error, returns a wrapped [`HandleAccessesError`].
     /// E.g., `RulesetError::HandleAccesses(HandleAccessesError::Fs(HandleAccessError<AccessFs>))`
     pub fn handle_access<T, U>(self, access: T) -> Result<Self, RulesetError>
     where
@@ -154,7 +239,10 @@ impl Ruleset {
         Ok(U::ruleset_handle_access(self, access.into())?)
     }
 
-    /// On error, returns a wrapped `CreateRulesetError`
+    /// Attempts to create a real Landlock ruleset (if supported by the running kernel).
+    /// The returned [`RulesetCreated`] is also a builder.
+    ///
+    /// On error, returns a wrapped [`CreateRulesetError`].
     pub fn create(self) -> Result<RulesetCreated, RulesetError> {
         let body = || -> Result<RulesetCreated, CreateRulesetError> {
             let attr = uapi::landlock_ruleset_attr {
@@ -188,6 +276,7 @@ impl Compatible for Ruleset {
     }
 }
 
+/// Ruleset created with [`Ruleset::create()`].
 #[cfg_attr(test, derive(Debug))]
 pub struct RulesetCreated {
     fd: RawFd,
@@ -206,7 +295,9 @@ impl RulesetCreated {
         }
     }
 
-    /// On error, returns a wrapped `AddRulesError`
+    /// Attempts to add a new rule to the ruleset.
+    ///
+    /// On error, returns a wrapped [`AddRulesError`].
     pub fn add_rule<T, U>(mut self, rule: T) -> Result<Self, RulesetError>
     where
         T: Rule<U>,
@@ -242,7 +333,80 @@ impl RulesetCreated {
         Ok(body()?)
     }
 
-    /// On error, returns a (double) wrapped `AddRulesError`
+    /// Attempts to add a set of new rules to the ruleset.
+    ///
+    /// On error, returns a (double) wrapped [`AddRulesError`].
+    ///
+    /// # Example
+    ///
+    /// Create a custom iterator to read paths from environment variable.
+    ///
+    /// ```
+    /// use landlock::{
+    ///     Access, AccessFs, BitFlags, PathBeneath, PathFd, PathFdError, RestrictionStatus, Ruleset,
+    ///     RulesetError, ABI,
+    /// };
+    /// use std::env;
+    /// use std::ffi::OsStr;
+    /// use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    /// use thiserror::Error;
+    ///
+    /// #[derive(Debug, Error)]
+    /// enum PathEnvError<'a> {
+    ///     #[error(transparent)]
+    ///     Ruleset(#[from] RulesetError),
+    ///     #[error(transparent)]
+    ///     AddRuleIter(#[from] PathFdError),
+    ///     #[error("missing environment variable {0}")]
+    ///     MissingVar(&'a str),
+    /// }
+    ///
+    /// struct PathEnv {
+    ///     paths: Vec<u8>,
+    ///     access: BitFlags<AccessFs>,
+    /// }
+    ///
+    /// impl PathEnv {
+    ///     // env_var is the name of an environment variable
+    ///     // containing paths requested to be allowed.
+    ///     // Paths are separated with ":", e.g. "/bin:/lib:/usr:/proc".
+    ///     // In case an empty string is provided,
+    ///     // no restrictions are applied.
+    ///     // `access` is the set of access rights allowed for each of the parsed paths.
+    ///     fn new<'a>(
+    ///         env_var: &'a str, access: BitFlags<AccessFs>
+    ///     ) -> Result<Self, PathEnvError<'a>> {
+    ///         Ok(Self {
+    ///             paths: env::var_os(env_var)
+    ///                 .ok_or(PathEnvError::MissingVar(env_var))?
+    ///                 .into_vec(),
+    ///             access,
+    ///         })
+    ///     }
+    ///
+    ///     fn iter(
+    ///         &self,
+    ///     ) -> impl Iterator<Item = Result<PathBeneath<PathFd>, PathEnvError<'static>>> + '_ {
+    ///         let is_empty = self.paths.is_empty();
+    ///         self.paths
+    ///             .split(|b| *b == b':')
+    ///             // Skips the first empty element from of an empty string.
+    ///             .skip_while(move |_| is_empty)
+    ///             .map(OsStr::from_bytes)
+    ///             .map(move |path|
+    ///                 Ok(PathBeneath::new(PathFd::new(path)?).allow_access(self.access)))
+    ///     }
+    /// }
+    ///
+    /// fn restrict_env() -> Result<RestrictionStatus, PathEnvError<'static>> {
+    ///     Ok(Ruleset::new()
+    ///         .handle_access(AccessFs::from_all(ABI::V1))?
+    ///         .create()?
+    ///         // In the shell: export EXECUTABLE_PATH="/usr:/bin:/sbin"
+    ///         .add_rules(PathEnv::new("EXECUTABLE_PATH", AccessFs::Execute.into())?.iter())?
+    ///         .restrict_self()?)
+    /// }
+    /// ```
     pub fn add_rules<I, T, U, E>(mut self, rules: I) -> Result<Self, E>
     where
         I: IntoIterator<Item = Result<T, E>>,
@@ -257,12 +421,20 @@ impl RulesetCreated {
         Ok(self)
     }
 
+    /// Configures the ruleset to call `prctl(2)` with the `PR_SET_NO_NEW_PRIVS` command
+    /// in [`restrict_self()`](RulesetCreated::restrict_self).
     pub fn set_no_new_privs(mut self, no_new_privs: bool) -> Self {
         self.no_new_privs = no_new_privs;
         self
     }
 
-    /// On error, returns a wrapped `RestrictSelfError`
+    /// Attempts to restrict the calling thread with the ruleset
+    /// according to the best-effort configuration
+    /// (see [`RulesetCreated::set_best_effort()`]).
+    /// Call `prctl(2)` with the `PR_SET_NO_NEW_PRIVS`
+    /// according to the ruleset configuration.
+    ///
+    /// On error, returns a wrapped [`RestrictSelfError`].
     pub fn restrict_self(mut self) -> Result<RestrictionStatus, RulesetError> {
         let mut body = || -> Result<RestrictionStatus, RestrictSelfError> {
             let enforced_nnp = if self.no_new_privs {
