@@ -95,7 +95,7 @@ mod fs;
 mod ruleset;
 mod uapi;
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "test-without-kernel-support")))]
 mod tests {
     use crate::*;
 

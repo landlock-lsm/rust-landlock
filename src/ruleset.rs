@@ -567,6 +567,42 @@ fn ruleset_unsupported() {
 
     compat = ABI::V1.into();
 
+    assert!(matches!(
+        new_ruleset(&compat)
+            // Empty access-rights
+            .handle_access(AccessFs::from_all(ABI::Unsupported))
+            .unwrap_err(),
+        RulesetError::HandleAccesses(HandleAccessesError::Fs(HandleAccessError::Compat(
+            CompatError::Access(AccessError::Empty)
+        )))
+    ));
+
+    // Tests inconsistency between the ruleset handled access-rights and the rule access-rights.
+    for handled_access in &[
+        make_bitflags!(AccessFs::{Execute | WriteFile}),
+        AccessFs::Execute.into(),
+    ] {
+        let ruleset = new_ruleset(&compat).handle_access(*handled_access).unwrap();
+        // Fakes a call to create() to test without involving the kernel (i.e. no
+        // landlock_ruleset_create() call).
+        let ruleset_created = RulesetCreated::new(ruleset, -1);
+        assert!(matches!(
+            ruleset_created
+                .add_rule(
+                    PathBeneath::new(PathFd::new("/").unwrap()).allow_access(AccessFs::ReadFile)
+                )
+                .unwrap_err(),
+            RulesetError::AddRules(AddRulesError::Fs(AddRuleError::UnhandledAccess { .. }))
+        ));
+    }
+}
+
+#[test]
+#[cfg(all(test, not(feature = "test-without-kernel-support")))]
+fn ruleset_enforced() {
+    let compat = ABI::V1.into();
+    let new_ruleset = |compat: &Compatibility| -> Ruleset { compat.clone().into() };
+
     // Restricting without rule exceptions is legitimate to forbid a set of actions.
     assert_eq!(
         new_ruleset(&compat)
@@ -593,33 +629,4 @@ fn ruleset_unsupported() {
             no_new_privs: true,
         }
     );
-
-    assert!(matches!(
-        new_ruleset(&compat)
-            // Empty access-rights
-            .handle_access(AccessFs::from_all(ABI::Unsupported))
-            .unwrap_err(),
-        RulesetError::HandleAccesses(HandleAccessesError::Fs(HandleAccessError::Compat(
-            CompatError::Access(AccessError::Empty)
-        )))
-    ));
-
-    // Tests inconsistency between the ruleset handled access-rights and the rule access-rights.
-    for handled_access in &[
-        make_bitflags!(AccessFs::{Execute | WriteFile}),
-        AccessFs::Execute.into(),
-    ] {
-        assert!(matches!(
-            new_ruleset(&compat)
-                .handle_access(*handled_access)
-                .unwrap()
-                .create()
-                .unwrap()
-                .add_rule(
-                    PathBeneath::new(PathFd::new("/").unwrap()).allow_access(AccessFs::ReadFile)
-                )
-                .unwrap_err(),
-            RulesetError::AddRules(AddRulesError::Fs(AddRuleError::UnhandledAccess { .. }))
-        ));
-    }
 }
