@@ -4,11 +4,31 @@ use crate::{uapi, Access, AccessError, BitFlags, CompatError};
 use crate::{make_bitflags, AccessFs};
 
 /// Version of the Landlock [ABI](https://en.wikipedia.org/wiki/Application_binary_interface).
+///
+/// `ABI` enables to get the features supported by a specific Landlock ABI.
+/// For example, [`AccessFs::from_all(ABI::V1)`](Access::from_all)
+/// gets all the file system access rights defined by the first version.
+///
+/// Without `ABI`, it would be hazardous to rely on the the full set of access flags
+/// (e.g., `BitFlags::<AccessFs>::all()` or `BitFlags::ALL`),
+/// a moving target that would change the semantics of your Landlock rule
+/// when migrating to a newer version of this crate
+/// (i.e. non-breaking change with new supported features).
+/// This usage should then be considered indeterministic because requested features
+/// (e.g., access rights)
+/// could not be tied to the application source code.
+///
+/// Such `ABI` is also convenient to get the features supported by a specific Linux kernel
+/// without relying on the kernel version (which may not be accessible or patched).
 #[cfg_attr(test, derive(Debug, PartialEq))]
 #[derive(Copy, Clone)]
 #[non_exhaustive]
 pub enum ABI {
+    /// Kernel not supporting Landlock, either because it is not built with Landlock
+    /// or Landlock is not enabled at boot.
     Unsupported = 0,
+    /// First Landlock ABI,
+    /// introduced with [Linux 5.13](https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/commit/?id=62fb9874f5da54fdb243003b386128037319b219).
     V1 = 1,
 }
 
@@ -118,16 +138,6 @@ fn compat_state_update_2() {
     assert_eq!(state, CompatState::Partial);
 }
 
-/// Properly handles runtime unsupported features.  This enables to guarantee consistent behaviors
-/// across crate users and runtime kernels even if this crate get new features.  It eases backward
-/// compatibility and enables future-proofness.
-///
-/// Landlock is a security feature designed to help improve security of a running system thanks to
-/// application developers.  To protect users as much as possible, compatibility with the running
-/// system should then be handled in a best-effort way, contrary to common system features.  In
-/// some circumstances (e.g. applications carefully designed to only be run with a specific kernel
-/// version), it may be required to check if some of there features are enforced, which is possible
-/// with XXX
 #[cfg_attr(test, derive(Debug))]
 #[derive(Clone)]
 // Compatibility is not public outside this crate.
@@ -159,10 +169,66 @@ impl Compatibility {
     }
 }
 
+/// Properly handles runtime unsupported features.
+///
+/// This guarantees consistent behaviors across crate users
+/// and runtime kernels even if this crate get new features.
+/// It eases backward compatibility and enables future-proofness.
+///
+/// Landlock is a security feature designed to help improve security of a running system
+/// thanks to application developers.
+/// To protect users as much as possible,
+/// compatibility with the running system should then be handled in a best-effort way,
+/// contrary to common system features.
+/// In some circumstances
+/// (e.g. applications carefully designed to only be run with a specific set of kernel features),
+/// it may be required to error out if some of these features are not available
+/// and will then not be enforced.
 pub trait Compatible {
-    /// To enable a best-effort security approach, Landlock features that are not supported by the
-    /// running system are silently ignored by default.  If you want to error out when not all your
-    /// requested requirements are met, then you can configure it with `set_best_effort(false)`.
+    /// To enable a best-effort security approach,
+    /// Landlock features that are not supported by the running system
+    /// are silently ignored by default,
+    /// which is a sane choice for most use cases.
+    /// However, on some rare circumstances,
+    /// developers may want to have some guarantees that their applications
+    /// will not run if a certain level of sandboxing is not possible.
+    /// If you really want to error out when not all your requested requirements are met,
+    /// then you can configure it with `set_best_effort(false)`.
+    ///
+    /// The order of this call is important because
+    /// it defines the behavior of the following method calls that return a [`Result`].
+    /// If `set_best_effort(false)` is called on an object,
+    /// then a [`CompatError`] may be returned for the next method calls,
+    /// until the next call to `set_best_effort(true)`.
+    /// This enables to change the behavior of a set of build calls,
+    /// for instance to be sure that the sandbox will at least restrict some access rights.
+    ///
+    /// # Example
+    ///
+    /// Create a ruleset which will at least support execution constraints.
+    ///
+    /// ```
+    /// use landlock::{
+    ///     Access, AccessFs, Compatible, PathBeneath, Ruleset, RulesetCreated, RulesetError, ABI,
+    /// };
+    ///
+    /// fn ruleset_fragile() -> Result<RulesetCreated, RulesetError> {
+    ///     Ok(Ruleset::new()
+    ///         // This ruleset must handle at least the execute access.
+    ///         .set_best_effort(false)
+    ///         // This handle_access() call will return
+    ///         // a wrapped AccessError<AccessFs>::Incompatible error
+    ///         // if the running kernel can't handle AccessFs::Execute.
+    ///         .handle_access(AccessFs::Execute)?
+    ///         // This ruleset may also handle other access rights
+    ///         // if they are supported by the running kernel.
+    ///         // Because handle_access() replaces the previously set value,
+    ///         // the new value must be a superset of AccessFs::Execute.
+    ///         .set_best_effort(true)
+    ///         .handle_access(AccessFs::from_all(ABI::V1))?
+    ///         .create()?)
+    /// }
+    /// ```
     fn set_best_effort(self, best_effort: bool) -> Self;
 }
 
