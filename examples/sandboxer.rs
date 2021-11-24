@@ -1,3 +1,6 @@
+// This is an idiomatic Rust rewrite of a C example:
+// https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/samples/landlock/sandboxer.c
+
 use anyhow::{anyhow, bail};
 use landlock::{
     make_bitflags, Access, AccessFs, BitFlags, PathBeneath, PathFd, PathFdError, Ruleset,
