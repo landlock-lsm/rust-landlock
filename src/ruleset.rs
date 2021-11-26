@@ -187,10 +187,10 @@ pub struct Ruleset {
 
 impl From<Compatibility> for Ruleset {
     fn from(compat: Compatibility) -> Self {
-        let handled_fs = AccessFs::from_all(ABI::V1);
         Ruleset {
-            requested_handled_fs: handled_fs,
-            actual_handled_fs: handled_fs,
+            // Non-working default handled FS accesses to force users to set them explicitely.
+            requested_handled_fs: Default::default(),
+            actual_handled_fs: Default::default(),
             compat,
         }
     }
@@ -217,6 +217,10 @@ impl Ruleset {
     // Ruleset is an opaque struct.
     /// Returns a new `Ruleset`.
     /// This call automatically probes the running kernel to know if it supports Landlock.
+    ///
+    /// To be able to successfully call [`create()`](Ruleset::create),
+    /// it is required to set the handled accesses with
+    /// [`handle_access()`](Ruleset::handle_access).
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         // The API should be future-proof: one Rust program or library should have the same
@@ -245,6 +249,12 @@ impl Ruleset {
     /// On error, returns a wrapped [`CreateRulesetError`].
     pub fn create(self) -> Result<RulesetCreated, RulesetError> {
         let body = || -> Result<RulesetCreated, CreateRulesetError> {
+            // Checks that the ruleset handles at least an access.
+            if self.requested_handled_fs.is_empty() {
+                // No handle_access() call.
+                return Err(CreateRulesetError::MissingHandledAccess);
+            }
+
             let attr = uapi::landlock_ruleset_attr {
                 handled_access_fs: self.actual_handled_fs.bits(),
             };
@@ -519,17 +529,6 @@ fn ruleset_unsupported() {
 
     assert_eq!(
         new_ruleset(&compat)
-            .create()
-            .unwrap()
-            .restrict_self()
-            .unwrap(),
-        RestrictionStatus {
-            ruleset: RulesetStatus::NotEnforced,
-            no_new_privs: true,
-        }
-    );
-    assert_eq!(
-        new_ruleset(&compat)
             .handle_access(AccessFs::Execute)
             .unwrap()
             .create()
@@ -544,6 +543,8 @@ fn ruleset_unsupported() {
 
     assert_eq!(
         new_ruleset(&compat)
+            .handle_access(AccessFs::Execute)
+            .unwrap()
             .create()
             .unwrap()
             .set_no_new_privs(false)
@@ -563,6 +564,14 @@ fn ruleset_unsupported() {
         RulesetError::HandleAccesses(HandleAccessesError::Fs(HandleAccessError::Compat(
             CompatError::Access(AccessError::Empty)
         )))
+    ));
+
+    assert!(matches!(
+        new_ruleset(&compat)
+            // No handle_access() call.
+            .create()
+            .unwrap_err(),
+        RulesetError::CreateRuleset(CreateRulesetError::MissingHandledAccess)
     ));
 
     compat = ABI::V1.into();
@@ -604,18 +613,6 @@ fn ruleset_enforced() {
     let new_ruleset = |compat: &Compatibility| -> Ruleset { compat.clone().into() };
 
     // Restricting without rule exceptions is legitimate to forbid a set of actions.
-    assert_eq!(
-        new_ruleset(&compat)
-            .create()
-            .unwrap()
-            .restrict_self()
-            .unwrap(),
-        RestrictionStatus {
-            ruleset: RulesetStatus::FullyEnforced,
-            no_new_privs: true,
-        }
-    );
-
     assert_eq!(
         new_ruleset(&compat)
             .handle_access(AccessFs::Execute)
