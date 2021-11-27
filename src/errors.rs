@@ -123,12 +123,14 @@ where
 #[non_exhaustive]
 pub enum PathBeneathError {
     /// To check that access-rights are consistent with a file descriptor, a call to
-    /// `RulesetCreated::add_rule()` looks at the file type with an `fstat()` system call.
+    /// [`RulesetCreated::add_rule()`](crate::RulesetCreated::add_rule)
+    /// looks at the file type with an `fstat()` system call.
     #[error("failed to check file descriptor type: {source}")]
     #[non_exhaustive]
     StatCall { source: io::Error },
-    /// This error is returned by `RulesetCreated::add_rule() `if the related PathBeneath object is
-    /// not set to best-effort, and if its allowed access-rights contain directory-only ones
+    /// This error is returned by [`RulesetCreated::add_rule()`](crate::RulesetCreated::add_rule)
+    /// if the related PathBeneath object is not set to best-effort,
+    /// and if its allowed access-rights contain directory-only ones
     /// whereas the file descriptor doesn't point to a directory.
     #[error("incompatible directory-only access-rights: {incompatible:?}")]
     DirectoryAccess {
