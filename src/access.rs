@@ -1,6 +1,6 @@
 use crate::{
-    AccessError, AddRuleError, AddRulesError, BitFlags, CompatError, CompatState, Compatibility,
-    HandleAccessError, HandleAccessesError, Ruleset, TryCompat, ABI,
+    AccessError, AddRuleError, AddRulesError, BitFlags, CompatError, CompatLevel, CompatState,
+    Compatibility, HandleAccessError, HandleAccessesError, Ruleset, TryCompat, ABI,
 };
 use enumflags2::BitFlag;
 
@@ -65,7 +65,7 @@ impl<T> TryCompat<T> for BitFlags<T>
 where
     T: Access,
 {
-    fn try_compat(self, compat: &mut Compatibility) -> Result<Self, CompatError<T>> {
+    fn try_compat(self, compat: &mut Compatibility) -> Result<Option<Self>, CompatError<T>> {
         let (state, new_access) = if self.is_empty() {
             // Empty access-rights would result to a runtime error.
             return Err(AccessError::Empty.into());
@@ -80,29 +80,32 @@ where
         } else {
             let compat_bits = self & T::from_all(compat.abi);
             if compat_bits.is_empty() {
-                if compat.is_best_effort {
-                    // TODO: This creates an empty access-right and could be an issue with
-                    // future ABIs.  This method should return Result<Option<Self>,
-                    // CompatError> instead, and in this case Ok(None).
-                    (CompatState::No, compat_bits)
-                } else {
-                    return Err(AccessError::Incompatible { access: self }.into());
+                match compat.level {
+                    // Empty access-rights are ignored to avoid an error when passing them to
+                    // landlock_add_rule().
+                    CompatLevel::BestEffort => (CompatState::No, None),
+                    CompatLevel::SoftRequirement => (CompatState::Final, None),
+                    CompatLevel::HardRequirement => {
+                        return Err(AccessError::Incompatible { access: self }.into());
+                    }
                 }
             } else if compat_bits != self {
-                if compat.is_best_effort {
-                    (CompatState::Partial, compat_bits)
-                } else {
-                    return Err(AccessError::PartiallyCompatible {
-                        access: self,
-                        incompatible: self & full_negation(compat_bits),
+                match compat.level {
+                    CompatLevel::BestEffort => (CompatState::Partial, Some(compat_bits)),
+                    CompatLevel::SoftRequirement => (CompatState::Final, None),
+                    CompatLevel::HardRequirement => {
+                        return Err(AccessError::PartiallyCompatible {
+                            access: self,
+                            incompatible: self & full_negation(compat_bits),
+                        }
+                        .into());
                     }
-                    .into());
                 }
             } else {
-                (CompatState::Full, compat_bits)
+                (CompatState::Full, Some(compat_bits))
             }
         };
-        compat.state.update(state);
+        compat.update(state);
         Ok(new_access)
     }
 }
@@ -111,10 +114,14 @@ where
 fn compat_bit_flags() {
     use crate::ABI;
 
-    let mut compat = ABI::V1.into();
+    let mut compat: Compatibility = ABI::V1.into();
+    assert!(!compat.is_mooted());
 
     let ro_access = make_bitflags!(AccessFs::{Execute | ReadFile | ReadDir});
-    assert_eq!(ro_access, ro_access.try_compat(&mut compat).unwrap());
+    assert_eq!(
+        ro_access,
+        ro_access.try_compat(&mut compat).unwrap().unwrap()
+    );
 
     let empty_access = BitFlags::<AccessFs>::empty();
     assert!(matches!(
@@ -134,12 +141,19 @@ fn compat_bit_flags() {
         CompatError::Access(AccessError::Unknown { access, unknown }) if access == some_unknown_access && unknown == all_unknown_access
     ));
 
-    // Access-rights are valid (but ignored) when they are not required for the current ABI.
+    assert!(!compat.is_mooted());
+
     compat.abi = ABI::Unsupported;
-    assert_eq!(empty_access, ro_access.try_compat(&mut compat).unwrap());
+    assert!(!compat.is_mooted());
+
+    // Access-rights are valid (but ignored) when they are not required for the current ABI.
+    assert_eq!(None, ro_access.try_compat(&mut compat).unwrap());
+
+    // Tests that a ruleset in an unsupported state doesn't get spuriously mooted.
+    assert!(!compat.is_mooted());
 
     // Access-rights are not valid when they are required for the current ABI.
-    compat.is_best_effort = false;
+    compat.level = CompatLevel::HardRequirement;
     assert!(matches!(
         ro_access.try_compat(&mut compat).unwrap_err(),
         CompatError::Access(AccessError::Incompatible { access }) if access == ro_access
