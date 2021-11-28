@@ -1,6 +1,6 @@
 use crate::{
-    uapi, Access, AccessFs, AddRuleError, AddRulesError, BitFlags, CompatState, Compatibility,
-    Compatible, CreateRulesetError, RestrictSelfError, RulesetError, TryCompat, ABI,
+    uapi, Access, AccessFs, AddRuleError, AddRulesError, BitFlags, CompatLevel, CompatState,
+    Compatibility, Compatible, CreateRulesetError, RestrictSelfError, RulesetError, TryCompat, ABI,
 };
 use libc::close;
 use std::io::Error;
@@ -321,7 +321,7 @@ fn ruleset_created_handle_access_or() {
     assert!(matches!(Ruleset::from(ABI::Unsupported)
         .handle_access(AccessFs::Execute)
         .unwrap()
-        .set_best_effort(false)
+        .set_compatibility(CompatLevel::HardRequirement)
         .handle_access(AccessFs::ReadDir)
         .unwrap_err(),
         RulesetError::HandleAccesses(HandleAccessesError::Fs(HandleAccessError::Compat(
@@ -331,8 +331,8 @@ fn ruleset_created_handle_access_or() {
 }
 
 impl Compatible for Ruleset {
-    fn set_best_effort(mut self, best_effort: bool) -> Self {
-        self.compat.is_best_effort = best_effort;
+    fn set_compatibility(mut self, level: CompatLevel) -> Self {
+        self.compat.level = level;
         self
     }
 }
@@ -349,9 +349,13 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> {
         let body = || -> Result<Self, AddRulesError> {
             let self_ref = self.as_mut();
             rule.check_consistency(self_ref)?;
-            let compat_rule = rule
+            let compat_rule = match rule
                 .try_compat(&mut self_ref.compat)
-                .map_err(AddRuleError::Compat)?;
+                .map_err(AddRuleError::Compat)?
+            {
+                Some(r) => r,
+                None => return Ok(self),
+            };
             match self_ref.compat.abi {
                 ABI::Unsupported => {
                     #[cfg(test)]
@@ -466,6 +470,10 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> {
 
     /// Configures the ruleset to call `prctl(2)` with the `PR_SET_NO_NEW_PRIVS` command
     /// in [`restrict_self()`](RulesetCreated::restrict_self).
+    ///
+    /// This is ignored if an error was encountered to a [`Ruleset`] or [`RulesetCreated`] method
+    /// call while [`CompatLevel::SoftRequirement`] was set (with
+    /// [`set_compatibility()`](Compatible::set_compatibility)).
     fn set_no_new_privs(mut self, no_new_privs: bool) -> Self {
         self.as_mut().no_new_privs = no_new_privs;
         self
@@ -493,20 +501,31 @@ impl RulesetCreated {
 
     /// Attempts to restrict the calling thread with the ruleset
     /// according to the best-effort configuration
-    /// (see [`RulesetCreated::set_best_effort()`]).
+    /// (see [`RulesetCreated::set_compatibility()`] and [`CompatLevel::BestEffort`]).
     /// Call `prctl(2)` with the `PR_SET_NO_NEW_PRIVS`
     /// according to the ruleset configuration.
     ///
     /// On error, returns a wrapped [`RestrictSelfError`].
     pub fn restrict_self(mut self) -> Result<RestrictionStatus, RulesetError> {
         let mut body = || -> Result<RestrictionStatus, RestrictSelfError> {
-            let enforced_nnp = if self.no_new_privs {
+            // Ignores prctl_set_no_new_privs() if an error was encountered with
+            // CompatLevel::SoftRequirement set.
+            let enforced_nnp = if !self.compat.is_mooted() && self.no_new_privs {
                 if let Err(e) = prctl_set_no_new_privs() {
-                    if !self.compat.is_best_effort {
-                        return Err(RestrictSelfError::SetNoNewPrivsCall { source: e });
+                    match self.compat.level {
+                        CompatLevel::BestEffort => {}
+                        CompatLevel::SoftRequirement => {
+                            // This sets the ABI to Unsupported and then only returns an error if
+                            // set_no_new_privs is supported by the running system (as for the
+                            // best-effort level).
+                            self.compat.update(CompatState::Final);
+                        }
+                        CompatLevel::HardRequirement => {
+                            return Err(RestrictSelfError::SetNoNewPrivsCall { source: e });
+                        }
                     }
-                    // To get a consistent behavior, calls this prctl whether or not Landlock is
-                    // supported by the running kernel.
+                    // To get a consistent behavior, calls this prctl whether or not
+                    // Landlock is supported by the running kernel.
                     let support_nnp = support_no_new_privs();
                     match self.compat.abi {
                         // It should not be an error for kernel (older than 3.5) not supporting
@@ -541,7 +560,7 @@ impl RulesetCreated {
                 }
                 _ => match unsafe { uapi::landlock_restrict_self(self.fd, 0) } {
                     0 => {
-                        self.compat.state.update(CompatState::Full);
+                        self.compat.update(CompatState::Full);
                         Ok(RestrictionStatus {
                             ruleset: self.compat.state.into(),
                             no_new_privs: enforced_nnp,
@@ -615,8 +634,8 @@ fn ruleset_created_attr() {
 }
 
 impl Compatible for RulesetCreated {
-    fn set_best_effort(mut self, best_effort: bool) -> Self {
-        self.compat.is_best_effort = best_effort;
+    fn set_compatibility(mut self, level: CompatLevel) -> Self {
+        self.compat.level = level;
         self
     }
 }
@@ -701,4 +720,38 @@ fn ruleset_unsupported() {
             RulesetError::AddRules(AddRulesError::Fs(AddRuleError::UnhandledAccess { .. }))
         ));
     }
+}
+
+#[test]
+fn ignore_abi_v2_with_abi_v1() {
+    // We don't need kernel/CI support for Landlock because no related syscalls should actually be
+    // performed.
+    assert_eq!(
+        Ruleset::from(ABI::V1)
+            .set_compatibility(CompatLevel::HardRequirement)
+            .handle_access(AccessFs::from_all(ABI::V1))
+            .unwrap()
+            .set_compatibility(CompatLevel::SoftRequirement)
+            // Because Ruleset only supports V1, Refer will be ignored.
+            .handle_access(AccessFs::Refer)
+            .unwrap()
+            .create()
+            .unwrap()
+            .add_rule(PathBeneath::new(
+                PathFd::new("/tmp").unwrap(),
+                AccessFs::from_all(ABI::V2)
+            ))
+            .unwrap()
+            .add_rule(PathBeneath::new(
+                PathFd::new("/usr").unwrap(),
+                make_bitflags!(AccessFs::{ReadFile | ReadDir})
+            ))
+            .unwrap()
+            .restrict_self()
+            .unwrap(),
+        RestrictionStatus {
+            ruleset: RulesetStatus::NotEnforced,
+            no_new_privs: false,
+        }
+    );
 }

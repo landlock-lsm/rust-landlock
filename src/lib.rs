@@ -36,7 +36,7 @@
 //!
 //! Types defined in this crate are designed to enable the strictest Landlock configuration
 //! for the given kernel on which the program runs.
-//! In the default [best-effort](Compatible::set_best_effort) mode,
+//! In the default [best-effort](CompatLevel::BestEffort) mode,
 //! [`Ruleset`] will determine compatibility
 //! with the intersection of the currently running kernel's features
 //! and those required by the caller.
@@ -47,9 +47,9 @@
 //! (e.g., empty or inconsistent access rights).
 //! [`RulesetError`] identifies such kind of errors.
 //!
-//! With [`set_best_effort()`](Compatible::set_best_effort),
-//! users of the crate may identify which Landlock features are deemed required
-//! and which features may be downgraded to use lower security on systems
+//! With [`set_compatibility(CompatLevel::BestEffort)`](Compatible::set_compatibility),
+//! users of the crate may mark Landlock features that are deemed required
+//! and other features that may be downgraded to use lower security on systems
 //! where they can't be enforced.
 //! It is discouraged to compare the system's provided [Landlock ABI](ABI) version directly,
 //! as it is difficult to track detailed ABI differences
@@ -67,6 +67,10 @@
 //! and check that [`RulesetCreated::restrict_self()`] returns a status matching
 //! [`Ok(RestrictionStatus { ruleset: RulesetStatus::FullyEnforced, no_new_privs: true, })`](RestrictionStatus)
 //! to make sure everything works as expected in an enforced sandbox.
+//! Alternatively, using [`set_compatibility(CompatLevel::HardRequirement)`](Compatible::set_compatibility)
+//! will immediately inform about unsupported Landlock features.
+//! These configurations should only depend on the test environment
+//! (e.g. [by checking an environment variable](https://github.com/landlock-lsm/rust-landlock/search?q=LANDLOCK_CRATE_TEST_ABI)).
 //! However, applications should only check that no error is returned (i.e. `Ok(_)`)
 //! and optionally log and inform users that the application is not fully sandboxed
 //! because of missing features from the running kernel.
@@ -76,7 +80,7 @@
 extern crate lazy_static;
 
 pub use access::Access;
-pub use compat::{Compatible, ABI};
+pub use compat::{CompatLevel, Compatible, ABI};
 pub use enumflags2::{make_bitflags, BitFlags};
 pub use errors::{
     AccessError, AddRuleError, AddRulesError, CompatError, CreateRulesetError, HandleAccessError,
@@ -185,10 +189,10 @@ mod tests {
                 // Sets default support requirement: abort the whole sandboxing for any Landlock error.
                 Ok(ruleset
                     // Must have at least the execute check…
-                    .set_best_effort(false)
+                    .set_compatibility(CompatLevel::HardRequirement)
                     .handle_access(AccessFs::Execute)?
                     // …and possibly others.
-                    .set_best_effort(true)
+                    .set_compatibility(CompatLevel::BestEffort)
                     .handle_access(AccessFs::from_all(abi))?
                     .create()?
                     .set_no_new_privs(true)
