@@ -15,6 +15,12 @@ use crate::*;
 pub trait Access: PrivateAccess {
     /// Gets the access rights defined by a specific [`ABI`].
     fn from_all(abi: ABI) -> BitFlags<Self>;
+    /// Gets the access rights identified as read-only according to a specific ABI.
+    /// Exclusive with [`from_write()`](Access::from_write).
+    fn from_read(abi: ABI) -> BitFlags<Self>;
+    /// Gets the access rights identified as write-only according to a specific ABI.
+    /// Exclusive with [`from_read()`](Access::from_read).
+    fn from_write(abi: ABI) -> BitFlags<Self>;
 }
 
 pub trait PrivateAccess: BitFlag {
@@ -128,11 +134,14 @@ fn support_no_new_privs() -> bool {
 /// where
 ///     T: AsRawFd,
 /// {
-///     let accesses = AccessFs::from_all(ABI::V1);
+///     // The Landlock ABI should be incremented (and tested) regularly.
+///     let abi = ABI::V1;
+///     let access_all = AccessFs::from_all(abi);
+///     let access_read = AccessFs::from_read(abi);
 ///     Ok(Ruleset::new()
-///         .handle_access(accesses)?
+///         .handle_access(access_all)?
 ///         .create()?
-///         .add_rule(PathBeneath::new(hierarchy, accesses))?
+///         .add_rule(PathBeneath::new(hierarchy, access_read))?
 ///         .restrict_self()?)
 /// }
 ///
@@ -162,15 +171,18 @@ fn support_no_new_privs() -> bool {
 /// }
 ///
 /// fn restrict_paths(hierarchies: &[&str]) -> Result<RestrictionStatus, MyRestrictError> {
-///     let accesses = AccessFs::from_all(ABI::V1);
+///     // The Landlock ABI should be incremented (and tested) regularly.
+///     let abi = ABI::V1;
+///     let access_all = AccessFs::from_all(abi);
+///     let access_read = AccessFs::from_read(abi);
 ///     Ok(Ruleset::new()
-///         .handle_access(accesses)?
+///         .handle_access(access_all)?
 ///         .create()?
 ///         .add_rules(
 ///             hierarchies
 ///                 .iter()
 ///                 .map::<Result<_, MyRestrictError>, _>(|p| {
-///                     Ok(PathBeneath::new(PathFd::new(p)?, accesses))
+///                     Ok(PathBeneath::new(PathFd::new(p)?, access_read))
 ///                 }),
 ///         )?
 ///         .restrict_self()?)

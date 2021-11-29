@@ -80,7 +80,7 @@ impl Access for AccessFs {
             // kernel doesn't support Landlock, no Landlock syscall should be called.
             // try_compat() should also return RestrictionStatus::Unrestricted when called with
             // unsupported/empty access-righs.
-            ABI::Unsupported => BitFlags::empty(),
+            ABI::Unsupported => BitFlags::EMPTY,
             ABI::V1 => make_bitflags!(AccessFs::{
                 Execute
                 | WriteFile
@@ -98,6 +98,47 @@ impl Access for AccessFs {
             }),
         }
     }
+
+    // Roughly read (i.e. not all FS actions are handled).
+    fn from_read(abi: ABI) -> BitFlags<Self> {
+        match abi {
+            ABI::Unsupported => BitFlags::EMPTY,
+            ABI::V1 => make_bitflags!(AccessFs::{
+                Execute
+                | ReadFile
+                | ReadDir
+            }),
+        }
+    }
+
+    // Roughly write (i.e. not all FS actions are handled).
+    fn from_write(abi: ABI) -> BitFlags<Self> {
+        match abi {
+            ABI::Unsupported => BitFlags::EMPTY,
+            ABI::V1 => make_bitflags!(AccessFs::{
+                WriteFile
+                | RemoveDir
+                | RemoveFile
+                | MakeChar
+                | MakeDir
+                | MakeReg
+                | MakeSock
+                | MakeFifo
+                | MakeBlock
+                | MakeSym
+            }),
+        }
+    }
+}
+
+#[test]
+fn consistent_access_fs_rw() {
+    let abi = ABI::V1;
+    assert_eq!(AccessFs::from_read(abi), !AccessFs::from_write(abi));
+    assert_eq!(
+        AccessFs::from_read(abi) | AccessFs::from_write(abi),
+        AccessFs::from_all(abi)
+    );
 }
 
 impl PrivateAccess for AccessFs {

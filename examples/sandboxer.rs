@@ -3,8 +3,8 @@
 
 use anyhow::{anyhow, bail};
 use landlock::{
-    make_bitflags, Access, AccessFs, BitFlags, PathBeneath, PathFd, PathFdError, Ruleset,
-    RulesetError, RulesetStatus, ABI,
+    Access, AccessFs, BitFlags, PathBeneath, PathFd, PathFdError, Ruleset, RulesetError,
+    RulesetStatus, ABI,
 };
 use std::env;
 use std::ffi::OsStr;
@@ -15,14 +15,6 @@ use thiserror::Error;
 
 const ENV_FS_RO_NAME: &str = "LL_FS_RO";
 const ENV_FS_RW_NAME: &str = "LL_FS_RW";
-
-const ACCESS_FS_ROUGHLY_READ: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
-    Execute | ReadFile | ReadDir});
-
-const ACCESS_FS_ROUGHLY_WRITE: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
-    WriteFile | RemoveDir | RemoveFile | MakeChar | MakeDir | MakeReg | MakeSock | MakeFifo |
-        MakeBlock | MakeSym
-});
 
 #[derive(Debug, Error)]
 enum PathEnvError<'a> {
@@ -102,17 +94,12 @@ fn main() -> Result<(), anyhow::Error> {
         anyhow!("Missing command")
     })?;
 
+    let abi = ABI::V1;
     let status = Ruleset::new()
-        .handle_access(AccessFs::from_all(ABI::V1))?
+        .handle_access(AccessFs::from_all(abi))?
         .create()?
-        .add_rules(PathEnv::new(ENV_FS_RO_NAME, ACCESS_FS_ROUGHLY_READ)?.iter())?
-        .add_rules(
-            PathEnv::new(
-                ENV_FS_RW_NAME,
-                ACCESS_FS_ROUGHLY_READ | ACCESS_FS_ROUGHLY_WRITE,
-            )?
-            .iter(),
-        )?
+        .add_rules(PathEnv::new(ENV_FS_RO_NAME, AccessFs::from_read(abi))?.iter())?
+        .add_rules(PathEnv::new(ENV_FS_RW_NAME, AccessFs::from_all(abi))?.iter())?
         .restrict_self()
         .expect("Failed to enforce ruleset");
 
