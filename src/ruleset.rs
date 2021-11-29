@@ -132,7 +132,7 @@ fn support_no_new_privs() -> bool {
 ///     Ok(Ruleset::new()
 ///         .handle_access(accesses)?
 ///         .create()?
-///         .add_rule(PathBeneath::new(hierarchy).allow_access(accesses))?
+///         .add_rule(PathBeneath::new(hierarchy, accesses))?
 ///         .restrict_self()?)
 /// }
 ///
@@ -170,7 +170,7 @@ fn support_no_new_privs() -> bool {
 ///             hierarchies
 ///                 .iter()
 ///                 .map::<Result<_, MyRestrictError>, _>(|p| {
-///                     Ok(PathBeneath::new(PathFd::new(p)?).allow_access(accesses))
+///                     Ok(PathBeneath::new(PathFd::new(p)?, accesses))
 ///                 }),
 ///         )?
 ///         .restrict_self()?)
@@ -207,7 +207,10 @@ fn ruleset_add_rule_iter() {
             .unwrap()
             .create()
             .unwrap()
-            .add_rule(PathBeneath::new(PathFd::new("/").unwrap()).allow_access(AccessFs::ReadFile))
+            .add_rule(PathBeneath::new(
+                PathFd::new("/").unwrap(),
+                AccessFs::ReadFile
+            ))
             .unwrap_err(),
         RulesetError::AddRules(AddRulesError::Fs(AddRuleError::UnhandledAccess { .. }))
     ));
@@ -404,7 +407,7 @@ impl RulesetCreated {
     ///             .skip_while(move |_| is_empty)
     ///             .map(OsStr::from_bytes)
     ///             .map(move |path|
-    ///                 Ok(PathBeneath::new(PathFd::new(path)?).allow_access(self.access)))
+    ///                 Ok(PathBeneath::new(PathFd::new(path)?, self.access)))
     ///     }
     /// }
     ///
@@ -597,9 +600,10 @@ fn ruleset_unsupported() {
         let ruleset_created = RulesetCreated::new(ruleset, -1);
         assert!(matches!(
             ruleset_created
-                .add_rule(
-                    PathBeneath::new(PathFd::new("/").unwrap()).allow_access(AccessFs::ReadFile)
-                )
+                .add_rule(PathBeneath::new(
+                    PathFd::new("/").unwrap(),
+                    AccessFs::ReadFile
+                ))
                 .unwrap_err(),
             RulesetError::AddRules(AddRulesError::Fs(AddRuleError::UnhandledAccess { .. }))
         ));

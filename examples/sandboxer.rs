@@ -66,7 +66,7 @@ impl PathEnv {
             // Skips the first empty element from of an empty string.
             .skip_while(move |_| is_empty)
             .map(OsStr::from_bytes)
-            .map(move |path| Ok(PathBeneath::new(PathFd::new(path)?).allow_access(self.access)))
+            .map(move |path| Ok(PathBeneath::new(PathFd::new(path)?, self.access)))
     }
 }
 

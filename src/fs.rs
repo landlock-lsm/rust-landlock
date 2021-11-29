@@ -131,10 +131,10 @@ const ACCESS_FILE: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
 /// # Example
 ///
 /// ```
-/// use landlock::{PathBeneath, PathFd, PathFdError};
+/// use landlock::{AccessFs, PathBeneath, PathFd, PathFdError};
 ///
 /// fn home_dir() -> Result<PathBeneath<PathFd>, PathFdError> {
-///     Ok(PathBeneath::new(PathFd::new("/home")?))
+///     Ok(PathBeneath::new(PathFd::new("/home")?, AccessFs::ReadDir))
 /// }
 /// ```
 #[cfg_attr(test, derive(Debug))]
@@ -150,11 +150,13 @@ impl<F> PathBeneath<F>
 where
     F: AsRawFd,
 {
-    /// Create a new `PathBeneath` rule identifying the `parent` directory of a file hierarchy,
-    /// or just a file.
+    /// Creates a new `PathBeneath` rule identifying the `parent` directory of a file hierarchy,
+    /// or just a file, and allows `access` on it.
     /// The `parent` file descriptor will be automatically closed with the returned `PathBeneath`.
-    pub fn new(parent: F) -> Self {
-        // By default, allows all v1 accesses on this path exception.
+    pub fn new<A>(parent: F, access: A) -> Self
+    where
+        A: Into<BitFlags<AccessFs>>,
+    {
         PathBeneath {
             attr: uapi::landlock_path_beneath_attr {
                 // Invalid access-rights until try_compat() is called.
@@ -162,18 +164,9 @@ where
                 parent_fd: parent.as_raw_fd(),
             },
             _parent_fd: parent,
-            allowed_access: AccessFs::from_all(ABI::V1),
+            allowed_access: access.into(),
             is_best_effort: true,
         }
-    }
-
-    ///  Set of allowed accesses for this file hierarchy.
-    pub fn allow_access<T>(mut self, access: T) -> Self
-    where
-        T: Into<BitFlags<AccessFs>>,
-    {
-        self.allowed_access = access.into();
-        self
     }
 
     // Check with our own support requirement.
@@ -240,8 +233,7 @@ fn path_beneath_try_compat() {
         let mut compat_copy = compat.clone();
         let ro_access = AccessFs::ReadDir | AccessFs::ReadFile;
         assert!(matches!(
-            PathBeneath::new(PathFd::new(file).unwrap())
-                .allow_access(ro_access)
+            PathBeneath::new(PathFd::new(file).unwrap(), ro_access)
                 .set_best_effort(false)
                 .try_compat(&mut compat_copy)
                 .unwrap_err(),
@@ -249,13 +241,21 @@ fn path_beneath_try_compat() {
                 if access == ro_access && incompatible == AccessFs::ReadDir
         ));
         // compat_copy.state is not consistent when an error occurs.
+
+        let mut compat_copy = compat.clone();
+        assert!(matches!(
+            PathBeneath::new(PathFd::new(file).unwrap(), BitFlags::EMPTY)
+                .try_compat(&mut compat_copy)
+                .unwrap_err(),
+            CompatError::Access(AccessError::Empty)
+        ));
+        // compat_copy.state is not consistent when an error occurs.
     }
 
     let full_access = AccessFs::from_all(ABI::V1);
     for best_effort in &[true, false] {
         let mut compat_copy = compat.clone();
-        let raw_access = PathBeneath::new(PathFd::new("/").unwrap())
-            .allow_access(full_access)
+        let raw_access = PathBeneath::new(PathFd::new("/").unwrap(), full_access)
             .set_best_effort(*best_effort)
             .try_compat(&mut compat_copy)
             .unwrap()
@@ -315,7 +315,7 @@ fn path_beneath_check_consistency() {
             .unwrap()
             .create()
             .unwrap()
-            .add_rule(PathBeneath::new(PathFd::new("/").unwrap()).allow_access(rx_access))
+            .add_rule(PathBeneath::new(PathFd::new("/").unwrap(), rx_access))
             .unwrap_err(),
         RulesetError::AddRules(AddRulesError::Fs(AddRuleError::UnhandledAccess { access, incompatible }))
             if access == rx_access && incompatible == AccessFs::Execute
@@ -336,7 +336,7 @@ fn path_beneath_check_consistency() {
 ///
 /// fn allowed_root_dir(access: AccessFs) -> Result<PathBeneath<PathFd>, PathFdError> {
 ///     let fd = PathFd::new("/")?;
-///     Ok(PathBeneath::new(fd).allow_access(access))
+///     Ok(PathBeneath::new(fd, access))
 /// }
 /// ```
 #[cfg_attr(test, derive(Debug))]
@@ -375,8 +375,8 @@ fn path_fd() {
     use std::io::Read;
     use std::os::unix::io::FromRawFd;
 
-    PathBeneath::new(PathFd::new("/").unwrap());
-    PathBeneath::new(File::open("/").unwrap());
+    PathBeneath::new(PathFd::new("/").unwrap(), AccessFs::Execute);
+    PathBeneath::new(File::open("/").unwrap(), AccessFs::Execute);
 
     let mut buffer = [0; 1];
     // Checks that PathFd really returns an FD opened with O_PATH (Bad file descriptor error).
