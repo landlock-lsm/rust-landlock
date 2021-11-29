@@ -1,7 +1,7 @@
 use crate::{
     uapi, Access, AddRuleError, AddRulesError, CompatError, Compatibility, Compatible,
     HandleAccessError, HandleAccessesError, PathBeneathError, PathFdError, PrivateAccess,
-    PrivateRule, Rule, Ruleset, RulesetCreated, TryCompat, ABI,
+    PrivateRule, Rule, Ruleset, RulesetCreated, RulesetError, TryCompat, ABI,
 };
 use enumflags2::{bitflags, make_bitflags, BitFlags};
 use std::fs::{File, OpenOptions};
@@ -425,4 +425,63 @@ fn path_fd() {
             .read(&mut buffer)
             .unwrap_err()
     };
+}
+
+/// Helper to quickly create an iterator of PathBeneath rules.
+///
+/// Silently ignores paths that cannot be opened.
+///
+/// # Example
+///
+/// ```
+/// use landlock::{ABI, Access, AccessFs, Ruleset, RulesetStatus, RulesetError, path_beneath_rules};
+///
+/// fn restrict_thread() -> Result<(), RulesetError> {
+///     let abi = ABI::V1;
+///     let status = Ruleset::new()
+///         .handle_access(AccessFs::from_all(abi))?
+///         .create()?
+///         // Read-only access to /usr, /etc and /dev.
+///         .add_rules(path_beneath_rules(&["/usr", "/etc", "/dev"], AccessFs::from_read(abi)))?
+///         // Read-write access to /home and /tmp.
+///         .add_rules(path_beneath_rules(&["/home", "/tmp"], AccessFs::from_all(abi)))?
+///         .restrict_self()?;
+///     match status.ruleset {
+///         // The FullyEnforced case must be tested by the developer.
+///         RulesetStatus::FullyEnforced => println!("Fully sandboxed."),
+///         RulesetStatus::PartiallyEnforced => println!("Partially sandboxed."),
+///         // Users should be warned that they are not protected.
+///         RulesetStatus::NotEnforced => println!("Not sandboxed! Please update your kernel."),
+///     }
+///     Ok(())
+/// }
+/// ```
+pub fn path_beneath_rules<I, P, A>(
+    paths: I,
+    access: A,
+) -> impl Iterator<Item = Result<PathBeneath<PathFd>, RulesetError>>
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>,
+    A: Into<BitFlags<AccessFs>>,
+{
+    let access = access.into();
+    paths.into_iter().filter_map(move |p| match PathFd::new(p) {
+        Ok(f) => Some(Ok(PathBeneath::new(f, access))),
+        Err(_) => None,
+    })
+}
+
+#[test]
+fn path_beneath_rules_iter() {
+    let _ = Ruleset::new()
+        .handle_access(AccessFs::from_all(ABI::V1))
+        .unwrap()
+        .create()
+        .unwrap()
+        .add_rules(path_beneath_rules(
+            &["/usr", "/opt", "/does-not-exist", "/root"],
+            AccessFs::Execute,
+        ))
+        .unwrap();
 }

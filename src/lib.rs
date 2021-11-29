@@ -21,7 +21,8 @@
 //!
 //! # Examples
 //!
-//! Examples can be found with the [`Ruleset` documentation](Ruleset)
+//! A simple example can be found with the [`path_beneath_rules()`] helper.
+//! More complex examples can be found with the [`Ruleset` documentation](Ruleset)
 //! and the [sandboxer example](https://github.com/landlock-lsm/rust-landlock/blob/master/examples/sandboxer.rs).
 //!
 //! # Current limitations
@@ -82,7 +83,7 @@ pub use errors::{
     AccessError, AddRuleError, AddRulesError, CompatError, CreateRulesetError, HandleAccessError,
     HandleAccessesError, PathBeneathError, PathFdError, RestrictSelfError, RulesetError,
 };
-pub use fs::{AccessFs, PathBeneath, PathFd};
+pub use fs::{path_beneath_rules, AccessFs, PathBeneath, PathFd};
 pub use ruleset::{Access, RestrictionStatus, Rule, Ruleset, RulesetCreated, RulesetStatus};
 use ruleset::{PrivateAccess, PrivateRule};
 
