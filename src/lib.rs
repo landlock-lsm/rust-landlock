@@ -116,7 +116,7 @@ mod tests {
             // Must have at least the execute check…
             .set_best_effort(false)
             .handle_access(AccessFs::Execute)?
-            // …and possibly others (superset of AccessFs::Execute).
+            // …and possibly others.
             .set_best_effort(true)
             .handle_access(AccessFs::from_all(ABI::V1))?
             .create()?

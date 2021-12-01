@@ -237,8 +237,10 @@ impl Ruleset {
         Compatibility::new().into()
     }
 
-    /// Attempts to define the set of access rights that will be supported by this ruleset.
+    /// Attempts to add a set of access rights that will be supported by this ruleset.
     /// By default, all actions requiring these access rights will be denied.
+    /// Consecutive calls to `handle_access()` will be interpreted as logical ORs
+    /// with the previous handled accesses.
     ///
     /// On error, returns a wrapped [`HandleAccessesError`].
     /// E.g., `RulesetError::HandleAccesses(HandleAccessesError::Fs(HandleAccessError<AccessFs>))`
@@ -284,6 +286,32 @@ impl Ruleset {
         };
         Ok(body()?)
     }
+}
+
+#[test]
+fn ruleset_created_handle_access_or() {
+    // Tests AccessFs::ruleset_handle_access()
+    let ruleset = Ruleset::from(ABI::V1)
+        .handle_access(AccessFs::Execute)
+        .unwrap()
+        .handle_access(AccessFs::ReadDir)
+        .unwrap();
+    let access = make_bitflags!(AccessFs::{Execute | ReadDir});
+    assert_eq!(ruleset.requested_handled_fs, access);
+    assert_eq!(ruleset.actual_handled_fs, access);
+
+    // Tests that only the required handled accesses are reported as incompatible:
+    // access should not contains AccessFs::Execute.
+    assert!(matches!(Ruleset::from(ABI::Unsupported)
+        .handle_access(AccessFs::Execute)
+        .unwrap()
+        .set_best_effort(false)
+        .handle_access(AccessFs::ReadDir)
+        .unwrap_err(),
+        RulesetError::HandleAccesses(HandleAccessesError::Fs(HandleAccessError::Compat(
+            CompatError::Access(AccessError::Incompatible { access })
+        ))) if access == AccessFs::ReadDir
+    ));
 }
 
 impl Compatible for Ruleset {

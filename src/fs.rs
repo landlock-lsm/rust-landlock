@@ -105,9 +105,8 @@ impl PrivateAccess for AccessFs {
         mut ruleset: Ruleset,
         access: BitFlags<Self>,
     ) -> Result<Ruleset, HandleAccessesError> {
-        ruleset.requested_handled_fs = access;
-        ruleset.actual_handled_fs = ruleset
-            .requested_handled_fs
+        ruleset.requested_handled_fs |= access;
+        ruleset.actual_handled_fs |= access
             .try_compat(&mut ruleset.compat)
             .map_err(HandleAccessError::Compat)?;
         Ok(ruleset)
