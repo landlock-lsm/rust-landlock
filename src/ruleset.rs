@@ -196,13 +196,17 @@ impl From<Compatibility> for Ruleset {
     }
 }
 
+#[cfg(test)]
+impl From<ABI> for Ruleset {
+    fn from(abi: ABI) -> Self {
+        Ruleset::from(Compatibility::from(abi))
+    }
+}
+
 #[test]
 fn ruleset_add_rule_iter() {
-    let compat = ABI::Unsupported.into();
-    let new_ruleset = |compat: &Compatibility| -> Ruleset { compat.clone().into() };
-
     assert!(matches!(
-        new_ruleset(&compat)
+        Ruleset::from(ABI::Unsupported)
             .handle_access(AccessFs::Execute)
             .unwrap()
             .create()
@@ -525,13 +529,8 @@ impl Compatible for RulesetCreated {
 
 #[test]
 fn ruleset_unsupported() {
-    use crate::errors::*;
-
-    let mut compat = ABI::Unsupported.into();
-    let new_ruleset = |compat: &Compatibility| -> Ruleset { compat.clone().into() };
-
     assert_eq!(
-        new_ruleset(&compat)
+        Ruleset::from(ABI::Unsupported)
             .handle_access(AccessFs::Execute)
             .unwrap()
             .create()
@@ -545,7 +544,7 @@ fn ruleset_unsupported() {
     );
 
     assert_eq!(
-        new_ruleset(&compat)
+        Ruleset::from(ABI::Unsupported)
             .handle_access(AccessFs::Execute)
             .unwrap()
             .create()
@@ -560,7 +559,7 @@ fn ruleset_unsupported() {
     );
 
     assert!(matches!(
-        new_ruleset(&compat)
+        Ruleset::from(ABI::Unsupported)
             // Empty access-rights
             .handle_access(AccessFs::from_all(ABI::Unsupported))
             .unwrap_err(),
@@ -570,17 +569,15 @@ fn ruleset_unsupported() {
     ));
 
     assert!(matches!(
-        new_ruleset(&compat)
+        Ruleset::from(ABI::Unsupported)
             // No handle_access() call.
             .create()
             .unwrap_err(),
         RulesetError::CreateRuleset(CreateRulesetError::MissingHandledAccess)
     ));
 
-    compat = ABI::V1.into();
-
     assert!(matches!(
-        new_ruleset(&compat)
+        Ruleset::from(ABI::V1)
             // Empty access-rights
             .handle_access(AccessFs::from_all(ABI::Unsupported))
             .unwrap_err(),
@@ -594,7 +591,9 @@ fn ruleset_unsupported() {
         make_bitflags!(AccessFs::{Execute | WriteFile}),
         AccessFs::Execute.into(),
     ] {
-        let ruleset = new_ruleset(&compat).handle_access(*handled_access).unwrap();
+        let ruleset = Ruleset::from(ABI::V1)
+            .handle_access(*handled_access)
+            .unwrap();
         // Fakes a call to create() to test without involving the kernel (i.e. no
         // landlock_ruleset_create() call).
         let ruleset_created = RulesetCreated::new(ruleset, -1);
@@ -613,12 +612,9 @@ fn ruleset_unsupported() {
 #[test]
 #[cfg(all(test, not(feature = "test-without-kernel-support")))]
 fn ruleset_enforced() {
-    let compat = ABI::V1.into();
-    let new_ruleset = |compat: &Compatibility| -> Ruleset { compat.clone().into() };
-
     // Restricting without rule exceptions is legitimate to forbid a set of actions.
     assert_eq!(
-        new_ruleset(&compat)
+        Ruleset::from(ABI::V1)
             .handle_access(AccessFs::Execute)
             .unwrap()
             .create()

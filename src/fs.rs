@@ -310,7 +310,7 @@ fn path_beneath_check_consistency() {
     let ro_access = AccessFs::ReadDir | AccessFs::ReadFile;
     let rx_access = AccessFs::Execute | AccessFs::ReadFile;
     assert!(matches!(
-        Ruleset::new()
+        Ruleset::from(ABI::Unsupported)
             .handle_access(ro_access)
             .unwrap()
             .create()
