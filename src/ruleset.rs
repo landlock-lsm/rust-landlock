@@ -236,7 +236,7 @@ impl Ruleset {
                 handled_access_fs: self.actual_handled_fs.bits(),
             };
 
-            match self.compat.abi {
+            match self.compat.abi() {
                 ABI::Unsupported => {
                     #[cfg(test)]
                     assert_eq!(self.compat.state, CompatState::Final);
@@ -371,7 +371,7 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> + Compatible {
                 Some(r) => r,
                 None => return Ok(self),
             };
-            match self_ref.compat.abi {
+            match self_ref.compat.abi() {
                 ABI::Unsupported => {
                     #[cfg(test)]
                     assert_eq!(self_ref.compat.state, CompatState::Final);
@@ -542,7 +542,7 @@ impl RulesetCreated {
                     // To get a consistent behavior, calls this prctl whether or not
                     // Landlock is supported by the running kernel.
                     let support_nnp = support_no_new_privs();
-                    match self.compat.abi {
+                    match self.compat.abi() {
                         // It should not be an error for kernel (older than 3.5) not supporting
                         // no_new_privs.
                         ABI::Unsupported => {
@@ -564,7 +564,7 @@ impl RulesetCreated {
                 false
             };
 
-            match self.compat.abi {
+            match self.compat.abi() {
                 ABI::Unsupported => {
                     #[cfg(test)]
                     assert_eq!(self.compat.state, CompatState::Final);

@@ -229,7 +229,7 @@ fn compat_state_update_2() {
 #[derive(Clone)]
 // Compatibility is not public outside this crate.
 pub struct Compatibility {
-    pub(crate) abi: ABI,
+    abi: ABI,
     pub(crate) level: CompatLevel,
     pub(crate) state: CompatState,
     // is_mooted is required to differenciate a kernel not supporting Landlock from an error that
@@ -266,6 +266,10 @@ impl Compatibility {
             self.abi = ABI::Unsupported;
             self.is_mooted = true;
         }
+    }
+
+    pub(crate) fn abi(&self) -> ABI {
+        self.abi
     }
 
     pub(crate) fn is_mooted(&self) -> bool {
