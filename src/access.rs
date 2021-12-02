@@ -78,7 +78,7 @@ where
             }
             .into());
         } else {
-            let compat_bits = self & T::from_all(compat.abi);
+            let compat_bits = self & T::from_all(compat.abi());
             if compat_bits.is_empty() {
                 match compat.level {
                     // Empty access-rights are ignored to avoid an error when passing them to
@@ -143,7 +143,7 @@ fn compat_bit_flags() {
 
     assert!(!compat.is_mooted());
 
-    compat.abi = ABI::Unsupported;
+    compat = ABI::Unsupported.into();
     assert!(!compat.is_mooted());
 
     // Access-rights are valid (but ignored) when they are not required for the current ABI.
