@@ -79,7 +79,7 @@ extern crate thiserror;
 #[macro_use]
 extern crate lazy_static;
 
-use compat::{CompatState, Compatibility, TryCompat};
+pub use access::Access;
 pub use compat::{Compatible, ABI};
 pub use enumflags2::{make_bitflags, BitFlags};
 pub use errors::{
@@ -88,15 +88,19 @@ pub use errors::{
 };
 pub use fs::{path_beneath_rules, AccessFs, PathBeneath, PathFd};
 pub use ruleset::{
-    Access, RestrictionStatus, Rule, Ruleset, RulesetAttr, RulesetCreated, RulesetCreatedAttr,
+    RestrictionStatus, Rule, Ruleset, RulesetAttr, RulesetCreated, RulesetCreatedAttr,
     RulesetStatus,
 };
-use ruleset::{PrivateAccess, PrivateRule};
+
+use access::PrivateAccess;
+use compat::{CompatState, Compatibility, TryCompat};
+use ruleset::PrivateRule;
 
 #[cfg(test)]
 pub use compat::{can_emulate, landlock_is_enabled};
 #[cfg(test)]
 pub use errors::TestRulesetError;
+
 #[cfg(test)]
 use strum::IntoEnumIterator;
 
