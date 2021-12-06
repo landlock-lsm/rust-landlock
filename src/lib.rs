@@ -100,6 +100,7 @@ pub use errors::TestRulesetError;
 #[cfg(test)]
 use strum::IntoEnumIterator;
 
+mod access;
 mod compat;
 mod errors;
 mod fs;
