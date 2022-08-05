@@ -1,0 +1,81 @@
+name: Rust checks
+
+permissions: {}
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+# Ubuntu versions: https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners#supported-runners-and-hardware-resources
+
+jobs:
+  ubuntu_20_rust_stable:
+    runs-on: ubuntu-20.04
+    steps:
+    - uses: actions/checkout@v3.0.2
+
+    - name: Install Rust stable
+      uses: actions-rs/toolchain@v1.0.7
+      with:
+        toolchain: stable
+        override: true
+        components: rustfmt, clippy
+
+    - name: Build
+      uses: actions-rs/cargo@v1.0.3
+      with:
+        command: build
+        args: --verbose
+
+    - name: Run tests
+      uses: actions-rs/cargo@v1.0.3
+      with:
+        command: test
+        args: --verbose --features test-without-kernel-support
+
+    - name: Check format
+      uses: actions-rs/cargo@v1.0.3
+      with:
+        command: fmt
+        args: --all -- --check
+
+    - name: Check source with Clippy
+      uses: actions-rs/cargo@v1.0.3
+      with:
+        command: clippy
+        args: -- --deny warnings
+
+    - name: Check tests with Clippy
+      uses: actions-rs/cargo@v1.0.3
+      with:
+        command: clippy
+        args: --tests -- --deny warnings
+
+    - name: Check documentation
+      uses: actions-rs/cargo@v1.0.3
+      with:
+        command: doc
+        args: --no-deps
+
+  ubuntu_22_rust_stable:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v3.0.2
+
+    - name: Install Rust stable
+      uses: actions-rs/toolchain@v1.0.7
+      with:
+        toolchain: stable
+        override: true
+        components: rustfmt, clippy
+
+    - name: Run tests
+      uses: actions-rs/cargo@v1.0.3
+      with:
+        command: test
+        args: --verbose
