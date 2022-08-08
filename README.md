@@ -7,4 +7,4 @@ Landlock empowers any process, including unprivileged ones, to securely restrict
 More information about Landlock can be found in the [official website](https://landlock.io).
 
 This Rust crate provides a safe abstraction for the Landlock system calls along with some helpers.
-See the [API documentation](https://docs.rs/landlock/).
+See the [Rust Landlock API documentation](https://landlock.io/rust-landlock/landlock/).
