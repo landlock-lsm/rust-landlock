@@ -1,0 +1,46 @@
+name: GitHub Pages
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rustdoc:
+    if: github.repository == 'landlock-lsm/rust-landlock'
+    runs-on: ubuntu-22.04
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install Rust stable
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Build documentation
+      uses: actions-rs/cargo@v1
+      with:
+        command: doc
+        args: --no-deps
+
+    - name: Add index
+      run: |
+        echo '<meta http-equiv="refresh" content="0; url=landlock">' > target/doc/index.html
+
+    - name: Push documentation
+      uses: peaceiris/actions-gh-pages@068dc23d9710f1ba62e86896f84735d869951305 # v3.8.0
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: target/doc
+        force_orphan: true
+        user_name: 'github-actions[bot]'
+        user_email: 'github-actions[bot]@users.noreply.github.com'
