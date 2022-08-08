@@ -2,6 +2,8 @@ use crate::{uapi, Access, AccessError, BitFlags, CompatError};
 
 #[cfg(test)]
 use crate::{make_bitflags, AccessFs};
+#[cfg(test)]
+use std::convert::TryInto;
 
 /// Version of the Landlock [ABI](https://en.wikipedia.org/wiki/Application_binary_interface).
 ///
@@ -30,6 +32,9 @@ pub enum ABI {
     /// First Landlock ABI,
     /// introduced with [Linux 5.13](https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/commit/?id=62fb9874f5da54fdb243003b386128037319b219).
     V1 = 1,
+    /// Second Landlock ABI,
+    /// introduced with [Linux 5.19](https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/commit/?id=3d7cb6b04c3f3115719235cc6866b10326de34cd).
+    V2 = 2,
 }
 
 impl ABI {
@@ -55,7 +60,7 @@ impl ABI {
             n if n <= 0 => ABI::Unsupported,
             1 => ABI::V1,
             // Returns the greatest known ABI.
-            _ => ABI::V1,
+            _ => ABI::V2,
         }
     }
 }
@@ -63,13 +68,20 @@ impl ABI {
 #[test]
 fn abi_from() {
     // EOPNOTSUPP (-95), ENOSYS (-38)
-    for n in &[-95, -38, -1, 0] {
-        assert_eq!(ABI::from(*n), ABI::Unsupported);
+    for n in [-95, -38, -1, 0] {
+        assert_eq!(ABI::from(n), ABI::Unsupported);
     }
 
-    assert_eq!(ABI::from(1), ABI::V1);
-    assert_eq!(ABI::from(2), ABI::V1);
-    assert_eq!(ABI::from(9), ABI::V1);
+    let mut last_i = 1;
+    let mut last_abi = ABI::Unsupported;
+    for (i, abi) in [ABI::Unsupported, ABI::V1, ABI::V2].iter().enumerate() {
+        last_i = i.try_into().unwrap();
+        last_abi = *abi;
+        assert_eq!(ABI::from(last_i), last_abi);
+    }
+
+    assert_eq!(ABI::from(last_i + 1), last_abi);
+    assert_eq!(ABI::from(9), last_abi);
 }
 
 /// Returned by ruleset builder.

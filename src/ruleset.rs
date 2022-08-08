@@ -14,10 +14,19 @@ use crate::*;
 
 pub trait Access: PrivateAccess {
     /// Gets the access rights defined by a specific [`ABI`].
-    fn from_all(abi: ABI) -> BitFlags<Self>;
+    /// Union of [`from_read()`](Access::from_read) and [`from_write()`](Access::from_write).
+    fn from_all(abi: ABI) -> BitFlags<Self> {
+        // An empty access-right would be an error if passed to the kernel, but because the kernel
+        // doesn't support Landlock, no Landlock syscall should be called.  try_compat() should
+        // also return RestrictionStatus::Unrestricted when called with unsupported/empty
+        // access-righs.
+        Self::from_read(abi) | Self::from_write(abi)
+    }
+
     /// Gets the access rights identified as read-only according to a specific ABI.
     /// Exclusive with [`from_write()`](Access::from_write).
     fn from_read(abi: ABI) -> BitFlags<Self>;
+
     /// Gets the access rights identified as write-only according to a specific ABI.
     /// Exclusive with [`from_read()`](Access::from_read).
     fn from_write(abi: ABI) -> BitFlags<Self>;
@@ -286,14 +295,12 @@ impl Ruleset {
                     assert_eq!(self.compat.state, CompatState::Final);
                     Ok(RulesetCreated::new(self, -1))
                 }
-                ABI::V1 => {
-                    match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) } {
-                        fd if fd >= 0 => Ok(RulesetCreated::new(self, fd)),
-                        _ => Err(CreateRulesetError::CreateRulesetCall {
-                            source: Error::last_os_error(),
-                        }),
-                    }
-                }
+                _ => match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) } {
+                    fd if fd >= 0 => Ok(RulesetCreated::new(self, fd)),
+                    _ => Err(CreateRulesetError::CreateRulesetCall {
+                        source: Error::last_os_error(),
+                    }),
+                },
             }
         };
         Ok(body()?)
@@ -371,7 +378,7 @@ impl RulesetCreated {
                     assert_eq!(self.compat.state, CompatState::Final);
                     Ok(self)
                 }
-                ABI::V1 => match unsafe {
+                _ => match unsafe {
                     uapi::landlock_add_rule(
                         self.fd,
                         compat_rule.get_type_id(),
@@ -533,7 +540,7 @@ impl RulesetCreated {
                         no_new_privs: enforced_nnp,
                     })
                 }
-                ABI::V1 => match unsafe { uapi::landlock_restrict_self(self.fd, 0) } {
+                _ => match unsafe { uapi::landlock_restrict_self(self.fd, 0) } {
                     0 => {
                         self.compat.state.update(CompatState::Full);
                         Ok(RestrictionStatus {
@@ -663,6 +670,27 @@ fn ruleset_enforced() {
             .unwrap(),
         RestrictionStatus {
             ruleset: RulesetStatus::FullyEnforced,
+            no_new_privs: true,
+        }
+    );
+}
+
+#[test]
+#[cfg(all(test, not(feature = "test-without-kernel-support")))]
+fn ignore_abi_v2_access_for_abi_v1() {
+    assert_eq!(
+        Ruleset::from(ABI::V1)
+            .handle_access(AccessFs::Execute)
+            .unwrap()
+            // AccessFs::Refer is not supported by ABI::V1 (best-effort).
+            .handle_access(AccessFs::Refer)
+            .unwrap()
+            .create()
+            .unwrap()
+            .restrict_self()
+            .unwrap(),
+        RestrictionStatus {
+            ruleset: RulesetStatus::PartiallyEnforced,
             no_new_privs: true,
         }
     );

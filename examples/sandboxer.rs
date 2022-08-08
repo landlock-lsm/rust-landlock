@@ -94,7 +94,7 @@ fn main() -> Result<(), anyhow::Error> {
         anyhow!("Missing command")
     })?;
 
-    let abi = ABI::V1;
+    let abi = ABI::V2;
     let status = Ruleset::new()
         .handle_access(AccessFs::from_all(abi))?
         .create()?

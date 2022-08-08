@@ -31,6 +31,8 @@ use std::path::Path;
 /// let fs_v1 = AccessFs::from_all(ABI::V1);
 ///
 /// let without_exec = fs_v1 & !AccessFs::Execute;
+///
+/// assert_eq!(fs_v1 | AccessFs::Refer, AccessFs::from_all(ABI::V2));
 /// ```
 ///
 /// # Warning
@@ -71,39 +73,16 @@ pub enum AccessFs {
     MakeBlock = uapi::LANDLOCK_ACCESS_FS_MAKE_BLOCK as u64,
     /// Create (or rename or link) a symbolic link.
     MakeSym = uapi::LANDLOCK_ACCESS_FS_MAKE_SYM as u64,
+    /// Link or rename a file from or to a different directory.
+    Refer = uapi::LANDLOCK_ACCESS_FS_REFER as u64,
 }
 
 impl Access for AccessFs {
-    fn from_all(abi: ABI) -> BitFlags<Self> {
-        match abi {
-            // An empty access-right would be an error if passed to the kernel, but because the
-            // kernel doesn't support Landlock, no Landlock syscall should be called.
-            // try_compat() should also return RestrictionStatus::Unrestricted when called with
-            // unsupported/empty access-righs.
-            ABI::Unsupported => BitFlags::EMPTY,
-            ABI::V1 => make_bitflags!(AccessFs::{
-                Execute
-                | WriteFile
-                | ReadFile
-                | ReadDir
-                | RemoveDir
-                | RemoveFile
-                | MakeChar
-                | MakeDir
-                | MakeReg
-                | MakeSock
-                | MakeFifo
-                | MakeBlock
-                | MakeSym
-            }),
-        }
-    }
-
     // Roughly read (i.e. not all FS actions are handled).
     fn from_read(abi: ABI) -> BitFlags<Self> {
         match abi {
             ABI::Unsupported => BitFlags::EMPTY,
-            ABI::V1 => make_bitflags!(AccessFs::{
+            ABI::V1 | ABI::V2 => make_bitflags!(AccessFs::{
                 Execute
                 | ReadFile
                 | ReadDir
@@ -127,18 +106,20 @@ impl Access for AccessFs {
                 | MakeBlock
                 | MakeSym
             }),
+            ABI::V2 => Self::from_write(ABI::V1) | AccessFs::Refer,
         }
     }
 }
 
 #[test]
 fn consistent_access_fs_rw() {
-    let abi = ABI::V1;
-    assert_eq!(AccessFs::from_read(abi), !AccessFs::from_write(abi));
-    assert_eq!(
-        AccessFs::from_read(abi) | AccessFs::from_write(abi),
-        AccessFs::from_all(abi)
-    );
+    for abi in [ABI::V1, ABI::V2] {
+        let access_all = AccessFs::from_all(abi);
+        let access_read = AccessFs::from_read(abi);
+        let access_write = AccessFs::from_write(abi);
+        assert_eq!(access_read, !access_write & access_all);
+        assert_eq!(access_read | access_write, access_all);
+    }
 }
 
 impl PrivateAccess for AccessFs {

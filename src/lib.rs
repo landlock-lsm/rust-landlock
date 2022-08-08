@@ -27,11 +27,10 @@
 //!
 //! # Current limitations
 //!
-//! This crate exposes the Landlock features available as of Linux 5.13
+//! This crate exposes the Landlock features available as of Linux 5.19
 //! and then inherits some [kernel limitations](https://www.kernel.org/doc/html/latest/userspace-api/landlock.html#current-limitations)
-//! that will be addressed with future kernel releases:
-//! * File reparenting: renaming or linking a file to a different parent directory is always denied.
-//! * Filesystem topology modification: arbitrary mounts are always denied.
+//! that will be addressed with future kernel releases
+//! (e.g., arbitrary mounts are always denied).
 //!
 //! # Compatibility
 //!
