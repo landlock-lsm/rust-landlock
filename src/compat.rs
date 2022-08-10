@@ -5,9 +5,9 @@ use crate::{make_bitflags, AccessFs};
 #[cfg(test)]
 use std::convert::TryInto;
 #[cfg(test)]
-use strum::IntoEnumIterator;
+use strum::{EnumCount, IntoEnumIterator};
 #[cfg(test)]
-use strum_macros::EnumIter;
+use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 
 /// Version of the Landlock [ABI](https://en.wikipedia.org/wiki/Application_binary_interface).
 ///
@@ -26,7 +26,10 @@ use strum_macros::EnumIter;
 ///
 /// Such `ABI` is also convenient to get the features supported by a specific Linux kernel
 /// without relying on the kernel version (which may not be accessible or patched).
-#[cfg_attr(test, derive(Debug, PartialEq, EnumIter))]
+#[cfg_attr(
+    test,
+    derive(Debug, PartialEq, Eq, PartialOrd, EnumIter, EnumCountMacro)
+)]
 #[derive(Copy, Clone)]
 #[non_exhaustive]
 pub enum ABI {
@@ -67,6 +70,11 @@ impl ABI {
             _ => ABI::V2,
         }
     }
+
+    #[cfg(test)]
+    fn is_known(value: i32) -> bool {
+        value > 0 && value < ABI::COUNT as i32
+    }
 }
 
 #[test]
@@ -86,6 +94,56 @@ fn abi_from() {
 
     assert_eq!(ABI::from(last_i + 1), last_abi);
     assert_eq!(ABI::from(9), last_abi);
+}
+
+#[test]
+fn known_abi() {
+    assert!(!ABI::is_known(-1));
+    assert!(!ABI::is_known(0));
+    assert!(!ABI::is_known(99));
+
+    let mut last_i = -1;
+    for (i, _) in ABI::iter().enumerate().skip(1) {
+        last_i = i as i32;
+        assert!(ABI::is_known(last_i));
+    }
+    assert!(!ABI::is_known(last_i + 1));
+}
+
+#[cfg(test)]
+lazy_static! {
+    static ref TEST_ABI: ABI = match std::env::var("LANDLOCK_CRATE_TEST_ABI") {
+        Ok(s) => {
+            let n = s.parse::<i32>().unwrap();
+            if ABI::is_known(n) || n == 0 {
+                ABI::from(n)
+            } else {
+                panic!("Unknown ABI: {}", n);
+            }
+        }
+        Err(std::env::VarError::NotPresent) => ABI::iter().last().unwrap(),
+        Err(e) => panic!("Failed to read LANDLOCK_CRATE_TEST_ABI: {}", e),
+    };
+}
+
+#[cfg(test)]
+pub fn can_emulate(mock: ABI, full_support: ABI) -> bool {
+    mock <= *TEST_ABI || full_support <= *TEST_ABI
+}
+
+#[cfg(test)]
+pub fn landlock_is_enabled() -> bool {
+    *TEST_ABI != ABI::Unsupported
+}
+
+#[test]
+fn current_kernel_abi() {
+    // Ensures that the tested Landlock ABI is the latest known version supported by the running
+    // kernel.  If this test failed, you need set the LANDLOCK_CRATE_TEST_ABI environment variable
+    // to the Landlock ABI version supported by your kernel.  With a missing variable, the latest
+    // Landlock ABI version known by this crate is automatically set.
+    // From Linux 5.13 to 5.18, you need to run: LANDLOCK_CRATE_TEST_ABI=1 cargo test
+    assert_eq!(*TEST_ABI, ABI::new_current());
 }
 
 /// Returned by ruleset builder.

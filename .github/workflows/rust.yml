@@ -14,8 +14,29 @@ env:
 # Ubuntu versions: https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners#supported-runners-and-hardware-resources
 
 jobs:
+  ubuntu_18_rust_stable:
+    runs-on: ubuntu-18.04
+    env:
+      LANDLOCK_CRATE_TEST_ABI: 0
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install Rust stable
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Run tests
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
+        args: --verbose
+
   ubuntu_20_rust_stable:
     runs-on: ubuntu-20.04
+    env:
+      LANDLOCK_CRATE_TEST_ABI: 1
     steps:
     - uses: actions/checkout@v3
 
@@ -36,7 +57,7 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: test
-        args: --verbose --features test-without-kernel-support
+        args: --verbose
 
     - name: Check format
       uses: actions-rs/cargo@v1
@@ -64,6 +85,8 @@ jobs:
 
   ubuntu_22_rust_stable:
     runs-on: ubuntu-22.04
+    env:
+      LANDLOCK_CRATE_TEST_ABI: 1
     steps:
     - uses: actions/checkout@v3
 
@@ -72,7 +95,6 @@ jobs:
       with:
         toolchain: stable
         override: true
-        components: rustfmt, clippy
 
     - name: Run tests
       uses: actions-rs/cargo@v1

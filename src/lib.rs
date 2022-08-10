@@ -75,6 +75,10 @@ extern crate enumflags2;
 extern crate libc;
 extern crate thiserror;
 
+#[cfg(test)]
+#[macro_use]
+extern crate lazy_static;
+
 use compat::{CompatState, Compatibility, TryCompat};
 pub use compat::{Compatible, ABI};
 pub use enumflags2::{make_bitflags, BitFlags};
@@ -87,7 +91,11 @@ pub use ruleset::{Access, RestrictionStatus, Rule, Ruleset, RulesetCreated, Rule
 use ruleset::{PrivateAccess, PrivateRule};
 
 #[cfg(test)]
+pub use compat::{can_emulate, landlock_is_enabled};
+#[cfg(test)]
 pub use errors::TestRulesetError;
+#[cfg(test)]
+use strum::IntoEnumIterator;
 
 mod compat;
 mod errors;
@@ -95,58 +103,135 @@ mod fs;
 mod ruleset;
 mod uapi;
 
-#[cfg(all(test, not(feature = "test-without-kernel-support")))]
+#[cfg(test)]
 mod tests {
     use crate::*;
 
-    fn ruleset_root_compat() -> Result<RestrictionStatus, TestRulesetError> {
-        Ok(Ruleset::new()
-            .handle_access(AccessFs::from_all(ABI::V1))?
-            .create()?
-            .add_rule(PathBeneath::new(
-                PathFd::new("/")?,
-                AccessFs::from_all(ABI::V1),
-            ))?
-            .restrict_self()?)
-    }
+    // Emulate old kernel supports.
+    fn check_ruleset_support<F>(partial: ABI, full: ABI, check: F, error_if_abi_lt_partial: bool)
+    where
+        F: Fn(Ruleset) -> Result<RestrictionStatus, TestRulesetError>,
+    {
+        // If there is no partial support, it means that `full == partial`.
+        assert!(partial <= full);
+        for abi in ABI::iter() {
+            let ret = check(Ruleset::from(abi));
 
-    fn ruleset_root_fragile() -> Result<RestrictionStatus, TestRulesetError> {
-        // Sets default support requirement: abort the whole sandboxing for any Landlock error.
-        Ok(Ruleset::new()
-            // Must have at least the execute check…
-            .set_best_effort(false)
-            .handle_access(AccessFs::Execute)?
-            // …and possibly others.
-            .set_best_effort(true)
-            .handle_access(AccessFs::from_all(ABI::V1))?
-            .create()?
-            .set_no_new_privs(true)
-            .add_rule(PathBeneath::new(
-                PathFd::new("/")?,
-                AccessFs::from_all(ABI::V1),
-            ))?
-            .restrict_self()?)
+            // Useful for failed tests and with cargo test -- --show-output
+            println!("Checking ABI {:?}: {:#?}", abi, ret);
+            if can_emulate(abi, full) {
+                if abi < partial && error_if_abi_lt_partial {
+                    // TODO: Check exact error type; this may require better error types.
+                    assert!(matches!(ret, Err(TestRulesetError::Ruleset(_))));
+                } else {
+                    let ruleset_status = if abi >= full {
+                        RulesetStatus::FullyEnforced
+                    } else if abi >= partial {
+                        RulesetStatus::PartiallyEnforced
+                    } else {
+                        RulesetStatus::NotEnforced
+                    };
+                    assert!(matches!(
+                        ret,
+                        Ok(RestrictionStatus {
+                            ruleset,
+                            no_new_privs: true,
+                        }) if ruleset == ruleset_status
+                    ))
+                }
+            } else {
+                // This should not happen with a normal kernel (e.g. without seccomp filters) and a
+                // non-test Landlock crate, but let's check it anyway.
+                let error_kind = if landlock_is_enabled() {
+                    std::io::ErrorKind::InvalidInput
+                } else {
+                    std::io::ErrorKind::Unsupported
+                };
+                assert!(matches!(
+                    ret,
+                    Err(TestRulesetError::Ruleset(RulesetError::CreateRuleset(
+                        CreateRulesetError::CreateRulesetCall { source }
+                    ))) if source.kind() == error_kind
+                ))
+            }
+        }
     }
 
     #[test]
     fn allow_root_compat() {
-        assert_eq!(
-            ruleset_root_compat().unwrap(),
-            RestrictionStatus {
-                ruleset: RulesetStatus::FullyEnforced,
-                no_new_privs: true,
-            }
+        let abi = ABI::V1;
+
+        check_ruleset_support(
+            abi,
+            abi,
+            |ruleset: Ruleset| -> _ {
+                Ok(ruleset
+                    .handle_access(AccessFs::from_all(abi))?
+                    .create()?
+                    .add_rule(PathBeneath::new(PathFd::new("/")?, AccessFs::from_all(abi)))?
+                    .restrict_self()?)
+            },
+            false,
         );
     }
 
     #[test]
     fn allow_root_fragile() {
-        assert_eq!(
-            ruleset_root_fragile().unwrap(),
-            RestrictionStatus {
-                ruleset: RulesetStatus::FullyEnforced,
-                no_new_privs: true,
-            }
+        let abi = ABI::V1;
+
+        check_ruleset_support(
+            abi,
+            abi,
+            |ruleset: Ruleset| -> _ {
+                // Sets default support requirement: abort the whole sandboxing for any Landlock error.
+                Ok(ruleset
+                    // Must have at least the execute check…
+                    .set_best_effort(false)
+                    .handle_access(AccessFs::Execute)?
+                    // …and possibly others.
+                    .set_best_effort(true)
+                    .handle_access(AccessFs::from_all(abi))?
+                    .create()?
+                    .set_no_new_privs(true)
+                    .add_rule(PathBeneath::new(PathFd::new("/")?, AccessFs::from_all(abi)))?
+                    .restrict_self()?)
+            },
+            true,
+        );
+    }
+
+    #[test]
+    fn ruleset_enforced() {
+        let abi = ABI::V1;
+
+        check_ruleset_support(
+            abi,
+            abi,
+            |ruleset: Ruleset| -> _ {
+                Ok(ruleset
+                    // Restricting without rule exceptions is legitimate to forbid a set of actions.
+                    .handle_access(AccessFs::Execute)?
+                    .create()?
+                    .restrict_self()?)
+            },
+            false,
+        );
+    }
+
+    #[test]
+    fn abi_v2_refer() {
+        check_ruleset_support(
+            ABI::V1,
+            ABI::V2,
+            |ruleset: Ruleset| -> _ {
+                Ok(ruleset
+                    .handle_access(AccessFs::Execute)?
+                    // AccessFs::Refer is not supported by ABI::V1 (best-effort).
+                    .handle_access(AccessFs::Refer)?
+                    .create()?
+                    .restrict_self()?)
+            },
+            false,
         );
     }
 }
