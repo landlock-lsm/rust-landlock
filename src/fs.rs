@@ -11,6 +11,9 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::Path;
 
+#[cfg(test)]
+use strum::IntoEnumIterator;
+
 /// File system access right.
 ///
 /// Each variant of `AccessFs` is an [access right](https://www.kernel.org/doc/html/latest/userspace-api/landlock.html#access-rights)
@@ -113,7 +116,7 @@ impl Access for AccessFs {
 
 #[test]
 fn consistent_access_fs_rw() {
-    for abi in [ABI::V1, ABI::V2] {
+    for abi in ABI::iter() {
         let access_all = AccessFs::from_all(abi);
         let access_read = AccessFs::from_read(abi);
         let access_write = AccessFs::from_write(abi);

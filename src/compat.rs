@@ -4,6 +4,10 @@ use crate::{uapi, Access, AccessError, BitFlags, CompatError};
 use crate::{make_bitflags, AccessFs};
 #[cfg(test)]
 use std::convert::TryInto;
+#[cfg(test)]
+use strum::IntoEnumIterator;
+#[cfg(test)]
+use strum_macros::EnumIter;
 
 /// Version of the Landlock [ABI](https://en.wikipedia.org/wiki/Application_binary_interface).
 ///
@@ -22,7 +26,7 @@ use std::convert::TryInto;
 ///
 /// Such `ABI` is also convenient to get the features supported by a specific Linux kernel
 /// without relying on the kernel version (which may not be accessible or patched).
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[cfg_attr(test, derive(Debug, PartialEq, EnumIter))]
 #[derive(Copy, Clone)]
 #[non_exhaustive]
 pub enum ABI {
@@ -74,9 +78,9 @@ fn abi_from() {
 
     let mut last_i = 1;
     let mut last_abi = ABI::Unsupported;
-    for (i, abi) in [ABI::Unsupported, ABI::V1, ABI::V2].iter().enumerate() {
+    for (i, abi) in ABI::iter().enumerate() {
         last_i = i.try_into().unwrap();
-        last_abi = *abi;
+        last_abi = abi;
         assert_eq!(ABI::from(last_i), last_abi);
     }
 

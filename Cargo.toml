@@ -25,3 +25,5 @@ thiserror = "1.0"
 [dev-dependencies]
 anyhow = "1.0"
 landlock = { path = "." }
+strum = "0.24"
+strum_macros = "0.24"
