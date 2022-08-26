@@ -438,14 +438,12 @@ fn path_fd() {
 ///
 /// fn restrict_thread() -> Result<(), RulesetError> {
 ///     let abi = ABI::V1;
-///     let status = Ruleset::new()
-///         .handle_access(AccessFs::from_all(abi))?
-///         .create()?
-///         // Read-only access to /usr, /etc and /dev.
-///         .add_rules(path_beneath_rules(&["/usr", "/etc", "/dev"], AccessFs::from_read(abi)))?
-///         // Read-write access to /home and /tmp.
-///         .add_rules(path_beneath_rules(&["/home", "/tmp"], AccessFs::from_all(abi)))?
-///         .restrict_self()?;
+///     let mut ruleset = Ruleset::new().handle_access(AccessFs::from_all(abi))?.create()?;
+///     // Read-only access to /usr, /etc and /dev.
+///     ruleset.add_rules(path_beneath_rules(&["/usr", "/etc", "/dev"], AccessFs::from_read(abi)))?;
+///     // Read-write access to /home and /tmp.
+///     ruleset.add_rules(path_beneath_rules(&["/home", "/tmp"], AccessFs::from_all(abi)))?;
+///     let status = ruleset.restrict_self()?;
 ///     match status.ruleset {
 ///         // The FullyEnforced case must be tested by the developer.
 ///         RulesetStatus::FullyEnforced => println!("Fully sandboxed."),
