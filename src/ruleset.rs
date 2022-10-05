@@ -400,6 +400,20 @@ impl<'a> RulesetCreatedMut<'a> {
             },
         }
     }
+
+    pub fn add_rules<I, T, U, E>(&mut self, rules: I) -> Result<&mut Self, E>
+    where
+        I: IntoIterator<Item = Result<T, E>>,
+        T: Rule<U>,
+        U: Access,
+        E: std::error::Error,
+        E: From<RulesetError>,
+    {
+        for rule in rules {
+            self.add_rule(rule?)?;
+        }
+        Ok(self)
+    }
 }
 
 impl RulesetCreated {
@@ -532,9 +546,7 @@ impl RulesetCreated {
         E: std::error::Error,
         E: From<RulesetError>,
     {
-        for rule in rules {
-            self = self.add_rule(rule?)?;
-        }
+        self.as_mut().add_rules(rules)?;
         Ok(self)
     }
 
