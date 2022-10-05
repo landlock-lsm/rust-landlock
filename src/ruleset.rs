@@ -7,6 +7,7 @@ use enumflags2::BitFlag;
 use libc::close;
 use std::io::Error;
 use std::mem::size_of_val;
+use std::ops::{Deref, DerefMut};
 use std::os::unix::io::RawFd;
 
 #[cfg(test)]
@@ -349,6 +350,58 @@ pub struct RulesetCreated {
     compat: Compatibility,
 }
 
+#[cfg_attr(test, derive(Debug))]
+pub struct RulesetCreatedMut<'a>(&'a mut RulesetCreated);
+
+impl<'a> Deref for RulesetCreatedMut<'a> {
+    type Target = RulesetCreated;
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
+impl<'a> DerefMut for RulesetCreatedMut<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0
+    }
+}
+
+impl<'a> RulesetCreatedMut<'a> {
+    pub fn add_rule<T, U>(&mut self, rule: T) -> Result<&mut Self, RulesetError>
+    where
+        T: Rule<U>,
+        U: Access,
+    {
+        rule.check_consistency(self.0)?;
+        let compat_rule = rule
+            .try_compat(&mut self.0.compat)
+            .map_err(AddRuleError::Compat)
+            .map_err(AddRulesError::from)?;
+        match self.0.compat.abi {
+            ABI::Unsupported => {
+                #[cfg(test)]
+                assert_eq!(self.0.compat.state, CompatState::Final);
+                Ok(self)
+            }
+            _ => match unsafe {
+                uapi::landlock_add_rule(
+                    self.0.fd,
+                    compat_rule.get_type_id(),
+                    compat_rule.as_ptr(),
+                    compat_rule.get_flags(),
+                )
+            } {
+                0 => Ok(self),
+                _ => Err(AddRulesError::from(AddRuleError::<U>::AddRuleCall {
+                    source: Error::last_os_error(),
+                })
+                .into()),
+            },
+        }
+    }
+}
+
 impl RulesetCreated {
     fn new(ruleset: Ruleset, fd: RawFd) -> Self {
         RulesetCreated {
@@ -359,6 +412,32 @@ impl RulesetCreated {
         }
     }
 
+    /// Returns a wrapped mutable reference in order to use `add_rule` in a non-consuming way.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use landlock::{
+    ///     Access, AccessFs, BitFlags, PathBeneath, PathFd, PathFdError, RestrictionStatus, Ruleset,
+    ///     RulesetError, ABI,
+    /// };
+    ///
+    /// let mut ruleset = Ruleset::new()
+    ///         .handle_access(AccessFs::from_all(ABI::V1))
+    ///         .unwrap()
+    ///         .create()
+    ///         .unwrap();
+    ///
+    /// ruleset
+    ///     .as_mut()
+    ///     .add_rule(PathBeneath::new(PathFd::new("/tmp").unwrap(), AccessFs::from_read(ABI::V1))).unwrap();
+    ///
+    /// drop(ruleset);
+    /// ```
+    pub fn as_mut(&mut self) -> RulesetCreatedMut<'_> {
+        RulesetCreatedMut(self)
+    }
+
     /// Attempts to add a new rule to the ruleset.
     ///
     /// On error, returns a wrapped [`AddRulesError`].
@@ -367,34 +446,8 @@ impl RulesetCreated {
         T: Rule<U>,
         U: Access,
     {
-        let body = || -> Result<Self, AddRulesError> {
-            rule.check_consistency(&self)?;
-            let compat_rule = rule
-                .try_compat(&mut self.compat)
-                .map_err(AddRuleError::Compat)?;
-            match self.compat.abi {
-                ABI::Unsupported => {
-                    #[cfg(test)]
-                    assert_eq!(self.compat.state, CompatState::Final);
-                    Ok(self)
-                }
-                _ => match unsafe {
-                    uapi::landlock_add_rule(
-                        self.fd,
-                        compat_rule.get_type_id(),
-                        compat_rule.as_ptr(),
-                        compat_rule.get_flags(),
-                    )
-                } {
-                    0 => Ok(self),
-                    _ => Err(AddRuleError::<U>::AddRuleCall {
-                        source: Error::last_os_error(),
-                    }
-                    .into()),
-                },
-            }
-        };
-        Ok(body()?)
+        self.as_mut().add_rule(rule)?;
+        Ok(self)
     }
 
     /// Attempts to add a set of new rules to the ruleset.
