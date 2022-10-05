@@ -350,6 +350,7 @@ pub struct RulesetCreated {
     compat: Compatibility,
 }
 
+/// Mutable reference to a [`RulesetCreated`], obtained via [`RulesetCreated::as_mut()`].
 #[cfg_attr(test, derive(Debug))]
 pub struct RulesetCreatedMut<'a>(&'a mut RulesetCreated);
 
@@ -368,6 +369,7 @@ impl<'a> DerefMut for RulesetCreatedMut<'a> {
 }
 
 impl<'a> RulesetCreatedMut<'a> {
+    /// Non-consuming equivalent of [`RulesetCreated::add_rule()`].
     pub fn add_rule<T, U>(&mut self, rule: T) -> Result<&mut Self, RulesetError>
     where
         T: Rule<U>,
@@ -401,6 +403,7 @@ impl<'a> RulesetCreatedMut<'a> {
         }
     }
 
+    /// Non-consuming equivalent of [`RulesetCreated::add_rules()`].
     pub fn add_rules<I, T, U, E>(&mut self, rules: I) -> Result<&mut Self, E>
     where
         I: IntoIterator<Item = Result<T, E>>,
@@ -426,7 +429,7 @@ impl RulesetCreated {
         }
     }
 
-    /// Returns a wrapped mutable reference in order to use `add_rule` in a non-consuming way.
+    /// Returns a wrapped mutable reference in order to use [`RulesetCreated::add_rule`] in a non-consuming way.
     ///
     /// # Example
     ///

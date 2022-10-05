@@ -87,7 +87,9 @@ pub use errors::{
     HandleAccessesError, PathBeneathError, PathFdError, RestrictSelfError, RulesetError,
 };
 pub use fs::{path_beneath_rules, AccessFs, PathBeneath, PathFd};
-pub use ruleset::{Access, RestrictionStatus, Rule, Ruleset, RulesetCreated, RulesetStatus};
+pub use ruleset::{
+    Access, RestrictionStatus, Rule, Ruleset, RulesetCreated, RulesetCreatedMut, RulesetStatus,
+};
 use ruleset::{PrivateAccess, PrivateRule};
 
 #[cfg(test)]
