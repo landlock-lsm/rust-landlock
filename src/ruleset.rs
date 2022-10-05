@@ -417,6 +417,12 @@ impl<'a> RulesetCreatedMut<'a> {
         }
         Ok(self)
     }
+
+    /// Non-consuming equivalent of [`RulesetCreated::set_no_new_privs()`].
+    pub fn set_no_new_privs(&mut self, no_new_privs: bool) -> &mut Self {
+        self.0.no_new_privs = no_new_privs;
+        self
+    }
 }
 
 impl RulesetCreated {
