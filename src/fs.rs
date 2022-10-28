@@ -12,6 +12,8 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::Path;
 
 #[cfg(test)]
+use crate::RulesetCreatedAttr;
+#[cfg(test)]
 use strum::IntoEnumIterator;
 
 /// File system access right.
@@ -418,7 +420,10 @@ fn path_fd() {
 /// # Example
 ///
 /// ```
-/// use landlock::{ABI, Access, AccessFs, Ruleset, RulesetStatus, RulesetError, path_beneath_rules};
+/// use landlock::{
+///     ABI, Access, AccessFs, Ruleset, RulesetCreatedAttr, RulesetStatus, RulesetError,
+///     path_beneath_rules,
+/// };
 ///
 /// fn restrict_thread() -> Result<(), RulesetError> {
 ///     let abi = ABI::V1;
