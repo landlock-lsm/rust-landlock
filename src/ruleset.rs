@@ -135,7 +135,8 @@ fn support_no_new_privs() -> bool {
 ///
 /// ```
 /// use landlock::{
-///     Access, AccessFs, PathBeneath, PathFd, RestrictionStatus, Ruleset, RulesetError, ABI,
+///     Access, AccessFs, PathBeneath, PathFd, RestrictionStatus, Ruleset, RulesetCreatedAttr,
+///     RulesetError, ABI,
 /// };
 /// use std::os::unix::io::AsRawFd;
 ///
@@ -167,7 +168,7 @@ fn support_no_new_privs() -> bool {
 /// ```
 /// use landlock::{
 ///     Access, AccessFs, PathBeneath, PathFd, PathFdError, RestrictionStatus, Ruleset,
-///     RulesetError, ABI,
+///     RulesetCreatedAttr, RulesetError, ABI,
 /// };
 /// use thiserror::Error;
 ///
@@ -340,47 +341,30 @@ impl Compatible for Ruleset {
     }
 }
 
-/// Ruleset created with [`Ruleset::create()`].
-#[cfg_attr(test, derive(Debug))]
-pub struct RulesetCreated {
-    fd: RawFd,
-    no_new_privs: bool,
-    pub(crate) requested_handled_fs: BitFlags<AccessFs>,
-    compat: Compatibility,
-}
-
-impl RulesetCreated {
-    fn new(ruleset: Ruleset, fd: RawFd) -> Self {
-        RulesetCreated {
-            fd,
-            no_new_privs: true,
-            requested_handled_fs: ruleset.requested_handled_fs,
-            compat: ruleset.compat,
-        }
-    }
-
+pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> {
     /// Attempts to add a new rule to the ruleset.
     ///
     /// On error, returns a wrapped [`AddRulesError`].
-    pub fn add_rule<T, U>(mut self, rule: T) -> Result<Self, RulesetError>
+    fn add_rule<T, U>(mut self, rule: T) -> Result<Self, RulesetError>
     where
         T: Rule<U>,
         U: Access,
     {
         let body = || -> Result<Self, AddRulesError> {
-            rule.check_consistency(&self)?;
+            let self_ref = self.as_mut();
+            rule.check_consistency(self_ref)?;
             let compat_rule = rule
-                .try_compat(&mut self.compat)
+                .try_compat(&mut self_ref.compat)
                 .map_err(AddRuleError::Compat)?;
-            match self.compat.abi {
+            match self_ref.compat.abi {
                 ABI::Unsupported => {
                     #[cfg(test)]
-                    assert_eq!(self.compat.state, CompatState::Final);
+                    assert_eq!(self_ref.compat.state, CompatState::Final);
                     Ok(self)
                 }
                 _ => match unsafe {
                     uapi::landlock_add_rule(
-                        self.fd,
+                        self_ref.fd,
                         compat_rule.get_type_id(),
                         compat_rule.as_ptr(),
                         compat_rule.get_flags(),
@@ -408,7 +392,7 @@ impl RulesetCreated {
     /// ```
     /// use landlock::{
     ///     Access, AccessFs, BitFlags, PathBeneath, PathFd, PathFdError, RestrictionStatus, Ruleset,
-    ///     RulesetError, ABI,
+    ///     RulesetCreatedAttr, RulesetError, ABI,
     /// };
     /// use std::env;
     /// use std::ffi::OsStr;
@@ -471,7 +455,7 @@ impl RulesetCreated {
     ///         .restrict_self()?)
     /// }
     /// ```
-    pub fn add_rules<I, T, U, E>(mut self, rules: I) -> Result<Self, E>
+    fn add_rules<I, T, U, E>(mut self, rules: I) -> Result<Self, E>
     where
         I: IntoIterator<Item = Result<T, E>>,
         T: Rule<U>,
@@ -487,9 +471,29 @@ impl RulesetCreated {
 
     /// Configures the ruleset to call `prctl(2)` with the `PR_SET_NO_NEW_PRIVS` command
     /// in [`restrict_self()`](RulesetCreated::restrict_self).
-    pub fn set_no_new_privs(mut self, no_new_privs: bool) -> Self {
-        self.no_new_privs = no_new_privs;
+    fn set_no_new_privs(mut self, no_new_privs: bool) -> Self {
+        self.as_mut().no_new_privs = no_new_privs;
         self
+    }
+}
+
+/// Ruleset created with [`Ruleset::create()`].
+#[cfg_attr(test, derive(Debug))]
+pub struct RulesetCreated {
+    fd: RawFd,
+    no_new_privs: bool,
+    pub(crate) requested_handled_fs: BitFlags<AccessFs>,
+    compat: Compatibility,
+}
+
+impl RulesetCreated {
+    fn new(ruleset: Ruleset, fd: RawFd) -> Self {
+        RulesetCreated {
+            fd,
+            no_new_privs: true,
+            requested_handled_fs: ruleset.requested_handled_fs,
+            compat: ruleset.compat,
+        }
     }
 
     /// Attempts to restrict the calling thread with the ruleset
@@ -565,6 +569,54 @@ impl Drop for RulesetCreated {
             unsafe { close(self.fd) };
         }
     }
+}
+
+impl AsMut<RulesetCreated> for RulesetCreated {
+    fn as_mut(&mut self) -> &mut RulesetCreated {
+        self
+    }
+}
+
+impl RulesetCreatedAttr for RulesetCreated {}
+
+impl RulesetCreatedAttr for &mut RulesetCreated {}
+
+#[test]
+fn ruleset_created_attr() {
+    let mut ruleset_created = Ruleset::from(ABI::Unsupported)
+        .handle_access(AccessFs::Execute)
+        .unwrap()
+        .create()
+        .unwrap();
+    let ruleset_created_ref = &mut ruleset_created;
+
+    // Can pass this reference to populate the ruleset...
+    ruleset_created_ref
+        .add_rule(PathBeneath::new(
+            PathFd::new("/usr").unwrap(),
+            AccessFs::Execute,
+        ))
+        .unwrap()
+        .add_rule(PathBeneath::new(
+            PathFd::new("/etc").unwrap(),
+            AccessFs::Execute,
+        ))
+        .unwrap();
+
+    // ...and finally restrict with the last rules (thanks to non-lexical lifetimes).
+    ruleset_created
+        .add_rule(PathBeneath::new(
+            PathFd::new("/tmp").unwrap(),
+            AccessFs::Execute,
+        ))
+        .unwrap()
+        .add_rule(PathBeneath::new(
+            PathFd::new("/var").unwrap(),
+            AccessFs::Execute,
+        ))
+        .unwrap()
+        .restrict_self()
+        .unwrap();
 }
 
 impl Compatible for RulesetCreated {
