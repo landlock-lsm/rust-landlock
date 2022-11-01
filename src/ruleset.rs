@@ -34,9 +34,9 @@ pub trait Access: PrivateAccess {
 
 pub trait PrivateAccess: BitFlag {
     fn ruleset_handle_access(
-        ruleset: Ruleset,
+        ruleset: &mut Ruleset,
         access: BitFlags<Self>,
-    ) -> Result<Ruleset, HandleAccessesError>
+    ) -> Result<(), HandleAccessesError>
     where
         Self: Access;
 
@@ -266,12 +266,13 @@ impl Ruleset {
     ///
     /// On error, returns a wrapped [`HandleAccessesError`].
     /// E.g., `RulesetError::HandleAccesses(HandleAccessesError::Fs(HandleAccessError<AccessFs>))`
-    pub fn handle_access<T, U>(self, access: T) -> Result<Self, RulesetError>
+    pub fn handle_access<T, U>(mut self, access: T) -> Result<Self, RulesetError>
     where
         T: Into<BitFlags<U>>,
         U: Access,
     {
-        Ok(U::ruleset_handle_access(self, access.into())?)
+        U::ruleset_handle_access(&mut self, access.into())?;
+        Ok(self)
     }
 
     /// Attempts to create a real Landlock ruleset (if supported by the running kernel).
@@ -305,6 +306,12 @@ impl Ruleset {
             }
         };
         Ok(body()?)
+    }
+}
+
+impl AsMut<Ruleset> for Ruleset {
+    fn as_mut(&mut self) -> &mut Ruleset {
+        self
     }
 }
 

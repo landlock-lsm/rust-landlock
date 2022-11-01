@@ -129,14 +129,14 @@ fn consistent_access_fs_rw() {
 
 impl PrivateAccess for AccessFs {
     fn ruleset_handle_access(
-        mut ruleset: Ruleset,
+        ruleset: &mut Ruleset,
         access: BitFlags<Self>,
-    ) -> Result<Ruleset, HandleAccessesError> {
+    ) -> Result<(), HandleAccessesError> {
         ruleset.requested_handled_fs |= access;
         ruleset.actual_handled_fs |= access
             .try_compat(&mut ruleset.compat)
             .map_err(HandleAccessError::Compat)?;
-        Ok(ruleset)
+        Ok(())
     }
 
     fn into_add_rules_error(error: AddRuleError<Self>) -> AddRulesError {
