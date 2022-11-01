@@ -12,7 +12,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::Path;
 
 #[cfg(test)]
-use crate::RulesetCreatedAttr;
+use crate::{RulesetAttr, RulesetCreatedAttr};
 #[cfg(test)]
 use strum::IntoEnumIterator;
 
@@ -421,7 +421,7 @@ fn path_fd() {
 ///
 /// ```
 /// use landlock::{
-///     ABI, Access, AccessFs, Ruleset, RulesetCreatedAttr, RulesetStatus, RulesetError,
+///     ABI, Access, AccessFs, Ruleset, RulesetAttr, RulesetCreatedAttr, RulesetStatus, RulesetError,
 ///     path_beneath_rules,
 /// };
 ///

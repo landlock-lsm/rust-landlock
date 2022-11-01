@@ -283,7 +283,8 @@ pub trait Compatible {
     ///
     /// ```
     /// use landlock::{
-    ///     Access, AccessFs, Compatible, PathBeneath, Ruleset, RulesetCreated, RulesetError, ABI,
+    ///     Access, AccessFs, Compatible, PathBeneath, Ruleset, RulesetAttr, RulesetCreated, RulesetError,
+    ///     ABI,
     /// };
     ///
     /// fn ruleset_fragile() -> Result<RulesetCreated, RulesetError> {

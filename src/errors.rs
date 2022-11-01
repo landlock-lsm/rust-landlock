@@ -64,7 +64,7 @@ pub enum CreateRulesetError {
     #[error("failed to create a ruleset: {source}")]
     #[non_exhaustive]
     CreateRulesetCall { source: io::Error },
-    /// Missing call to [`Ruleset::handle_access()`](crate::Ruleset::handle_access).
+    /// Missing call to [`RulesetAttr::handle_access()`](crate::RulesetAttr::handle_access).
     #[error("missing handled access")]
     MissingHandledAccess,
 }
