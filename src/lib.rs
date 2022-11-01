@@ -88,7 +88,8 @@ pub use errors::{
 };
 pub use fs::{path_beneath_rules, AccessFs, PathBeneath, PathFd};
 pub use ruleset::{
-    Access, RestrictionStatus, Rule, Ruleset, RulesetCreated, RulesetCreatedAttr, RulesetStatus,
+    Access, RestrictionStatus, Rule, Ruleset, RulesetAttr, RulesetCreated, RulesetCreatedAttr,
+    RulesetStatus,
 };
 use ruleset::{PrivateAccess, PrivateRule};
 

@@ -3,8 +3,8 @@
 
 use anyhow::{anyhow, bail};
 use landlock::{
-    Access, AccessFs, BitFlags, PathBeneath, PathFd, PathFdError, Ruleset, RulesetCreatedAttr,
-    RulesetError, RulesetStatus, ABI,
+    Access, AccessFs, BitFlags, PathBeneath, PathFd, PathFdError, Ruleset, RulesetAttr,
+    RulesetCreatedAttr, RulesetError, RulesetStatus, ABI,
 };
 use std::env;
 use std::ffi::OsStr;

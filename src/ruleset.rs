@@ -135,8 +135,8 @@ fn support_no_new_privs() -> bool {
 ///
 /// ```
 /// use landlock::{
-///     Access, AccessFs, PathBeneath, PathFd, RestrictionStatus, Ruleset, RulesetCreatedAttr,
-///     RulesetError, ABI,
+///     Access, AccessFs, PathBeneath, PathFd, RestrictionStatus, Ruleset, RulesetAttr,
+///     RulesetCreatedAttr, RulesetError, ABI,
 /// };
 /// use std::os::unix::io::AsRawFd;
 ///
@@ -168,7 +168,7 @@ fn support_no_new_privs() -> bool {
 /// ```
 /// use landlock::{
 ///     Access, AccessFs, PathBeneath, PathFd, PathFdError, RestrictionStatus, Ruleset,
-///     RulesetCreatedAttr, RulesetError, ABI,
+///     RulesetAttr, RulesetCreatedAttr, RulesetError, ABI,
 /// };
 /// use thiserror::Error;
 ///
@@ -259,22 +259,6 @@ impl Ruleset {
         Compatibility::new().into()
     }
 
-    /// Attempts to add a set of access rights that will be supported by this ruleset.
-    /// By default, all actions requiring these access rights will be denied.
-    /// Consecutive calls to `handle_access()` will be interpreted as logical ORs
-    /// with the previous handled accesses.
-    ///
-    /// On error, returns a wrapped [`HandleAccessesError`].
-    /// E.g., `RulesetError::HandleAccesses(HandleAccessesError::Fs(HandleAccessError<AccessFs>))`
-    pub fn handle_access<T, U>(mut self, access: T) -> Result<Self, RulesetError>
-    where
-        T: Into<BitFlags<U>>,
-        U: Access,
-    {
-        U::ruleset_handle_access(&mut self, access.into())?;
-        Ok(self)
-    }
-
     /// Attempts to create a real Landlock ruleset (if supported by the running kernel).
     /// The returned [`RulesetCreated`] is also a builder.
     ///
@@ -313,6 +297,50 @@ impl AsMut<Ruleset> for Ruleset {
     fn as_mut(&mut self) -> &mut Ruleset {
         self
     }
+}
+
+pub trait RulesetAttr: Sized + AsMut<Ruleset> {
+    /// Attempts to add a set of access rights that will be supported by this ruleset.
+    /// By default, all actions requiring these access rights will be denied.
+    /// Consecutive calls to `handle_access()` will be interpreted as logical ORs
+    /// with the previous handled accesses.
+    ///
+    /// On error, returns a wrapped [`HandleAccessesError`].
+    /// E.g., `RulesetError::HandleAccesses(HandleAccessesError::Fs(HandleAccessError<AccessFs>))`
+    fn handle_access<T, U>(mut self, access: T) -> Result<Self, RulesetError>
+    where
+        T: Into<BitFlags<U>>,
+        U: Access,
+    {
+        U::ruleset_handle_access(self.as_mut(), access.into())?;
+        Ok(self)
+    }
+}
+
+impl RulesetAttr for Ruleset {}
+
+impl RulesetAttr for &mut Ruleset {}
+
+#[test]
+fn ruleset_attr() {
+    let mut ruleset = Ruleset::from(ABI::Unsupported);
+    let ruleset_ref = &mut ruleset;
+
+    // Can pass this reference to prepare the ruleset...
+    ruleset_ref
+        .handle_access(AccessFs::Execute)
+        .unwrap()
+        .handle_access(AccessFs::ReadFile)
+        .unwrap();
+
+    // ...and finally create the ruleset (thanks to non-lexical lifetimes).
+    ruleset
+        .handle_access(AccessFs::Execute)
+        .unwrap()
+        .handle_access(AccessFs::WriteFile)
+        .unwrap()
+        .create()
+        .unwrap();
 }
 
 #[test]
@@ -399,7 +427,7 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> {
     /// ```
     /// use landlock::{
     ///     Access, AccessFs, BitFlags, PathBeneath, PathFd, PathFdError, RestrictionStatus, Ruleset,
-    ///     RulesetCreatedAttr, RulesetError, ABI,
+    ///     RulesetAttr, RulesetCreatedAttr, RulesetError, ABI,
     /// };
     /// use std::env;
     /// use std::ffi::OsStr;
