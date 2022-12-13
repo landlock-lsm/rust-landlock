@@ -288,7 +288,8 @@ impl Compatibility {
 /// (e.g. applications carefully designed to only be run with a specific set of kernel features),
 /// it may be required to error out if some of these features are not available
 /// and will then not be enforced.
-pub trait Compatible {
+pub trait Compatible: Sized + AsMut<CompatLevel> {
+    // TODO: Update ruleset_handling_renames() with ABI::V3
     /// To enable a best-effort security approach,
     /// Landlock features that are not supported by the running system
     /// are silently ignored by default,
@@ -304,7 +305,7 @@ pub trait Compatible {
     /// Such builders have a set of methods to incrementally build an object.
     /// These build methods rely on kernel features that may not be available at runtime.
     /// The `set_compatibility()` method enables to control the effect of
-    /// the following build method calls starting from this call.
+    /// the following build method calls starting after the `set_compatibility()` call.
     /// Such effect can be:
     /// * to silently ignore unsupported features
     ///   and continue building ([`CompatLevel::BestEffort`]);
@@ -335,36 +336,66 @@ pub trait Compatible {
     /// a [`RulesetCreated`](crate::RulesetCreated) object that inherits the
     /// `Ruleset`'s compatibility configuration.
     ///
-    /// # Example
+    /// # Example with `SoftRequirement`
     ///
-    /// Create a ruleset which will at least support all restrictions provided by
-    /// the [first version of Landlock](ABI::V1), and may also support the
-    /// [`AccessFs::Refer`](crate::AccessFs::Refer) restriction according to the running kernel.
+    /// Let's say an application legitimately needs to rename files between directories.
+    /// Because of [previous Landlock limitations](https://docs.kernel.org/userspace-api/landlock.html#file-renaming-and-linking-abi-2),
+    /// this was forbidden with the [first version of Landlock](ABI::V1),
+    /// but it is now handled starting with the [second version](ABI::V2).
+    /// For this use case, we only want the application to be sandboxed
+    /// if we have the guarantee that it will not break a legitimate usage (i.e. rename files).
+    /// We then create a ruleset which will either support file renaming
+    /// (thanks to [`AccessFs::Refer`](crate::AccessFs::Refer)) or silently do nothing.
     ///
     /// ```
-    /// use landlock::{
-    ///     ABI, Access, AccessFs, CompatLevel, Compatible, PathBeneath, Ruleset, RulesetAttr,
-    ///     RulesetCreated, RulesetError,
-    /// };
+    /// use landlock::*;
     ///
-    /// fn ruleset_fragile() -> Result<RulesetCreated, RulesetError> {
+    /// fn ruleset_handling_renames() -> Result<RulesetCreated, RulesetError> {
     ///     Ok(Ruleset::new()
-    ///         // This ruleset must handle at least all accesses defined by
-    ///         // the first Landlock version (e.g. AccessFs::WriteFile).
-    ///         .set_compatibility(CompatLevel::HardRequirement)
-    ///         // This handle_access() call may now return a wrapped
-    ///         // AccessError<AccessFs>::Incompatible error if Landlock
-    ///         // is not supported by the running kernel.
-    ///         .handle_access(AccessFs::from_all(ABI::V1))?
-    ///         // This ruleset may also handle the AccessFs::Refer right (defined by
-    ///         // the second version of Landlock) if it is supported by the running kernel.
-    ///         .set_compatibility(CompatLevel::BestEffort)
-    ///         // The following handle_access() calls will now never return an error.
+    ///         // This ruleset must either handle the AccessFs::Refer right,
+    ///         // or it must silently ignore the whole sandboxing.
+    ///         .set_compatibility(CompatLevel::SoftRequirement)
     ///         .handle_access(AccessFs::Refer)?
+    ///         // However, this ruleset may also handle other (future) access rights
+    ///         // if they are supported by the running kernel.
+    ///         .set_compatibility(CompatLevel::BestEffort)
+    ///         .handle_access(AccessFs::from_all(ABI::V2))?
     ///         .create()?)
     /// }
     /// ```
-    fn set_compatibility(self, level: CompatLevel) -> Self;
+    ///
+    /// # Example with `HardRequirement`
+    ///
+    /// Security-dedicated applications may want to ensure that
+    /// an untrusted software component is subject to a minimum of restrictions before launching it.
+    /// In this case, we want to create a ruleset which will at least support
+    /// all restrictions provided by the [first version of Landlock](ABI::V1),
+    /// and opportunistically handle restrictions supported by newer kernels.
+    ///
+    /// ```
+    /// use landlock::*;
+    ///
+    /// fn ruleset_fragile() -> Result<RulesetCreated, RulesetError> {
+    ///     Ok(Ruleset::new()
+    ///         // This ruleset must either handle at least all accesses defined by
+    ///         // the first Landlock version (e.g. AccessFs::WriteFile),
+    ///         // or the following handle_access() call must return a wrapped
+    ///         // AccessError<AccessFs>::Incompatible error.
+    ///         .set_compatibility(CompatLevel::HardRequirement)
+    ///         .handle_access(AccessFs::from_all(ABI::V1))?
+    ///         // However, this ruleset may also handle new access rights
+    ///         // (e.g. AccessFs::Refer defined by the second version of Landlock)
+    ///         // if they are supported by the running kernel,
+    ///         // but without returning any error otherwise.
+    ///         .set_compatibility(CompatLevel::BestEffort)
+    ///         .handle_access(AccessFs::from_all(ABI::V2))?
+    ///         .create()?)
+    /// }
+    /// ```
+    fn set_compatibility(mut self, level: CompatLevel) -> Self {
+        *self.as_mut() = level;
+        self
+    }
 
     /// Cf. [`set_compatibility()`](Compatible::set_compatibility()):
     ///
