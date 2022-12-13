@@ -262,13 +262,6 @@ where
     }
 }
 
-impl<F> Compatible for PathBeneath<F> {
-    fn set_compatibility(mut self, level: CompatLevel) -> Self {
-        self.compat_level = level;
-        self
-    }
-}
-
 #[test]
 fn path_beneath_try_compat() {
     use crate::*;
@@ -315,6 +308,29 @@ fn path_beneath_try_compat() {
         assert_eq!(raw_access, full_access.bits());
         assert_eq!(compat_copy.state, CompatState::Full);
     }
+}
+
+impl<F> AsMut<CompatLevel> for PathBeneath<F> {
+    fn as_mut(&mut self) -> &mut CompatLevel {
+        &mut self.compat_level
+    }
+}
+
+impl<F> Compatible for PathBeneath<F> {}
+
+impl<F> Compatible for &mut PathBeneath<F> {}
+
+#[test]
+fn path_beneath_compatibility() {
+    let mut path = PathBeneath::new(PathFd::new("/").unwrap(), AccessFs::from_all(ABI::V1));
+    let path_ref = &mut path;
+
+    assert_eq!(path_ref.as_mut(), &CompatLevel::BestEffort);
+
+    path_ref.set_compatibility(CompatLevel::SoftRequirement);
+    assert_eq!(path_ref.as_mut(), &CompatLevel::SoftRequirement);
+
+    path.set_compatibility(CompatLevel::HardRequirement);
 }
 
 // It is useful for documentation generation to explicitely implement Rule for every types, instead

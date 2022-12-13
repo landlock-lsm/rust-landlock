@@ -254,13 +254,23 @@ impl Ruleset {
     }
 }
 
+impl AsMut<CompatLevel> for Ruleset {
+    fn as_mut(&mut self) -> &mut CompatLevel {
+        &mut self.compat.level
+    }
+}
+
+impl Compatible for Ruleset {}
+
+impl Compatible for &mut Ruleset {}
+
 impl AsMut<Ruleset> for Ruleset {
     fn as_mut(&mut self) -> &mut Ruleset {
         self
     }
 }
 
-pub trait RulesetAttr: Sized + AsMut<Ruleset> {
+pub trait RulesetAttr: Sized + AsMut<Ruleset> + Compatible {
     /// Attempts to add a set of access rights that will be supported by this ruleset.
     /// By default, all actions requiring these access rights will be denied.
     /// Consecutive calls to `handle_access()` will be interpreted as logical ORs
@@ -289,6 +299,7 @@ fn ruleset_attr() {
 
     // Can pass this reference to prepare the ruleset...
     ruleset_ref
+        .set_compatibility(CompatLevel::BestEffort)
         .handle_access(AccessFs::Execute)
         .unwrap()
         .handle_access(AccessFs::ReadFile)
@@ -296,6 +307,7 @@ fn ruleset_attr() {
 
     // ...and finally create the ruleset (thanks to non-lexical lifetimes).
     ruleset
+        .set_compatibility(CompatLevel::BestEffort)
         .handle_access(AccessFs::Execute)
         .unwrap()
         .handle_access(AccessFs::WriteFile)
@@ -330,14 +342,17 @@ fn ruleset_created_handle_access_or() {
     ));
 }
 
-impl Compatible for Ruleset {
-    fn set_compatibility(mut self, level: CompatLevel) -> Self {
-        self.compat.level = level;
-        self
+impl AsMut<CompatLevel> for RulesetCreated {
+    fn as_mut(&mut self) -> &mut CompatLevel {
+        &mut self.compat.level
     }
 }
 
-pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> {
+impl Compatible for RulesetCreated {}
+
+impl Compatible for &mut RulesetCreated {}
+
+pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> + Compatible {
     /// Attempts to add a new rule to the ruleset.
     ///
     /// On error, returns a wrapped [`AddRulesError`].
@@ -475,7 +490,7 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> {
     /// call while [`CompatLevel::SoftRequirement`] was set (with
     /// [`set_compatibility()`](Compatible::set_compatibility)).
     fn set_no_new_privs(mut self, no_new_privs: bool) -> Self {
-        self.as_mut().no_new_privs = no_new_privs;
+        <Self as AsMut<RulesetCreated>>::as_mut(&mut self).no_new_privs = no_new_privs;
         self
     }
 }
@@ -606,6 +621,7 @@ fn ruleset_created_attr() {
 
     // Can pass this reference to populate the ruleset...
     ruleset_created_ref
+        .set_compatibility(CompatLevel::BestEffort)
         .add_rule(PathBeneath::new(
             PathFd::new("/usr").unwrap(),
             AccessFs::Execute,
@@ -619,6 +635,7 @@ fn ruleset_created_attr() {
 
     // ...and finally restrict with the last rules (thanks to non-lexical lifetimes).
     ruleset_created
+        .set_compatibility(CompatLevel::BestEffort)
         .add_rule(PathBeneath::new(
             PathFd::new("/tmp").unwrap(),
             AccessFs::Execute,
@@ -631,13 +648,6 @@ fn ruleset_created_attr() {
         .unwrap()
         .restrict_self()
         .unwrap();
-}
-
-impl Compatible for RulesetCreated {
-    fn set_compatibility(mut self, level: CompatLevel) -> Self {
-        self.compat.level = level;
-        self
-    }
 }
 
 #[test]
