@@ -324,4 +324,20 @@ mod tests {
             false,
         );
     }
+
+    #[test]
+    fn abi_v3_truncate() {
+        check_ruleset_support(
+            ABI::V2,
+            Some(ABI::V3),
+            |ruleset: Ruleset| -> _ {
+                Ok(ruleset
+                    .handle_access(AccessFs::Refer)?
+                    .handle_access(AccessFs::Truncate)?
+                    .create()?
+                    .restrict_self()?)
+            },
+            false,
+        );
+    }
 }
