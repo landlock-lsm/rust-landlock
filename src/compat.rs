@@ -34,11 +34,11 @@ pub enum ABI {
     /// Kernel not supporting Landlock, either because it is not built with Landlock
     /// or Landlock is not enabled at boot.
     Unsupported = 0,
-    /// First Landlock ABI,
-    /// introduced with [Linux 5.13](https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/commit/?id=62fb9874f5da54fdb243003b386128037319b219).
+    /// First Landlock ABI, introduced with
+    /// [Linux 5.13](https://git.kernel.org/stable/c/17ae69aba89dbfa2139b7f8024b757ab3cc42f59).
     V1 = 1,
-    /// Second Landlock ABI,
-    /// introduced with [Linux 5.19](https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/commit/?id=3d7cb6b04c3f3115719235cc6866b10326de34cd).
+    /// Second Landlock ABI, introduced with
+    /// [Linux 5.19](https://git.kernel.org/stable/c/cb44e4f061e16be65b8a16505e121490c66d30d0).
     V2 = 2,
 }
 
