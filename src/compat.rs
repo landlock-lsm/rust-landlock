@@ -40,6 +40,9 @@ pub enum ABI {
     /// Second Landlock ABI, introduced with
     /// [Linux 5.19](https://git.kernel.org/stable/c/cb44e4f061e16be65b8a16505e121490c66d30d0).
     V2 = 2,
+    /// Third Landlock ABI, introduced with
+    /// [Linux 6.2](https://git.kernel.org/stable/c/299e2b1967578b1442128ba8b3e86ed3427d3651).
+    V3 = 3,
 }
 
 impl ABI {
@@ -64,8 +67,9 @@ impl ABI {
             // all kind of errors as unsupported.
             n if n <= 0 => ABI::Unsupported,
             1 => ABI::V1,
+            2 => ABI::V2,
             // Returns the greatest known ABI.
-            _ => ABI::V2,
+            _ => ABI::V3,
         }
     }
 
@@ -289,7 +293,6 @@ impl Compatibility {
 /// it may be required to error out if some of these features are not available
 /// and will then not be enforced.
 pub trait Compatible: Sized + AsMut<Option<CompatLevel>> {
-    // TODO: Update ruleset_handling_renames() with ABI::V3
     /// To enable a best-effort security approach,
     /// Landlock features that are not supported by the running system
     /// are silently ignored by default,
@@ -359,7 +362,7 @@ pub trait Compatible: Sized + AsMut<Option<CompatLevel>> {
     ///         // However, this ruleset may also handle other (future) access rights
     ///         // if they are supported by the running kernel.
     ///         .set_compatibility(CompatLevel::BestEffort)
-    ///         .handle_access(AccessFs::from_all(ABI::V2))?
+    ///         .handle_access(AccessFs::from_all(ABI::V3))?
     ///         .create()?)
     /// }
     /// ```

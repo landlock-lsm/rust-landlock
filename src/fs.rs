@@ -81,6 +81,8 @@ pub enum AccessFs {
     MakeSym = uapi::LANDLOCK_ACCESS_FS_MAKE_SYM as u64,
     /// Link or rename a file from or to a different directory.
     Refer = uapi::LANDLOCK_ACCESS_FS_REFER as u64,
+    /// Truncate a file with `truncate(2)`, `ftruncate(2)`, `creat(2)`, or `open(2)` with `O_TRUNC`.
+    Truncate = uapi::LANDLOCK_ACCESS_FS_TRUNCATE as u64,
 }
 
 impl Access for AccessFs {
@@ -88,7 +90,7 @@ impl Access for AccessFs {
     fn from_read(abi: ABI) -> BitFlags<Self> {
         match abi {
             ABI::Unsupported => BitFlags::EMPTY,
-            ABI::V1 | ABI::V2 => make_bitflags!(AccessFs::{
+            ABI::V1 | ABI::V2 | ABI::V3 => make_bitflags!(AccessFs::{
                 Execute
                 | ReadFile
                 | ReadDir
@@ -113,6 +115,7 @@ impl Access for AccessFs {
                 | MakeSym
             }),
             ABI::V2 => Self::from_write(ABI::V1) | AccessFs::Refer,
+            ABI::V3 => Self::from_write(ABI::V2) | AccessFs::Truncate,
         }
     }
 }
@@ -165,8 +168,10 @@ impl PrivateAccess for AccessFs {
     }
 }
 
+// TODO: Make ACCESS_FILE a property of AccessFs.
+// TODO: Add tests for ACCESS_FILE.
 const ACCESS_FILE: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
-    ReadFile | WriteFile | Execute
+    ReadFile | WriteFile | Execute | Truncate
 });
 
 // XXX: What should we do when a stat call failed?
