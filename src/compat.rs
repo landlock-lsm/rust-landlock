@@ -125,8 +125,8 @@ lazy_static! {
 }
 
 #[cfg(test)]
-pub(crate) fn can_emulate(mock: ABI, full_support: ABI) -> bool {
-    mock <= *TEST_ABI || full_support <= *TEST_ABI
+pub(crate) fn can_emulate(mock: ABI, partial_support: ABI, full_support: ABI) -> bool {
+    mock < partial_support || mock <= *TEST_ABI || full_support <= *TEST_ABI
 }
 
 #[cfg(test)]
@@ -163,6 +163,8 @@ fn current_kernel_abi() {
 #[cfg_attr(test, derive(Debug))]
 #[derive(Copy, Clone, PartialEq)]
 pub(crate) enum CompatState {
+    /// Initial undefined state.
+    Init,
     /// All requested restrictions are enforced.
     Full,
     /// Some requested restrictions are enforced, following a best-effort approach.
@@ -170,14 +172,15 @@ pub(crate) enum CompatState {
     /// The running system doesn't support Landlock.
     No,
     /// Final unsupported state.
-    Final,
+    Dummy,
 }
 
 impl CompatState {
     fn update(&mut self, other: Self) {
         *self = match (*self, other) {
-            (CompatState::Final, _) => CompatState::Final,
-            (_, CompatState::Final) => CompatState::Final,
+            (CompatState::Init, other) => other,
+            (CompatState::Dummy, _) => CompatState::Dummy,
+            (_, CompatState::Dummy) => CompatState::Dummy,
             (CompatState::No, CompatState::No) => CompatState::No,
             (CompatState::Full, CompatState::Full) => CompatState::Full,
             (_, _) => CompatState::Partial,
@@ -204,11 +207,11 @@ fn compat_state_update_1() {
     state.update(CompatState::No);
     assert_eq!(state, CompatState::Partial);
 
-    state.update(CompatState::Final);
-    assert_eq!(state, CompatState::Final);
+    state.update(CompatState::Dummy);
+    assert_eq!(state, CompatState::Dummy);
 
     state.update(CompatState::Full);
-    assert_eq!(state, CompatState::Final);
+    assert_eq!(state, CompatState::Dummy);
 }
 
 #[test]
@@ -232,10 +235,6 @@ pub struct Compatibility {
     abi: ABI,
     pub(crate) level: CompatLevel,
     pub(crate) state: CompatState,
-    // is_mooted is required to differenciate a kernel not supporting Landlock from an error that
-    // occured with CompatLevel::SoftRequirement.  is_mooted is only changed with update() and only
-    // used to not set no_new_privs in RulesetCreated::restrict_self().
-    is_mooted: bool,
 }
 
 impl From<ABI> for Compatibility {
@@ -244,11 +243,10 @@ impl From<ABI> for Compatibility {
             abi,
             level: CompatLevel::default(),
             state: match abi {
-                // Forces the state as unsupported because all possible types will be useless.
-                ABI::Unsupported => CompatState::Final,
-                _ => CompatState::Full,
+                // Don't forces the state as Dummy because no_new_privs may still be legitimate.
+                ABI::Unsupported => CompatState::No,
+                _ => CompatState::Init,
             },
-            is_mooted: false,
         }
     }
 }
@@ -262,18 +260,10 @@ impl Compatibility {
 
     pub(crate) fn update(&mut self, state: CompatState) {
         self.state.update(state);
-        if state == CompatState::Final {
-            self.abi = ABI::Unsupported;
-            self.is_mooted = true;
-        }
     }
 
     pub(crate) fn abi(&self) -> ABI {
         self.abi
-    }
-
-    pub(crate) fn is_mooted(&self) -> bool {
-        self.is_mooted
     }
 }
 

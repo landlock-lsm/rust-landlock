@@ -125,8 +125,8 @@ mod tests {
             let ret = check(Ruleset::from(abi));
 
             // Useful for failed tests and with cargo test -- --show-output
-            println!("Checking ABI {abi:?}, expecting {ret:#?}");
-            if can_emulate(abi, full) {
+            println!("Checking ABI {abi:?}: received {ret:#?}");
+            if can_emulate(abi, partial, full) {
                 if abi < partial && error_if_abi_lt_partial {
                     // TODO: Check exact error type; this may require better error types.
                     assert!(matches!(ret, Err(TestRulesetError::Ruleset(_))));
@@ -222,7 +222,7 @@ mod tests {
     }
 
     #[test]
-    fn abi_v2_refer() {
+    fn abi_v2_exec_refer() {
         check_ruleset_support(
             ABI::V1,
             ABI::V2,
@@ -230,6 +230,22 @@ mod tests {
                 Ok(ruleset
                     .handle_access(AccessFs::Execute)?
                     // AccessFs::Refer is not supported by ABI::V1 (best-effort).
+                    .handle_access(AccessFs::Refer)?
+                    .create()?
+                    .restrict_self()?)
+            },
+            false,
+        );
+    }
+
+    #[test]
+    fn abi_v2_refer_only() {
+        // When no access is handled, do not try to create a ruleset without access.
+        check_ruleset_support(
+            ABI::V2,
+            ABI::V2,
+            |ruleset: Ruleset| -> _ {
+                Ok(ruleset
                     .handle_access(AccessFs::Refer)?
                     .create()?
                     .restrict_self()?)
