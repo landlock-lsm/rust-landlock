@@ -224,12 +224,28 @@ impl Ruleset {
     /// The returned [`RulesetCreated`] is also a builder.
     ///
     /// On error, returns a wrapped [`CreateRulesetError`].
-    pub fn create(self) -> Result<RulesetCreated, RulesetError> {
+    pub fn create(mut self) -> Result<RulesetCreated, RulesetError> {
         let body = || -> Result<RulesetCreated, CreateRulesetError> {
-            // Checks that the ruleset handles at least an access.
+            // Checks that there is at least one requested access.
             if self.requested_handled_fs.is_empty() {
                 // No handle_access() call.
                 return Err(CreateRulesetError::MissingHandledAccess);
+            }
+
+            // Checks that the ruleset handles at least one access.
+            if self.actual_handled_fs.is_empty() {
+                match self.compat.level {
+                    CompatLevel::BestEffort => {}
+                    CompatLevel::SoftRequirement => {
+                        // This sets the ABI to Unsupported and then only returns an error if
+                        // set_no_new_privs is supported by the running system (as for the
+                        // best-effort level).
+                        self.compat.update(CompatState::Final);
+                    }
+                    CompatLevel::HardRequirement => {
+                        return Err(CreateRulesetError::MissingHandledAccess);
+                    }
+                }
             }
 
             let attr = uapi::landlock_ruleset_attr {
@@ -654,6 +670,7 @@ fn ruleset_created_attr() {
 fn ruleset_unsupported() {
     assert_eq!(
         Ruleset::from(ABI::Unsupported)
+            // BestEffort for Ruleset.
             .handle_access(AccessFs::Execute)
             .unwrap()
             .create()
@@ -662,8 +679,35 @@ fn ruleset_unsupported() {
             .unwrap(),
         RestrictionStatus {
             ruleset: RulesetStatus::NotEnforced,
+            // With BestEffort, no_new_privs is still enabled.
             no_new_privs: true,
         }
+    );
+
+    assert_eq!(
+        Ruleset::from(ABI::Unsupported)
+            // SoftRequirement for Ruleset.
+            .set_compatibility(CompatLevel::SoftRequirement)
+            .handle_access(AccessFs::Execute)
+            .unwrap()
+            .create()
+            .unwrap()
+            .restrict_self()
+            .unwrap(),
+        RestrictionStatus {
+            ruleset: RulesetStatus::NotEnforced,
+            // With SoftRequirement, no_new_privs is discarded.
+            no_new_privs: false,
+        }
+    );
+
+    matches!(
+        Ruleset::from(ABI::Unsupported)
+            // HardRequirement for Ruleset.
+            .set_compatibility(CompatLevel::HardRequirement)
+            .handle_access(AccessFs::Execute)
+            .unwrap_err(),
+        RulesetError::CreateRuleset(CreateRulesetError::MissingHandledAccess)
     );
 
     assert_eq!(
