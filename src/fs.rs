@@ -229,7 +229,7 @@ where
             self.allowed_access = match self.compat_level {
                 CompatLevel::BestEffort => valid_access,
                 CompatLevel::SoftRequirement => {
-                    compat.update(CompatState::Final);
+                    compat.update(CompatState::Dummy);
                     return Ok(None);
                 }
                 CompatLevel::HardRequirement => {

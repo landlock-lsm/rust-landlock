@@ -1,6 +1,6 @@
 use crate::{
     uapi, Access, AccessFs, AddRuleError, AddRulesError, BitFlags, CompatLevel, CompatState,
-    Compatibility, Compatible, CreateRulesetError, RestrictSelfError, RulesetError, TryCompat, ABI,
+    Compatibility, Compatible, CreateRulesetError, RestrictSelfError, RulesetError, TryCompat,
 };
 use libc::close;
 use std::io::Error;
@@ -44,7 +44,7 @@ pub enum RulesetStatus {
 impl From<CompatState> for RulesetStatus {
     fn from(state: CompatState) -> Self {
         match state {
-            CompatState::No | CompatState::Final => RulesetStatus::NotEnforced,
+            CompatState::Init | CompatState::No | CompatState::Dummy => RulesetStatus::NotEnforced,
             CompatState::Full => RulesetStatus::FullyEnforced,
             CompatState::Partial => RulesetStatus::PartiallyEnforced,
         }
@@ -232,15 +232,22 @@ impl Ruleset {
                 return Err(CreateRulesetError::MissingHandledAccess);
             }
 
+            // The compatibility state is initialized by handle_access() and verified by the
+            // requested_handled_fs check.
+            #[cfg(test)]
+            assert!(!matches!(self.compat.state, CompatState::Init));
+            if self.compat.state == CompatState::Init {
+                return Err(CreateRulesetError::MissingHandledAccess);
+            }
+
             // Checks that the ruleset handles at least one access.
             if self.actual_handled_fs.is_empty() {
                 match self.compat.level {
-                    CompatLevel::BestEffort => {}
+                    CompatLevel::BestEffort => {
+                        self.compat.update(CompatState::No);
+                    }
                     CompatLevel::SoftRequirement => {
-                        // This sets the ABI to Unsupported and then only returns an error if
-                        // set_no_new_privs is supported by the running system (as for the
-                        // best-effort level).
-                        self.compat.update(CompatState::Final);
+                        self.compat.update(CompatState::Dummy);
                     }
                     CompatLevel::HardRequirement => {
                         return Err(CreateRulesetError::MissingHandledAccess);
@@ -252,18 +259,18 @@ impl Ruleset {
                 handled_access_fs: self.actual_handled_fs.bits(),
             };
 
-            match self.compat.abi() {
-                ABI::Unsupported => {
-                    #[cfg(test)]
-                    assert_eq!(self.compat.state, CompatState::Final);
+            match self.compat.state {
+                CompatState::Init | CompatState::No | CompatState::Dummy => {
                     Ok(RulesetCreated::new(self, -1))
                 }
-                _ => match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) } {
-                    fd if fd >= 0 => Ok(RulesetCreated::new(self, fd)),
-                    _ => Err(CreateRulesetError::CreateRulesetCall {
-                        source: Error::last_os_error(),
-                    }),
-                },
+                CompatState::Full | CompatState::Partial => {
+                    match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) } {
+                        fd if fd >= 0 => Ok(RulesetCreated::new(self, fd)),
+                        _ => Err(CreateRulesetError::CreateRulesetCall {
+                            source: Error::last_os_error(),
+                        }),
+                    }
+                }
             }
         };
         Ok(body()?)
@@ -387,13 +394,9 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> + Compatible {
                 Some(r) => r,
                 None => return Ok(self),
             };
-            match self_ref.compat.abi() {
-                ABI::Unsupported => {
-                    #[cfg(test)]
-                    assert_eq!(self_ref.compat.state, CompatState::Final);
-                    Ok(self)
-                }
-                _ => match unsafe {
+            match self_ref.compat.state {
+                CompatState::Init | CompatState::No | CompatState::Dummy => Ok(self),
+                CompatState::Full | CompatState::Partial => match unsafe {
                     uapi::landlock_add_rule(
                         self_ref.fd,
                         compat_rule.get_type_id(),
@@ -522,6 +525,10 @@ pub struct RulesetCreated {
 
 impl RulesetCreated {
     fn new(ruleset: Ruleset, fd: RawFd) -> Self {
+        // The compatibility state is initialized by Ruleset::create().
+        #[cfg(test)]
+        assert!(!matches!(ruleset.compat.state, CompatState::Init));
+
         RulesetCreated {
             fd,
             no_new_privs: true,
@@ -541,15 +548,12 @@ impl RulesetCreated {
         let mut body = || -> Result<RestrictionStatus, RestrictSelfError> {
             // Ignores prctl_set_no_new_privs() if an error was encountered with
             // CompatLevel::SoftRequirement set.
-            let enforced_nnp = if !self.compat.is_mooted() && self.no_new_privs {
+            let enforced_nnp = if self.compat.state != CompatState::Dummy && self.no_new_privs {
                 if let Err(e) = prctl_set_no_new_privs() {
                     match self.compat.level {
                         CompatLevel::BestEffort => {}
                         CompatLevel::SoftRequirement => {
-                            // This sets the ABI to Unsupported and then only returns an error if
-                            // set_no_new_privs is supported by the running system (as for the
-                            // best-effort level).
-                            self.compat.update(CompatState::Final);
+                            self.compat.update(CompatState::Dummy);
                         }
                         CompatLevel::HardRequirement => {
                             return Err(RestrictSelfError::SetNoNewPrivsCall { source: e });
@@ -558,10 +562,10 @@ impl RulesetCreated {
                     // To get a consistent behavior, calls this prctl whether or not
                     // Landlock is supported by the running kernel.
                     let support_nnp = support_no_new_privs();
-                    match self.compat.abi() {
+                    match self.compat.state {
                         // It should not be an error for kernel (older than 3.5) not supporting
                         // no_new_privs.
-                        ABI::Unsupported => {
+                        CompatState::Init | CompatState::No | CompatState::Dummy => {
                             if support_nnp {
                                 // The kernel seems to be between 3.5 (included) and 5.13 (excluded),
                                 // or Landlock is not enabled; no_new_privs should be supported anyway.
@@ -570,7 +574,9 @@ impl RulesetCreated {
                         }
                         // A kernel supporting Landlock should also support no_new_privs (unless
                         // filtered by seccomp).
-                        _ => return Err(RestrictSelfError::SetNoNewPrivsCall { source: e }),
+                        CompatState::Full | CompatState::Partial => {
+                            return Err(RestrictSelfError::SetNoNewPrivsCall { source: e })
+                        }
                     }
                     false
                 } else {
@@ -580,28 +586,26 @@ impl RulesetCreated {
                 false
             };
 
-            match self.compat.abi() {
-                ABI::Unsupported => {
-                    #[cfg(test)]
-                    assert_eq!(self.compat.state, CompatState::Final);
-                    Ok(RestrictionStatus {
-                        ruleset: self.compat.state.into(),
-                        no_new_privs: enforced_nnp,
-                    })
-                }
-                _ => match unsafe { uapi::landlock_restrict_self(self.fd, 0) } {
-                    0 => {
-                        self.compat.update(CompatState::Full);
-                        Ok(RestrictionStatus {
-                            ruleset: self.compat.state.into(),
-                            no_new_privs: enforced_nnp,
-                        })
+            match self.compat.state {
+                CompatState::Init | CompatState::No | CompatState::Dummy => Ok(RestrictionStatus {
+                    ruleset: self.compat.state.into(),
+                    no_new_privs: enforced_nnp,
+                }),
+                CompatState::Full | CompatState::Partial => {
+                    match unsafe { uapi::landlock_restrict_self(self.fd, 0) } {
+                        0 => {
+                            self.compat.update(CompatState::Full);
+                            Ok(RestrictionStatus {
+                                ruleset: self.compat.state.into(),
+                                no_new_privs: enforced_nnp,
+                            })
+                        }
+                        // TODO: match specific Landlock restrict self errors
+                        _ => Err(RestrictSelfError::RestrictSelfCall {
+                            source: Error::last_os_error(),
+                        }),
                     }
-                    // TODO: match specific Landlock restrict self errors
-                    _ => Err(RestrictSelfError::RestrictSelfCall {
-                        source: Error::last_os_error(),
-                    }),
-                },
+                }
             }
         };
         Ok(body()?)
@@ -709,6 +713,46 @@ fn ruleset_unsupported() {
             .unwrap_err(),
         RulesetError::CreateRuleset(CreateRulesetError::MissingHandledAccess)
     );
+
+    assert_eq!(
+        Ruleset::from(ABI::Unsupported)
+            .handle_access(AccessFs::Execute)
+            .unwrap()
+            .create()
+            .unwrap()
+            // SoftRequirement for RulesetCreated without any rule.
+            .set_compatibility(CompatLevel::SoftRequirement)
+            .restrict_self()
+            .unwrap(),
+        RestrictionStatus {
+            ruleset: RulesetStatus::NotEnforced,
+            // With SoftRequirement, no_new_privs is untouched if there is no error (e.g. no rule).
+            no_new_privs: true,
+        }
+    );
+
+    // Don't explicitly call create() on a CI that doesn't support Landlock.
+    if compat::can_emulate(ABI::V1, ABI::V1, ABI::V2) {
+        assert_eq!(
+            Ruleset::from(ABI::V1)
+                .handle_access(make_bitflags!(AccessFs::{Execute | Refer}))
+                .unwrap()
+                .create()
+                .unwrap()
+                // SoftRequirement for RulesetCreated with a rule.
+                .set_compatibility(CompatLevel::SoftRequirement)
+                .add_rule(PathBeneath::new(PathFd::new("/").unwrap(), AccessFs::Refer))
+                .unwrap()
+                .restrict_self()
+                .unwrap(),
+            RestrictionStatus {
+                ruleset: RulesetStatus::NotEnforced,
+                // With SoftRequirement, no_new_privs is discarded if there is an error
+                // (e.g. unsupported access right).
+                no_new_privs: false,
+            }
+        );
+    }
 
     assert_eq!(
         Ruleset::from(ABI::Unsupported)
