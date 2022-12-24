@@ -3,28 +3,17 @@
 
 use anyhow::{anyhow, bail};
 use landlock::{
-    Access, AccessFs, BitFlags, PathBeneath, PathFd, PathFdError, Ruleset, RulesetAttr,
-    RulesetCreatedAttr, RulesetError, RulesetStatus, ABI,
+    Access, AccessFs, BitFlags, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr,
+    RulesetStatus, ABI,
 };
 use std::env;
 use std::ffi::OsStr;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::process::CommandExt;
 use std::process::Command;
-use thiserror::Error;
 
 const ENV_FS_RO_NAME: &str = "LL_FS_RO";
 const ENV_FS_RW_NAME: &str = "LL_FS_RW";
-
-#[derive(Debug, Error)]
-enum PathEnvError<'a> {
-    #[error(transparent)]
-    Ruleset(#[from] RulesetError),
-    #[error(transparent)]
-    AddRuleIter(#[from] PathFdError),
-    #[error("missing environment variable {0}")]
-    MissingVar(&'a str),
-}
 
 struct PathEnv {
     paths: Vec<u8>,
@@ -40,18 +29,16 @@ impl PathEnv {
     ///   allowed. Paths are separated with ":", e.g. "/bin:/lib:/usr:/proc". In case an empty
     ///   string is provided, NO restrictions are applied.
     /// * `access`: Set of access-rights allowed for each of the parsed paths.
-    fn new<'a>(name: &'a str, access: BitFlags<AccessFs>) -> Result<Self, PathEnvError<'a>> {
+    fn new<'a>(name: &'a str, access: BitFlags<AccessFs>) -> anyhow::Result<Self> {
         Ok(Self {
             paths: env::var_os(name)
-                .ok_or(PathEnvError::MissingVar(name))?
+                .ok_or(anyhow!("missing environment variable {name}"))?
                 .into_vec(),
             access,
         })
     }
 
-    fn iter(
-        &self,
-    ) -> impl Iterator<Item = Result<PathBeneath<PathFd>, PathEnvError<'static>>> + '_ {
+    fn iter(&self) -> impl Iterator<Item = anyhow::Result<PathBeneath<PathFd>>> + '_ {
         let is_empty = self.paths.is_empty();
         self.paths
             .split(|b| *b == b':')
@@ -62,7 +49,7 @@ impl PathEnv {
     }
 }
 
-fn main() -> Result<(), anyhow::Error> {
+fn main() -> anyhow::Result<()> {
     let mut args = env::args_os();
     let program_name = args
         .next()
