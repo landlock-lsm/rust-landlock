@@ -456,7 +456,6 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> {
         I: IntoIterator<Item = Result<T, E>>,
         T: Rule<U>,
         U: Access,
-        E: std::error::Error,
         E: From<RulesetError>,
     {
         for rule in rules {
