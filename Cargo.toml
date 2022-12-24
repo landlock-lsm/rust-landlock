@@ -6,6 +6,7 @@ authors = [
 	"Vincent Dagonneau <vincentdagonneau@gmail.com>"
 ]
 edition = "2018"
+rust-version = "1.63"
 description = "Landlock LSM helpers"
 homepage = "https://landlock.io"
 repository = "https://github.com/landlock-lsm/rust-landlock"

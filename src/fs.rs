@@ -4,11 +4,12 @@ use crate::{
     PrivateRule, Rule, Ruleset, RulesetCreated, RulesetError, TryCompat, ABI,
 };
 use enumflags2::{bitflags, make_bitflags, BitFlags};
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::Error;
 use std::mem::zeroed;
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::fs::OpenOptionsExt;
-use std::os::unix::io::{AsRawFd, RawFd};
+use std::os::unix::io::AsRawFd;
 use std::path::Path;
 
 #[cfg(test)]
@@ -174,7 +175,7 @@ pub struct PathBeneath<F> {
 
 impl<F> PathBeneath<F>
 where
-    F: AsRawFd,
+    F: AsFd,
 {
     /// Creates a new `PathBeneath` rule identifying the `parent` directory of a file hierarchy,
     /// or just a file, and allows `access` on it.
@@ -187,7 +188,7 @@ where
             attr: uapi::landlock_path_beneath_attr {
                 // Invalid access-rights until try_compat() is called.
                 allowed_access: 0,
-                parent_fd: parent.as_raw_fd(),
+                parent_fd: parent.as_fd().as_raw_fd(),
             },
             _parent_fd: parent,
             allowed_access: access.into(),
@@ -233,7 +234,7 @@ where
 
 impl<F> TryCompat<AccessFs> for PathBeneath<F>
 where
-    F: AsRawFd,
+    F: AsFd,
 {
     fn try_compat(self, compat: &mut Compatibility) -> Result<Self, CompatError<AccessFs>> {
         let mut filtered = self.filter_access()?;
@@ -294,11 +295,11 @@ fn path_beneath_try_compat() {
 
 // It is useful for documentation generation to explicitely implement Rule for every types, instead
 // of doing it generically.
-impl<F> Rule<AccessFs> for PathBeneath<F> where F: AsRawFd {}
+impl<F> Rule<AccessFs> for PathBeneath<F> where F: AsFd {}
 
 impl<F> PrivateRule<AccessFs> for PathBeneath<F>
 where
-    F: AsRawFd,
+    F: AsFd,
 {
     fn as_ptr(&self) -> *const libc::c_void {
         &self.attr as *const _ as _
@@ -352,8 +353,10 @@ fn path_beneath_check_consistency() {
 ///
 /// This is the recommended way to identify a path
 /// and manage the lifetime of the underlying opened file descriptor.
-/// Indeed, using other [`AsRawFd`] implementations such as [`File`] brings more complexity
+/// Indeed, using other [`AsFd`] implementations such as [`File`] brings more complexity
 /// and may lead to unexpected errors (e.g., denied access).
+///
+/// [`File`]: std::fs::File
 ///
 /// # Example
 ///
@@ -367,7 +370,7 @@ fn path_beneath_check_consistency() {
 /// ```
 #[cfg_attr(test, derive(Debug))]
 pub struct PathFd {
-    file: File,
+    fd: OwnedFd,
 }
 
 impl PathFd {
@@ -376,7 +379,7 @@ impl PathFd {
         T: AsRef<Path>,
     {
         Ok(PathFd {
-            file: OpenOptions::new()
+            fd: OpenOptions::new()
                 .read(true)
                 // If the O_PATH is not supported, it is automatically ignored (Linux < 2.6.39).
                 .custom_flags(libc::O_PATH | libc::O_CLOEXEC)
@@ -384,14 +387,15 @@ impl PathFd {
                 .map_err(|e| PathFdError::OpenCall {
                     source: e,
                     path: path.as_ref().into(),
-                })?,
+                })?
+                .into(),
         })
     }
 }
 
-impl AsRawFd for PathFd {
-    fn as_raw_fd(&self) -> RawFd {
-        self.file.as_raw_fd()
+impl AsFd for PathFd {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.fd.as_fd()
     }
 }
 
@@ -399,18 +403,15 @@ impl AsRawFd for PathFd {
 fn path_fd() {
     use std::fs::File;
     use std::io::Read;
-    use std::os::unix::io::FromRawFd;
 
     PathBeneath::new(PathFd::new("/").unwrap(), AccessFs::Execute);
     PathBeneath::new(File::open("/").unwrap(), AccessFs::Execute);
 
     let mut buffer = [0; 1];
     // Checks that PathFd really returns an FD opened with O_PATH (Bad file descriptor error).
-    unsafe {
-        File::from_raw_fd(PathFd::new("/etc/passwd").unwrap().as_raw_fd())
-            .read(&mut buffer)
-            .unwrap_err()
-    };
+    File::from(PathFd::new("/etc/passwd").unwrap().fd)
+        .read(&mut buffer)
+        .unwrap_err();
 }
 
 /// Helper to quickly create an iterator of PathBeneath rules.

@@ -99,11 +99,11 @@ fn support_no_new_privs() -> bool {
 ///     Access, AccessFs, PathBeneath, PathFd, RestrictionStatus, Ruleset, RulesetAttr,
 ///     RulesetCreatedAttr, RulesetError, ABI,
 /// };
-/// use std::os::unix::io::AsRawFd;
+/// use std::os::unix::io::AsFd;
 ///
 /// fn restrict_fd<T>(hierarchy: T) -> Result<RestrictionStatus, RulesetError>
 /// where
-///     T: AsRawFd,
+///     T: AsFd,
 /// {
 ///     // The Landlock ABI should be incremented (and tested) regularly.
 ///     let abi = ABI::V1;

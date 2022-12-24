@@ -8,3 +8,5 @@ More information about Landlock can be found in the [official website](https://l
 
 This Rust crate provides a safe abstraction for the Landlock system calls along with some helpers.
 See the [Rust Landlock API documentation](https://landlock.io/rust-landlock/landlock/).
+
+Minimum Supported Rust Version (MSRV): 1.63
