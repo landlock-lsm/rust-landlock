@@ -71,10 +71,6 @@
 //! and optionally log and inform users that the application is not fully sandboxed
 //! because of missing features from the running kernel.
 
-extern crate enumflags2;
-extern crate libc;
-extern crate thiserror;
-
 #[cfg(test)]
 #[macro_use]
 extern crate lazy_static;
