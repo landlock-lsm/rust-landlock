@@ -77,7 +77,6 @@ extern crate lazy_static;
 
 pub use access::Access;
 pub use compat::{Compatible, ABI};
-pub use enumflags2::{make_bitflags, BitFlags};
 pub use errors::{
     AccessError, AddRuleError, AddRulesError, CompatError, CreateRulesetError, HandleAccessError,
     HandleAccessesError, PathBeneathError, PathFdError, RestrictSelfError, RulesetError,

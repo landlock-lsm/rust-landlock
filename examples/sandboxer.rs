@@ -3,8 +3,8 @@
 
 use anyhow::{anyhow, bail};
 use landlock::{
-    Access, AccessFs, BitFlags, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr,
-    RulesetStatus, ABI,
+    Access, AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, RulesetStatus,
+    ABI,
 };
 use std::env;
 use std::ffi::OsStr;
@@ -17,7 +17,7 @@ const ENV_FS_RW_NAME: &str = "LL_FS_RW";
 
 struct PathEnv {
     paths: Vec<u8>,
-    access: BitFlags<AccessFs>,
+    access: AccessFs,
 }
 
 impl PathEnv {
@@ -29,7 +29,7 @@ impl PathEnv {
     ///   allowed. Paths are separated with ":", e.g. "/bin:/lib:/usr:/proc". In case an empty
     ///   string is provided, NO restrictions are applied.
     /// * `access`: Set of access-rights allowed for each of the parsed paths.
-    fn new<'a>(name: &'a str, access: BitFlags<AccessFs>) -> anyhow::Result<Self> {
+    fn new<'a>(name: &'a str, access: AccessFs) -> anyhow::Result<Self> {
         Ok(Self {
             paths: env::var_os(name)
                 .ok_or(anyhow!("missing environment variable {name}"))?
