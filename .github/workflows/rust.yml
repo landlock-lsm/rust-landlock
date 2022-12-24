@@ -24,16 +24,13 @@ jobs:
     - uses: actions/checkout@v3
 
     - name: Install Rust stable
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
+      run: |
+        rm ~/.cargo/bin/{cargo-fmt,rustfmt} || :
+        rustup default stable
+        rustup update
 
     - name: Run tests
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
-        args: --verbose
+      run: rustup run stable cargo test --verbose
 
   ubuntu_20_rust_stable:
     runs-on: ubuntu-20.04
@@ -43,47 +40,29 @@ jobs:
     - uses: actions/checkout@v3
 
     - name: Install Rust stable
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
-        components: rustfmt, clippy
+      run: |
+        rm ~/.cargo/bin/{cargo-fmt,rustfmt} || :
+        rustup default stable
+        rustup component add rustfmt clippy
+        rustup update
 
     - name: Build
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: --verbose
+      run: rustup run stable cargo build --verbose
 
     - name: Run tests
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
-        args: --verbose
+      run: rustup run stable cargo test --verbose
 
     - name: Check format
-      uses: actions-rs/cargo@v1
-      with:
-        command: fmt
-        args: --all -- --check
+      run: rustup run stable cargo fmt --all -- --check
 
     - name: Check source with Clippy
-      uses: actions-rs/cargo@v1
-      with:
-        command: clippy
-        args: -- --deny warnings
+      run: rustup run stable cargo clippy -- --deny warnings
 
     - name: Check tests with Clippy
-      uses: actions-rs/cargo@v1
-      with:
-        command: clippy
-        args: --tests -- --deny warnings
+      run: rustup run stable cargo clippy --tests -- --deny warnings
 
     - name: Check documentation
-      uses: actions-rs/cargo@v1
-      with:
-        command: doc
-        args: --no-deps
+      run: rustup run stable cargo doc --no-deps
 
   ubuntu_22_rust_stable:
     runs-on: ubuntu-22.04
@@ -93,13 +72,10 @@ jobs:
     - uses: actions/checkout@v3
 
     - name: Install Rust stable
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
+      run: |
+        rm ~/.cargo/bin/{cargo-fmt,rustfmt} || :
+        rustup default stable
+        rustup update
 
     - name: Run tests
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
-        args: --verbose
+      run: rustup run stable cargo test --verbose
