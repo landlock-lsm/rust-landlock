@@ -93,7 +93,7 @@ pub use ruleset::{
 };
 
 use access::PrivateAccess;
-use compat::{CompatState, Compatibility, TryCompat};
+use compat::{CompatResult, CompatState, Compatibility, TailoredCompatLevel, TryCompat};
 use ruleset::PrivateRule;
 
 #[cfg(test)]
@@ -203,15 +203,31 @@ mod tests {
                     // Same code as allow_root_compat() but with /etc/passwd instead of /
                     .add_rule(PathBeneath::new(
                         PathFd::new("/etc/passwd")?,
-                        // TODO: Only allow legitimate access rights on a file.
-                        AccessFs::from_all(abi),
+                        // Only allow legitimate access rights on a file.
+                        AccessFs::from_file(abi),
                     ))?
                     .restrict_self()?)
             },
             false,
         );
 
-        // TODO: Fix and test partial compatibility with never-fully-supported ruleset.
+        check_ruleset_support(
+            abi,
+            None,
+            |ruleset: Ruleset| -> _ {
+                Ok(ruleset
+                    .handle_access(AccessFs::from_all(abi))?
+                    .create()?
+                    // Same code as allow_root_compat() but with /etc/passwd instead of /
+                    .add_rule(PathBeneath::new(
+                        PathFd::new("/etc/passwd")?,
+                        // Tries to allow all access rights on a file.
+                        AccessFs::from_all(abi),
+                    ))?
+                    .restrict_self()?)
+            },
+            false,
+        );
     }
 
     #[test]

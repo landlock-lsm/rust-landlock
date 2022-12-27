@@ -165,10 +165,11 @@ fn current_kernel_abi() {
     assert_eq!(*TEST_ABI, ABI::new_current());
 }
 
+// CompatState is not public outside this crate.
 /// Returned by ruleset builder.
 #[cfg_attr(test, derive(Debug))]
-#[derive(Copy, Clone, PartialEq)]
-pub(crate) enum CompatState {
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub enum CompatState {
     /// Initial undefined state.
     Init,
     /// All requested restrictions are enforced.
@@ -236,10 +237,9 @@ fn compat_state_update_2() {
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 #[derive(Clone)]
-// Compatibility is not public outside this crate.
-pub struct Compatibility {
+pub(crate) struct Compatibility {
     abi: ABI,
-    pub(crate) level: CompatLevel,
+    pub(crate) level: Option<CompatLevel>,
     pub(crate) state: CompatState,
 }
 
@@ -247,7 +247,7 @@ impl From<ABI> for Compatibility {
     fn from(abi: ABI) -> Self {
         Compatibility {
             abi,
-            level: CompatLevel::default(),
+            level: Default::default(),
             state: match abi {
                 // Don't forces the state as Dummy because no_new_privs may still be legitimate.
                 ABI::Unsupported => CompatState::No,
@@ -258,7 +258,7 @@ impl From<ABI> for Compatibility {
 }
 
 impl Compatibility {
-    // Compatibility is an opaque struct.
+    // Compatibility is a semi-opaque struct.
     #[allow(clippy::new_without_default)]
     pub(crate) fn new() -> Self {
         ABI::new_current().into()
@@ -288,7 +288,7 @@ impl Compatibility {
 /// (e.g. applications carefully designed to only be run with a specific set of kernel features),
 /// it may be required to error out if some of these features are not available
 /// and will then not be enforced.
-pub trait Compatible: Sized + AsMut<CompatLevel> {
+pub trait Compatible: Sized + AsMut<Option<CompatLevel>> {
     // TODO: Update ruleset_handling_renames() with ABI::V3
     /// To enable a best-effort security approach,
     /// Landlock features that are not supported by the running system
@@ -393,7 +393,7 @@ pub trait Compatible: Sized + AsMut<CompatLevel> {
     /// }
     /// ```
     fn set_compatibility(mut self, level: CompatLevel) -> Self {
-        *self.as_mut() = level;
+        *self.as_mut() = Some(level);
         self
     }
 
@@ -434,7 +434,8 @@ fn deprecated_set_best_effort() {
 }
 
 /// See the [`Compatible`] documentation.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(test, derive(EnumIter))]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CompatLevel {
     /// Takes into account the build requests if they are supported by the running system,
     /// or silently ignores them otherwise.
@@ -454,10 +455,181 @@ pub enum CompatLevel {
     HardRequirement,
 }
 
-// TryCompat is not public outside this crate.
-pub trait TryCompat<T> {
-    fn try_compat(self, compat: &mut Compatibility) -> Result<Option<Self>, CompatError<T>>
+impl From<Option<CompatLevel>> for CompatLevel {
+    fn from(opt: Option<CompatLevel>) -> Self {
+        match opt {
+            None => CompatLevel::default(),
+            Some(ref level) => *level,
+        }
+    }
+}
+
+// TailoredCompatLevel could be replaced with AsMut<Option<CompatLevel>>, but only traits defined
+// in the current crate can be implemented for types defined outside of the crate.  Furthermore it
+// provides a default implementation which is handy for types such as BitFlags.
+pub trait TailoredCompatLevel {
+    fn tailored_compat_level<L>(&mut self, parent_level: L) -> CompatLevel
     where
-        Self: Sized,
-        T: Access;
+        L: Into<CompatLevel>,
+    {
+        parent_level.into()
+    }
+}
+
+impl<T> TailoredCompatLevel for T
+where
+    Self: Compatible,
+{
+    // Every Compatible trait implementation returns its own compatibility level, if set.
+    fn tailored_compat_level<L>(&mut self, parent_level: L) -> CompatLevel
+    where
+        L: Into<CompatLevel>,
+    {
+        // Using a mutable reference is not required but it makes the code simpler (no double AsRef
+        // implementations for each Compatible types), and more importantly it guarantees
+        // consistency with Compatible::set_compatibility().
+        match self.as_mut() {
+            None => parent_level.into(),
+            // Returns the most constrained compatibility level.
+            Some(ref level) => parent_level.into().max(*level),
+        }
+    }
+}
+
+#[test]
+fn tailored_compat_level() {
+    use crate::{AccessFs, PathBeneath, PathFd};
+
+    fn new_path(level: CompatLevel) -> PathBeneath<PathFd> {
+        PathBeneath::new(PathFd::new("/").unwrap(), AccessFs::Execute).set_compatibility(level)
+    }
+
+    for parent_level in CompatLevel::iter() {
+        assert_eq!(
+            new_path(CompatLevel::BestEffort).tailored_compat_level(parent_level),
+            parent_level
+        );
+        assert_eq!(
+            new_path(CompatLevel::HardRequirement).tailored_compat_level(parent_level),
+            CompatLevel::HardRequirement
+        );
+    }
+
+    assert_eq!(
+        new_path(CompatLevel::SoftRequirement).tailored_compat_level(CompatLevel::SoftRequirement),
+        CompatLevel::SoftRequirement
+    );
+
+    for child_level in CompatLevel::iter() {
+        assert_eq!(
+            new_path(child_level).tailored_compat_level(CompatLevel::BestEffort),
+            child_level
+        );
+        assert_eq!(
+            new_path(child_level).tailored_compat_level(CompatLevel::HardRequirement),
+            CompatLevel::HardRequirement
+        );
+    }
+}
+
+// CompatResult is useful because we don't want to duplicate objects (potentially wrapping a file
+// descriptor), and we may not have compatibility errors for some objects.  TryCompat::try_compat()
+// is responsible to either take T or CompatError<A> according to the compatibility level.
+//
+// CompatResult is not public outside this crate.
+pub enum CompatResult<T, A>
+where
+    T: TryCompat<A>,
+    A: Access,
+{
+    // Fully matches the request.
+    Full(T),
+    // Partially matches the request.
+    Partial(T, CompatError<A>),
+    // Doesn't matches the request.
+    No(CompatError<A>),
+}
+
+// TryCompat is not public outside this crate.
+pub trait TryCompat<A>
+where
+    Self: Sized + TailoredCompatLevel,
+    A: Access,
+{
+    fn try_compat_inner(self, abi: ABI) -> Result<CompatResult<Self, A>, CompatError<A>>;
+
+    // Default implementation for objects without children.
+    //
+    // If returning something other than Ok(Some(self)), the implementation must use its own
+    // compatibility level, if any, with self.tailored_compat_level(default_compat_level), and pass
+    // it with the abi and compat_state to each child.try_compat().  See PathBeneath implementation
+    // and the self.allowed_access.try_compat() call.
+    fn try_compat_children<L>(
+        self,
+        _abi: ABI,
+        _parent_level: L,
+        _compat_state: &mut CompatState,
+    ) -> Result<Option<Self>, CompatError<A>>
+    where
+        L: Into<CompatLevel>,
+    {
+        Ok(Some(self))
+    }
+
+    // Update compat_state and return an error according to try_compat_*() error, or to the
+    // compatibility level, i.e. either route compatible object or error.
+    fn try_compat<L>(
+        mut self,
+        abi: ABI,
+        parent_level: L,
+        compat_state: &mut CompatState,
+    ) -> Result<Option<Self>, CompatError<A>>
+    where
+        L: Into<CompatLevel>,
+    {
+        let compat_level = self.tailored_compat_level(parent_level);
+        let new_self = match self.try_compat_children(abi, compat_level, compat_state)? {
+            Some(n) => n,
+            None => return Ok(None),
+        };
+        match new_self.try_compat_inner(abi) {
+            Ok(CompatResult::Full(new_self)) => {
+                compat_state.update(CompatState::Full);
+                Ok(Some(new_self))
+            }
+            Ok(CompatResult::Partial(new_self, error)) => match compat_level {
+                CompatLevel::BestEffort => {
+                    compat_state.update(CompatState::Partial);
+                    Ok(Some(new_self))
+                }
+                CompatLevel::SoftRequirement => {
+                    compat_state.update(CompatState::Dummy);
+                    Ok(None)
+                }
+                CompatLevel::HardRequirement => {
+                    compat_state.update(CompatState::Dummy);
+                    Err(error)
+                }
+            },
+            Ok(CompatResult::No(error)) => match compat_level {
+                CompatLevel::BestEffort => {
+                    compat_state.update(CompatState::No);
+                    Ok(None)
+                }
+                CompatLevel::SoftRequirement => {
+                    compat_state.update(CompatState::Dummy);
+                    Ok(None)
+                }
+                CompatLevel::HardRequirement => {
+                    compat_state.update(CompatState::Dummy);
+                    Err(error)
+                }
+            },
+            Err(e) => {
+                // Safeguard to help for test consistency.
+                compat_state.update(CompatState::Dummy);
+                Err(e)
+            }
+        }
+    }
 }
