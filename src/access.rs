@@ -1,11 +1,11 @@
 use crate::{
-    AccessError, AddRuleError, AddRulesError, BitFlags, CompatError, CompatLevel, CompatState,
-    Compatibility, HandleAccessError, HandleAccessesError, Ruleset, TryCompat, ABI,
+    AccessError, AddRuleError, AddRulesError, BitFlags, CompatError, CompatResult,
+    HandleAccessError, HandleAccessesError, Ruleset, TailoredCompatLevel, TryCompat, ABI,
 };
 use enumflags2::BitFlag;
 
 #[cfg(test)]
-use crate::{make_bitflags, AccessFs};
+use crate::{make_bitflags, AccessFs, CompatLevel, CompatState, Compatibility};
 
 pub trait Access: PrivateAccess {
     /// Gets the access rights defined by a specific [`ABI`].
@@ -61,57 +61,41 @@ fn bit_flags_full_negation() {
     assert_ne!(scoped_negation, full_negation(BitFlags::<AccessFs>::all()));
 }
 
-impl<T> TryCompat<T> for BitFlags<T>
+impl<A> TailoredCompatLevel for BitFlags<A> where A: Access {}
+
+impl<A> TryCompat<A> for BitFlags<A>
 where
-    T: Access,
+    A: Access,
 {
-    fn try_compat(self, compat: &mut Compatibility) -> Result<Option<Self>, CompatError<T>> {
-        let (state, ret) = if self.is_empty() {
+    fn try_compat_inner(self, abi: ABI) -> Result<CompatResult<Self, A>, CompatError<A>> {
+        if self.is_empty() {
             // Empty access-rights would result to a runtime error.
-            (CompatState::Dummy, Err(AccessError::Empty.into()))
+            Err(AccessError::Empty.into())
         } else if !Self::all().contains(self) {
             // Unknown access-rights (at build time) would result to a runtime error.
             // This can only be reached by using the unsafe BitFlags::from_bits_unchecked().
-            (
-                CompatState::Dummy,
-                Err(AccessError::Unknown {
-                    access: self,
-                    unknown: self & full_negation(Self::all()),
-                }
-                .into()),
-            )
-        } else {
-            let compat_bits = self & T::from_all(compat.abi());
-            if compat_bits.is_empty() {
-                match compat.level {
-                    // Empty access-rights are ignored to avoid an error when passing them to
-                    // landlock_add_rule().
-                    CompatLevel::BestEffort => (CompatState::No, Ok(None)),
-                    CompatLevel::SoftRequirement => (CompatState::Dummy, Ok(None)),
-                    CompatLevel::HardRequirement => (
-                        CompatState::Dummy,
-                        Err(AccessError::Incompatible { access: self }.into()),
-                    ),
-                }
-            } else if compat_bits != self {
-                match compat.level {
-                    CompatLevel::BestEffort => (CompatState::Partial, Ok(Some(compat_bits))),
-                    CompatLevel::SoftRequirement => (CompatState::Dummy, Ok(None)),
-                    CompatLevel::HardRequirement => (
-                        CompatState::Dummy,
-                        Err(AccessError::PartiallyCompatible {
-                            access: self,
-                            incompatible: self & full_negation(compat_bits),
-                        }
-                        .into()),
-                    ),
-                }
-            } else {
-                (CompatState::Full, Ok(Some(compat_bits)))
+            Err(AccessError::Unknown {
+                access: self,
+                unknown: self & full_negation(Self::all()),
             }
-        };
-        compat.update(state);
-        ret
+            .into())
+        } else {
+            let compat = self & A::from_all(abi);
+            if compat.is_empty() {
+                Ok(CompatResult::No(
+                    AccessError::Incompatible { access: self }.into(),
+                ))
+            } else if compat != self {
+                let error = AccessError::PartiallyCompatible {
+                    access: self,
+                    incompatible: self & full_negation(compat),
+                }
+                .into();
+                Ok(CompatResult::Partial(compat, error))
+            } else {
+                Ok(CompatResult::Full(self))
+            }
+        }
     }
 }
 
@@ -125,19 +109,24 @@ fn compat_bit_flags() {
     let ro_access = make_bitflags!(AccessFs::{Execute | ReadFile | ReadDir});
     assert_eq!(
         ro_access,
-        ro_access.try_compat(&mut compat).unwrap().unwrap()
+        ro_access
+            .try_compat(compat.abi(), compat.level, &mut compat.state)
+            .unwrap()
+            .unwrap()
     );
     assert!(compat.state == CompatState::Full);
 
     let empty_access = BitFlags::<AccessFs>::empty();
     assert!(matches!(
-        empty_access.try_compat(&mut compat).unwrap_err(),
+        empty_access
+            .try_compat(compat.abi(), compat.level, &mut compat.state)
+            .unwrap_err(),
         CompatError::Access(AccessError::Empty)
     ));
 
     let all_unknown_access = unsafe { BitFlags::<AccessFs>::from_bits_unchecked(1 << 63) };
     assert!(matches!(
-        all_unknown_access.try_compat(&mut compat).unwrap_err(),
+        all_unknown_access.try_compat(compat.abi(), compat.level, &mut compat.state).unwrap_err(),
         CompatError::Access(AccessError::Unknown { access, unknown }) if access == all_unknown_access && unknown == all_unknown_access
     ));
     // An error makes the state final.
@@ -145,7 +134,7 @@ fn compat_bit_flags() {
 
     let some_unknown_access = unsafe { BitFlags::<AccessFs>::from_bits_unchecked(1 << 63 | 1) };
     assert!(matches!(
-        some_unknown_access.try_compat(&mut compat).unwrap_err(),
+        some_unknown_access.try_compat(compat.abi(), compat.level, &mut compat.state).unwrap_err(),
         CompatError::Access(AccessError::Unknown { access, unknown }) if access == some_unknown_access && unknown == all_unknown_access
     ));
     assert!(compat.state == CompatState::Dummy);
@@ -156,16 +145,49 @@ fn compat_bit_flags() {
     assert!(compat.state == CompatState::No);
 
     // Access-rights are valid (but ignored) when they are not required for the current ABI.
-    assert_eq!(None, ro_access.try_compat(&mut compat).unwrap());
+    assert_eq!(
+        None,
+        ro_access
+            .try_compat(compat.abi(), compat.level, &mut compat.state)
+            .unwrap()
+    );
 
     // Tests that the ruleset is in an unsupported state, which is important to be able to still
     // enforce no_new_privs.
     assert!(compat.state == CompatState::No);
 
     // Access-rights are not valid when they are required for the current ABI.
-    compat.level = CompatLevel::HardRequirement;
+    compat.level = Some(CompatLevel::HardRequirement);
     assert!(matches!(
-        ro_access.try_compat(&mut compat).unwrap_err(),
+        ro_access.try_compat(compat.abi(), compat.level, &mut compat.state).unwrap_err(),
         CompatError::Access(AccessError::Incompatible { access }) if access == ro_access
+    ));
+
+    compat = ABI::V1.into();
+
+    // Tests that the ruleset is marked as the unknown compatibility state.
+    assert!(compat.state == CompatState::Init);
+
+    // Access-rights are valid (but ignored) when they are not required for the current ABI.
+    assert_eq!(
+        ro_access,
+        ro_access
+            .try_compat(compat.abi(), compat.level, &mut compat.state)
+            .unwrap()
+            .unwrap()
+    );
+
+    // Tests that the ruleset is in an unsupported state, which is important to be able to still
+    // enforce no_new_privs.
+    assert!(compat.state == CompatState::Full);
+
+    let v2_access = ro_access | AccessFs::Refer;
+
+    // Access-rights are not valid when they are required for the current ABI.
+    compat.level = Some(CompatLevel::HardRequirement);
+    assert!(matches!(
+        v2_access.try_compat(compat.abi(), compat.level, &mut compat.state).unwrap_err(),
+        CompatError::Access(AccessError::PartiallyCompatible { access, incompatible })
+            if access == v2_access && incompatible == AccessFs::Refer
     ));
 }

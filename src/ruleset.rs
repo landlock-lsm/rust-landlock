@@ -18,8 +18,9 @@ where
 }
 
 // PrivateRule is not public outside this crate.
-pub trait PrivateRule<T>: TryCompat<T>
+pub trait PrivateRule<T>
 where
+    Self: TryCompat<T> + Compatible,
     T: Access,
 {
     fn as_ptr(&self) -> *const libc::c_void;
@@ -242,7 +243,7 @@ impl Ruleset {
 
             // Checks that the ruleset handles at least one access.
             if self.actual_handled_fs.is_empty() {
-                match self.compat.level {
+                match self.compat.level.into() {
                     CompatLevel::BestEffort => {
                         self.compat.update(CompatState::No);
                     }
@@ -277,8 +278,8 @@ impl Ruleset {
     }
 }
 
-impl AsMut<CompatLevel> for Ruleset {
-    fn as_mut(&mut self) -> &mut CompatLevel {
+impl AsMut<Option<CompatLevel>> for Ruleset {
+    fn as_mut(&mut self) -> &mut Option<CompatLevel> {
         &mut self.compat.level
     }
 }
@@ -365,8 +366,8 @@ fn ruleset_created_handle_access_or() {
     ));
 }
 
-impl AsMut<CompatLevel> for RulesetCreated {
-    fn as_mut(&mut self) -> &mut CompatLevel {
+impl AsMut<Option<CompatLevel>> for RulesetCreated {
+    fn as_mut(&mut self) -> &mut Option<CompatLevel> {
         &mut self.compat.level
     }
 }
@@ -388,7 +389,11 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> + Compatible {
             let self_ref = self.as_mut();
             rule.check_consistency(self_ref)?;
             let compat_rule = match rule
-                .try_compat(&mut self_ref.compat)
+                .try_compat(
+                    self_ref.compat.abi(),
+                    self_ref.compat.level,
+                    &mut self_ref.compat.state,
+                )
                 .map_err(AddRuleError::Compat)?
             {
                 Some(r) => r,
@@ -546,11 +551,15 @@ impl RulesetCreated {
     /// On error, returns a wrapped [`RestrictSelfError`].
     pub fn restrict_self(mut self) -> Result<RestrictionStatus, RulesetError> {
         let mut body = || -> Result<RestrictionStatus, RestrictSelfError> {
+            // FIXME: Enforce no_new_privs even if something failed with SoftRequirement. The
+            // rationale is that no_new_privs should not be an issue on its own if it is not
+            // explicitly deactivated.
+            //
             // Ignores prctl_set_no_new_privs() if an error was encountered with
             // CompatLevel::SoftRequirement set.
             let enforced_nnp = if self.compat.state != CompatState::Dummy && self.no_new_privs {
                 if let Err(e) = prctl_set_no_new_privs() {
-                    match self.compat.level {
+                    match self.compat.level.into() {
                         CompatLevel::BestEffort => {}
                         CompatLevel::SoftRequirement => {
                             self.compat.update(CompatState::Dummy);
