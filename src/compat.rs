@@ -460,6 +460,28 @@ fn deprecated_set_best_effort() {
 }
 
 /// See the [`Compatible`] documentation.
+#[derive(Default)]
+pub enum CompatMode {
+    /// Takes into account the build requests if they are supported by the running system,
+    /// or silently ignores them otherwise.
+    /// Never returns a compatibility error.
+    #[default]
+    BestEffort,
+    /// Takes into account the build requests if they are supported by the running system,
+    /// or returns a compatibility error otherwise ([`CompatError`]).
+    ErrorIfUnmet,
+}
+
+impl From<CompatMode> for CompatLevel {
+    fn from(mode: CompatMode) -> Self {
+        match mode {
+            CompatMode::BestEffort => CompatLevel::BestEffort,
+            CompatMode::ErrorIfUnmet => CompatLevel::HardRequirement,
+        }
+    }
+}
+
+/// See the [`Compatible`] documentation.
 #[cfg_attr(test, derive(EnumIter))]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CompatLevel {
