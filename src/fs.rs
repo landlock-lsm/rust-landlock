@@ -502,7 +502,7 @@ fn path_fd() {
 ///
 /// fn restrict_thread() -> Result<(), RulesetError> {
 ///     let abi = ABI::V1;
-///     let status = Ruleset::new()
+///     let status = Ruleset::default()
 ///         .handle_access(AccessFs::from_all(abi))?
 ///         .create()?
 ///         // Read-only access to /usr, /etc and /dev.
@@ -545,7 +545,7 @@ where
 
 #[test]
 fn path_beneath_rules_iter() {
-    let _ = Ruleset::new()
+    let _ = Ruleset::default()
         .handle_access(AccessFs::from_all(ABI::V1))
         .unwrap()
         .create()

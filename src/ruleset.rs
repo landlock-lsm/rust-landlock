@@ -110,7 +110,7 @@ fn support_no_new_privs() -> bool {
 ///     let abi = ABI::V1;
 ///     let access_all = AccessFs::from_all(abi);
 ///     let access_read = AccessFs::from_read(abi);
-///     Ok(Ruleset::new()
+///     Ok(Ruleset::default()
 ///         .handle_access(access_all)?
 ///         .create()?
 ///         .add_rule(PathBeneath::new(hierarchy, access_read))?
@@ -147,7 +147,7 @@ fn support_no_new_privs() -> bool {
 ///     let abi = ABI::V1;
 ///     let access_all = AccessFs::from_all(abi);
 ///     let access_read = AccessFs::from_read(abi);
-///     Ok(Ruleset::new()
+///     Ok(Ruleset::default()
 ///         .handle_access(access_all)?
 ///         .create()?
 ///         .add_rules(
@@ -204,21 +204,27 @@ fn ruleset_add_rule_iter() {
     ));
 }
 
-impl Ruleset {
-    // Ruleset is an opaque struct.
+impl Default for Ruleset {
     /// Returns a new `Ruleset`.
     /// This call automatically probes the running kernel to know if it supports Landlock.
     ///
     /// To be able to successfully call [`create()`](Ruleset::create),
     /// it is required to set the handled accesses with
     /// [`handle_access()`](Ruleset::handle_access).
-    #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
+    fn default() -> Self {
         // The API should be future-proof: one Rust program or library should have the same
         // behavior if built with an old or a newer crate (e.g. with an extended ruleset_attr
         // enum).  It should then not be possible to give an "all-possible-handled-accesses" to the
         // Ruleset builder because this value would be relative to the running kernel.
         Compatibility::new().into()
+    }
+}
+
+impl Ruleset {
+    #[allow(clippy::new_without_default)]
+    #[deprecated(note = "Use Ruleset::default() instead")]
+    pub fn new() -> Self {
+        Ruleset::default()
     }
 
     /// Attempts to create a real Landlock ruleset (if supported by the running kernel).
@@ -486,7 +492,7 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> + Compatible {
     /// }
     ///
     /// fn restrict_env() -> Result<RestrictionStatus, PathEnvError<'static>> {
-    ///     Ok(Ruleset::new()
+    ///     Ok(Ruleset::default()
     ///         .handle_access(AccessFs::from_all(ABI::V1))?
     ///         .create()?
     ///         // In the shell: export EXECUTABLE_PATH="/usr:/bin:/sbin"

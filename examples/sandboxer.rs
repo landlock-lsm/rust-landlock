@@ -82,7 +82,7 @@ fn main() -> anyhow::Result<()> {
     })?;
 
     let abi = ABI::V3;
-    let status = Ruleset::new()
+    let status = Ruleset::default()
         .handle_access(AccessFs::from_all(abi))?
         .create()?
         .add_rules(PathEnv::new(ENV_FS_RO_NAME, AccessFs::from_read(abi))?.iter())?

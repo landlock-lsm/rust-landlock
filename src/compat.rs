@@ -354,7 +354,7 @@ pub trait Compatible: Sized + AsMut<Option<CompatLevel>> {
     /// use landlock::*;
     ///
     /// fn ruleset_handling_renames() -> Result<RulesetCreated, RulesetError> {
-    ///     Ok(Ruleset::new()
+    ///     Ok(Ruleset::default()
     ///         // This ruleset must either handle the AccessFs::Refer right,
     ///         // or it must silently ignore the whole sandboxing.
     ///         .set_compatibility(CompatLevel::SoftRequirement)
@@ -379,7 +379,7 @@ pub trait Compatible: Sized + AsMut<Option<CompatLevel>> {
     /// use landlock::*;
     ///
     /// fn ruleset_fragile() -> Result<RulesetCreated, RulesetError> {
-    ///     Ok(Ruleset::new()
+    ///     Ok(Ruleset::default()
     ///         // This ruleset must either handle at least all accesses defined by
     ///         // the first Landlock version (e.g. AccessFs::WriteFile),
     ///         // or the following handle_access() call must return a wrapped
@@ -423,14 +423,14 @@ fn deprecated_set_best_effort() {
     use crate::{CompatLevel, Compatible, Ruleset};
 
     assert_eq!(
-        Ruleset::new().set_best_effort(true).compat,
-        Ruleset::new()
+        Ruleset::default().set_best_effort(true).compat,
+        Ruleset::default()
             .set_compatibility(CompatLevel::BestEffort)
             .compat
     );
     assert_eq!(
-        Ruleset::new().set_best_effort(false).compat,
-        Ruleset::new()
+        Ruleset::default().set_best_effort(false).compat,
+        Ruleset::default()
             .set_compatibility(CompatLevel::HardRequirement)
             .compat
     );
