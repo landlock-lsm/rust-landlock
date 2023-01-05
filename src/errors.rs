@@ -197,7 +197,7 @@ pub enum PathFdError {
 
 #[cfg(test)]
 #[derive(Debug, Error)]
-pub enum TestRulesetError {
+pub(crate) enum TestRulesetError {
     #[error(transparent)]
     Ruleset(#[from] RulesetError),
     #[error(transparent)]

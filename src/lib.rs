@@ -93,10 +93,9 @@ use compat::{CompatState, Compatibility, TryCompat};
 use ruleset::PrivateRule;
 
 #[cfg(test)]
-pub use compat::{can_emulate, landlock_is_enabled};
+use compat::{can_emulate, get_errno_from_landlock_status};
 #[cfg(test)]
-pub use errors::TestRulesetError;
-
+use errors::TestRulesetError;
 #[cfg(test)]
 use strum::IntoEnumIterator;
 
@@ -122,7 +121,7 @@ mod tests {
             let ret = check(Ruleset::from(abi));
 
             // Useful for failed tests and with cargo test -- --show-output
-            println!("Checking ABI {:?}: {:#?}", abi, ret);
+            println!("Checking ABI {:?}, expecting {:#?}", abi, ret);
             if can_emulate(abi, full) {
                 if abi < partial && error_if_abi_lt_partial {
                     // TODO: Check exact error type; this may require better error types.
@@ -144,18 +143,14 @@ mod tests {
                     ))
                 }
             } else {
-                // This should not happen with a normal kernel (e.g. without seccomp filters) and a
-                // non-test Landlock crate, but let's check it anyway.
-                let error_kind = if landlock_is_enabled() {
-                    std::io::ErrorKind::InvalidInput
-                } else {
-                    std::io::ErrorKind::Unsupported
-                };
+                // The errno value should be ENOSYS, EOPNOTSUPP, or EINVAL (e.g. when an unknown
+                // access right is provided).
+                let errno = get_errno_from_landlock_status().unwrap_or(libc::EINVAL);
                 assert!(matches!(
                     ret,
                     Err(TestRulesetError::Ruleset(RulesetError::CreateRuleset(
                         CreateRulesetError::CreateRulesetCall { source }
-                    ))) if source.kind() == error_kind
+                    ))) if source.raw_os_error() == Some(errno)
                 ))
             }
         }
