@@ -7,9 +7,8 @@ use enumflags2::{bitflags, make_bitflags, BitFlags};
 use std::fs::OpenOptions;
 use std::io::Error;
 use std::mem::zeroed;
-use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::fs::OpenOptionsExt;
-use std::os::unix::io::AsRawFd;
+use std::os::unix::io::{AsFd, AsRawFd, BorrowedFd, OwnedFd};
 use std::path::Path;
 
 #[cfg(test)]
