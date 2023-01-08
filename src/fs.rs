@@ -1,7 +1,7 @@
 use crate::compat::private::OptionCompatLevelMut;
 use crate::{
-    uapi, Access, AddRuleError, AddRulesError, CompatError, CompatLevel, CompatResult, CompatState,
-    Compatible, HandleAccessError, HandleAccessesError, PathBeneathError, PathFdError,
+    uapi, Access, AddRuleError, AddRulesError, CompatArg, CompatError, CompatLevel, CompatResult,
+    CompatState, Compatible, HandleAccessError, HandleAccessesError, PathBeneathError, PathFdError,
     PrivateAccess, PrivateRule, Rule, Ruleset, RulesetCreated, RulesetError, TailoredCompatLevel,
     TryCompat, ABI,
 };
@@ -142,8 +142,10 @@ impl AccessFs {
 impl PrivateAccess for AccessFs {
     fn ruleset_handle_access(
         ruleset: &mut Ruleset,
-        access: BitFlags<Self>,
+        access: CompatArg<BitFlags<Self>>,
     ) -> Result<(), HandleAccessesError> {
+        // FIXME: test compat state
+        let access = access.unwrap_update(ABI::V1, &mut ruleset.compat.state);
         // We need to record the requested accesses for PrivateRule::check_consistency().
         ruleset.requested_handled_fs |= access;
         ruleset.actual_handled_fs |= match access
@@ -207,6 +209,8 @@ pub struct PathBeneath<F> {
     parent_fd: F,
     allowed_access: BitFlags<AccessFs>,
     compat_level: Option<CompatLevel>,
+    // FIXME: Handle compat_state
+    //compat_state: CompatState,
 }
 
 impl<F> PathBeneath<F>
@@ -218,8 +222,14 @@ where
     /// The `parent` file descriptor will be automatically closed with the returned `PathBeneath`.
     pub fn new<A>(parent: F, access: A) -> Self
     where
-        A: Into<BitFlags<AccessFs>>,
+        A: Into<CompatArg<BitFlags<AccessFs>>>,
     {
+        // FIXME:
+        // - properly handle and test compat state and ABI version
+        // - don't call any kind of unwrap_update() here but set self.allowed_access with this
+        //   CompatArg and deal with it later.
+        let mut compat_state = Default::default();
+        let access = access.into().unwrap_update(ABI::V1, &mut compat_state);
         PathBeneath {
             attr: uapi::landlock_path_beneath_attr {
                 // Invalid access-rights until try_compat() is called.
@@ -227,8 +237,9 @@ where
                 parent_fd: parent.as_fd().as_raw_fd(),
             },
             parent_fd: parent,
-            allowed_access: access.into(),
+            allowed_access: access,
             compat_level: None,
+            //compat_state: compat_state,
         }
     }
 

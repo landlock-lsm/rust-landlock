@@ -1,13 +1,22 @@
 use crate::{
-    AccessError, AddRuleError, AddRulesError, BitFlags, CompatError, CompatResult,
-    HandleAccessError, HandleAccessesError, Ruleset, TailoredCompatLevel, TryCompat, ABI,
+    AccessError, AddRuleError, AddRulesError, BitFlags, CompatArg, CompatError, CompatResult,
+    CompatibleArgument, HandleAccessError, HandleAccessesError, Ruleset, TailoredCompatLevel,
+    TryCompat, ABI,
 };
 use enumflags2::BitFlag;
 
 #[cfg(test)]
 use crate::{make_bitflags, AccessFs, CompatLevel, CompatState, Compatibility};
 
-pub trait Access: PrivateAccess {
+pub trait Access
+where
+    Self: PrivateAccess
+        + Into<BitFlags<Self>>
+        + Into<CompatArg<BitFlags<Self>>>
+        + CompatibleArgument<CompatSelf = BitFlags<Self>>,
+    BitFlags<Self>:
+        Into<CompatArg<BitFlags<Self>>> + CompatibleArgument<CompatSelf = BitFlags<Self>>,
+{
     /// Gets the access rights defined by a specific [`ABI`].
     /// Union of [`from_read()`](Access::from_read) and [`from_write()`](Access::from_write).
     fn from_all(abi: ABI) -> BitFlags<Self> {
@@ -30,7 +39,7 @@ pub trait Access: PrivateAccess {
 pub trait PrivateAccess: BitFlag {
     fn ruleset_handle_access(
         ruleset: &mut Ruleset,
-        access: BitFlags<Self>,
+        access: CompatArg<BitFlags<Self>>,
     ) -> Result<(), HandleAccessesError>
     where
         Self: Access;
@@ -190,4 +199,42 @@ fn compat_bit_flags() {
         CompatError::Access(AccessError::PartiallyCompatible { access, incompatible })
             if access == v2_access && incompatible == AccessFs::Refer
     ));
+}
+
+impl<A> From<A> for CompatArg<BitFlags<A>>
+where
+    A: Access,
+{
+    fn from(access: A) -> Self {
+        let bitflags: BitFlags<A> = access.into();
+        bitflags.into()
+    }
+}
+
+impl<A> CompatibleArgument for A
+where
+    A: Access,
+{
+    type CompatSelf = BitFlags<A>;
+}
+
+impl<A> CompatibleArgument for BitFlags<A>
+where
+    A: Access,
+{
+    type CompatSelf = Self;
+}
+
+#[test]
+fn compat_arg() {
+    use crate::{AccessFs, BitFlags, CompatibleArgument, Consequence, Ruleset, RulesetAttr};
+
+    let exec: BitFlags<_> = AccessFs::Execute.into();
+    Ruleset::from(ABI::Unsupported)
+        .handle_access(exec.if_unmet(Consequence::DisableRuleset))
+        .unwrap();
+
+    Ruleset::from(ABI::Unsupported)
+        .handle_access(AccessFs::Execute.if_unmet(Consequence::DisableRuleset))
+        .unwrap();
 }

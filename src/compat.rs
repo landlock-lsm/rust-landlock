@@ -187,9 +187,10 @@ fn current_kernel_abi() {
 // CompatState is not public outside this crate.
 /// Returned by ruleset builder.
 #[cfg_attr(test, derive(Debug))]
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Default, PartialEq, Eq)]
 pub enum CompatState {
     /// Initial undefined state.
+    #[default]
     Init,
     /// All requested restrictions are enforced.
     Full,
@@ -457,6 +458,59 @@ fn deprecated_set_best_effort() {
             .set_compatibility(CompatLevel::HardRequirement)
             .compat
     );
+}
+
+// TODO: Add doc
+#[derive(Default)]
+pub enum Consequence {
+    /// Best-effort approach.
+    #[default]
+    Continue,
+    DisableRuleset,
+    ReturnError,
+}
+
+pub struct CompatArg<T> {
+    inner: T,
+    if_unmet: Consequence,
+}
+
+impl<T> CompatArg<T> {
+    pub fn unwrap_update(self, _current_abi: ABI, _compat_state: &mut CompatState) -> T {
+        /*
+        match self.disable_sandbox_if_unmet {
+            // Similar to CompatLevel::SoftRequirement
+            compat_state.update(CompatState::Dummy);
+        }
+        */
+        self.inner
+    }
+}
+
+pub trait CompatibleArgument: Sized + Into<Self::CompatSelf> {
+    type CompatSelf;
+
+    fn if_unmet(self, consequence: Consequence) -> CompatArg<Self::CompatSelf> {
+        CompatArg {
+            inner: self.into(),
+            if_unmet: consequence,
+        }
+    }
+}
+
+impl<T> From<T> for CompatArg<T>
+where
+    T: CompatibleArgument<CompatSelf = T>,
+{
+    fn from(inner: T) -> Self {
+        inner.if_unmet(Consequence::default())
+    }
+}
+
+#[test]
+fn from_compat_arg_to_compat_arg() {
+    // TODO: test that a CompatibleArgument with non-Consequence::default() cannot be converted to
+    // a Consequence::default() through the From trait.
 }
 
 /// See the [`Compatible`] documentation.

@@ -1,8 +1,8 @@
 use crate::compat::private::OptionCompatLevelMut;
 use crate::{
-    uapi, Access, AccessFs, AddRuleError, AddRulesError, BitFlags, CompatLevel, CompatMode,
-    CompatState, Compatibility, Compatible, CreateRulesetError, RestrictSelfError, RulesetError,
-    TryCompat,
+    uapi, Access, AccessFs, AddRuleError, AddRulesError, BitFlags, CompatArg, CompatLevel,
+    CompatMode, CompatState, Compatibility, Compatible, CreateRulesetError, RestrictSelfError,
+    RulesetError, TryCompat,
 };
 use libc::close;
 use std::io::Error;
@@ -233,7 +233,7 @@ impl Ruleset {
     {
         Self::default()
             .set_compatibility(mode.into())
-            .handle_access(handle_access)
+            .handle_access(handle_access.into())
     }
 
     /*
@@ -348,7 +348,8 @@ pub trait RulesetAttr: Sized + AsMut<Ruleset> + Compatible {
     /// E.g., `RulesetError::HandleAccesses(HandleAccessesError::Fs(HandleAccessError<AccessFs>))`
     fn handle_access<T, U>(mut self, access: T) -> Result<Self, RulesetError>
     where
-        T: Into<BitFlags<U>>,
+        T: Into<CompatArg<BitFlags<U>>>,
+        //T: Into<BitFlags<U>> // XXX: CompatibleArgument is not required but could help users
         U: Access,
     {
         U::ruleset_handle_access(self.as_mut(), access.into())?;
