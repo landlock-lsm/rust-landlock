@@ -27,11 +27,11 @@ bitflags::bitflags! {
     /// # Example
     ///
     /// ```
-    /// use landlock::{ABI, Access, AccessFs};
+    /// use landlock::{ABI, Access, AccessFs, make_bitflags};
     ///
     /// let exec = AccessFs::Execute;
     ///
-    /// let file_content = AccessFs::Execute | AccessFs::WriteFile | AccessFs::ReadFile;
+    /// let file_content = make_bitflags!(AccessFs::{Execute | WriteFile | ReadFile});
     ///
     /// let fs_v1 = AccessFs::from_all(ABI::V1);
     ///
@@ -85,7 +85,11 @@ impl Access for AccessFs {
     fn from_read(abi: ABI) -> Self {
         match abi {
             ABI::Unsupported => AccessFs::empty(),
-            ABI::V1 | ABI::V2 => AccessFs::Execute | AccessFs::ReadFile | AccessFs::ReadDir,
+            ABI::V1 | ABI::V2 => make_bitflags!(AccessFs::{
+                Execute
+                | ReadFile
+                | ReadDir
+            }),
         }
     }
 
@@ -93,18 +97,18 @@ impl Access for AccessFs {
     fn from_write(abi: ABI) -> Self {
         match abi {
             ABI::Unsupported => AccessFs::empty(),
-            ABI::V1 => {
-                AccessFs::WriteFile
-                    | AccessFs::RemoveDir
-                    | AccessFs::RemoveFile
-                    | AccessFs::MakeChar
-                    | AccessFs::MakeDir
-                    | AccessFs::MakeReg
-                    | AccessFs::MakeSock
-                    | AccessFs::MakeFifo
-                    | AccessFs::MakeBlock
-                    | AccessFs::MakeSym
-            }
+            ABI::V1 => make_bitflags!(AccessFs::{
+                WriteFile
+                | RemoveDir
+                | RemoveFile
+                | MakeChar
+                | MakeDir
+                | MakeReg
+                | MakeSock
+                | MakeFifo
+                | MakeBlock
+                | MakeSym
+            }),
             ABI::V2 => Self::from_write(ABI::V1) | AccessFs::Refer,
         }
     }
@@ -159,9 +163,9 @@ impl PrivateAccess for AccessFs {
     }
 }
 
-const ACCESS_FILE: AccessFs = AccessFs::ReadFile
-    .union(AccessFs::WriteFile)
-    .union(AccessFs::Execute);
+const ACCESS_FILE: AccessFs = make_bitflags!(AccessFs::{
+    ReadFile | WriteFile | Execute
+});
 
 /// Landlock rule for a file hierarchy.
 ///

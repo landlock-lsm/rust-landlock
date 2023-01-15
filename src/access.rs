@@ -120,7 +120,7 @@ fn compat_bit_flags() {
 
     let mut compat = ABI::V1.into();
 
-    let ro_access = AccessFs::Execute | AccessFs::ReadFile | AccessFs::ReadDir;
+    let ro_access = make_bitflags!(AccessFs::{Execute | ReadFile | ReadDir});
     assert_eq!(ro_access, ro_access.try_compat(&mut compat).unwrap());
 
     let empty_access = AccessFs::empty();

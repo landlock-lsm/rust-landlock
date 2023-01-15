@@ -311,7 +311,7 @@ fn ruleset_created_handle_access_or() {
         .unwrap()
         .handle_access(AccessFs::ReadDir)
         .unwrap();
-    let access = AccessFs::Execute | AccessFs::ReadDir;
+    let access = make_bitflags!(AccessFs::{Execute | ReadDir});
     assert_eq!(ruleset.requested_handled_fs, access);
     assert_eq!(ruleset.actual_handled_fs, access);
 
@@ -680,7 +680,10 @@ fn ruleset_unsupported() {
     ));
 
     // Tests inconsistency between the ruleset handled access-rights and the rule access-rights.
-    for handled_access in &[AccessFs::Execute | AccessFs::WriteFile, AccessFs::Execute] {
+    for handled_access in &[
+        make_bitflags!(AccessFs::{Execute | WriteFile}),
+        AccessFs::Execute,
+    ] {
         let ruleset = Ruleset::from(ABI::V1)
             .handle_access(*handled_access)
             .unwrap();

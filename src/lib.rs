@@ -98,6 +98,13 @@ use errors::TestRulesetError;
 #[cfg(test)]
 use strum::IntoEnumIterator;
 
+#[macro_export]
+macro_rules! make_bitflags {
+    ($bitflag_type:ident :: {$($flag:ident)|*}) => {
+        $bitflag_type::empty() $(.union($bitflag_type::$flag))*
+    };
+}
+
 mod access;
 mod compat;
 mod errors;
