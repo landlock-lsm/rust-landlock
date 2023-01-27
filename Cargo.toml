@@ -1,10 +1,6 @@
 [package]
 name = "landlock"
-version = "0.1.0"
-authors = [
-	"Mickaël Salaün <mic@digikod.net>",
-	"Vincent Dagonneau <vincentdagonneau@gmail.com>"
-]
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.63"
 description = "Landlock LSM helpers"
@@ -12,6 +8,7 @@ homepage = "https://landlock.io"
 repository = "https://github.com/landlock-lsm/rust-landlock"
 license = "MIT OR Apache-2.0"
 keywords = ["access-control", "linux", "sandbox", "security"]
+categories = ["api-bindings", "os::linux-apis", "virtualization", "filesystem"]
 exclude = [".gitignore"]
 readme = "README.md"
 
