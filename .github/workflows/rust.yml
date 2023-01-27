@@ -32,6 +32,26 @@ jobs:
     - name: Run tests
       run: rustup run stable cargo test --verbose
 
+  ubuntu_18_rust_msrv:
+    runs-on: ubuntu-18.04
+    env:
+      # sed -n 's/^rust-version = "\([0-9.]\+\)"$/\1/p' Cargo.toml
+      RUST_TOOLCHAIN: 1.63
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install Rust MSRV
+      run: |
+        rm ~/.cargo/bin/{cargo-fmt,rustfmt} || :
+        rustup default ${{ env.RUST_TOOLCHAIN }}
+        rustup update ${{ env.RUST_TOOLCHAIN }}
+
+    - name: Build
+      run: rustup run ${{ env.RUST_TOOLCHAIN }} cargo build --verbose
+
+    - name: Build tests
+      run: rustup run ${{ env.RUST_TOOLCHAIN }} cargo build --tests --verbose
+
   ubuntu_20_rust_stable:
     runs-on: ubuntu-20.04
     env:
