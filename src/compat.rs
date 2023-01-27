@@ -116,11 +116,11 @@ lazy_static! {
             if ABI::is_known(n) || n == 0 {
                 ABI::from(n)
             } else {
-                panic!("Unknown ABI: {}", n);
+                panic!("Unknown ABI: {n}");
             }
         }
         Err(std::env::VarError::NotPresent) => ABI::iter().last().unwrap(),
-        Err(e) => panic!("Failed to read LANDLOCK_CRATE_TEST_ABI: {}", e),
+        Err(e) => panic!("Failed to read LANDLOCK_CRATE_TEST_ABI: {e}"),
     };
 }
 

@@ -121,7 +121,7 @@ mod tests {
             let ret = check(Ruleset::from(abi));
 
             // Useful for failed tests and with cargo test -- --show-output
-            println!("Checking ABI {:?}, expecting {:#?}", abi, ret);
+            println!("Checking ABI {abi:?}, expecting {ret:#?}");
             if can_emulate(abi, full) {
                 if abi < partial && error_if_abi_lt_partial {
                     // TODO: Check exact error type; this may require better error types.
