@@ -16,26 +16,66 @@ env:
 # Ubuntu versions: https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners#supported-runners-and-hardware-resources
 
 jobs:
+  commit_list:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+
+    - name: Get commit list (push)
+      id: get_commit_list_push
+      if: ${{ github.event_name == 'push' }}
+      run: |
+        echo "id1=$GITHUB_SHA" > $GITHUB_OUTPUT
+        echo "List of tested commits:" > $GITHUB_STEP_SUMMARY
+        sed -n 's,^id[0-9]\+=\(.*\),- https://github.com/landlock-lsm/rust-landlock/commit/\1,p' -- $GITHUB_OUTPUT >> $GITHUB_STEP_SUMMARY
+
+    - name: Get commit list (PR)
+      id: get_commit_list_pr
+      if: ${{ github.event_name == 'pull_request' }}
+      run: |
+        git rev-list --reverse refs/remotes/origin/${{ github.base_ref }}..${{ github.event.pull_request.head.sha }} | awk '{ print "id" NR "=" $1 }' > $GITHUB_OUTPUT
+        echo "List of tested commits:" > $GITHUB_STEP_SUMMARY
+        sed -n 's,^id[0-9]\+=\(.*\),- https://github.com/landlock-lsm/rust-landlock/commit/\1,p' -- $GITHUB_OUTPUT >> $GITHUB_STEP_SUMMARY
+
+    outputs:
+      commits: ${{ toJSON(steps.*.outputs.*) }}
+
   ubuntu_18_rust_stable:
     runs-on: ubuntu-18.04
+    needs: commit_list
+    strategy:
+      fail-fast: false
+      matrix:
+        commit: ${{ fromJSON(needs.commit_list.outputs.commits) }}
     env:
       LANDLOCK_CRATE_TEST_ABI: 0
     steps:
-    - uses: actions/checkout@v3
-
     - name: Install Rust stable
       run: |
         rm ~/.cargo/bin/{cargo-fmt,rustfmt} || :
         rustup default stable
         rustup update
 
+    - uses: actions/checkout@v3
+      with:
+        ref: ${{ matrix.commit }}
+
     - name: Run tests
       run: rustup run stable cargo test --verbose
 
   ubuntu_18_rust_msrv:
     runs-on: ubuntu-18.04
+    needs: commit_list
+    strategy:
+      fail-fast: false
+      matrix:
+        commit: ${{ fromJSON(needs.commit_list.outputs.commits) }}
     steps:
     - uses: actions/checkout@v3
+      with:
+        ref: ${{ matrix.commit }}
 
     - name: Get MSRV
       run: sed -n 's/^rust-version = "\([0-9.]\+\)"$/RUST_TOOLCHAIN=\1/p' Cargo.toml >> $GITHUB_ENV
@@ -54,17 +94,24 @@ jobs:
 
   ubuntu_20_rust_stable:
     runs-on: ubuntu-20.04
+    needs: commit_list
+    strategy:
+      fail-fast: false
+      matrix:
+        commit: ${{ fromJSON(needs.commit_list.outputs.commits) }}
     env:
       LANDLOCK_CRATE_TEST_ABI: 1
     steps:
-    - uses: actions/checkout@v3
-
     - name: Install Rust stable
       run: |
         rm ~/.cargo/bin/{cargo-fmt,rustfmt} || :
         rustup default stable
         rustup component add rustfmt clippy
         rustup update
+
+    - uses: actions/checkout@v3
+      with:
+        ref: ${{ matrix.commit }}
 
     - name: Build
       run: rustup run stable cargo build --verbose
@@ -86,16 +133,23 @@ jobs:
 
   ubuntu_22_rust_stable:
     runs-on: ubuntu-22.04
+    needs: commit_list
+    strategy:
+      fail-fast: false
+      matrix:
+        commit: ${{ fromJSON(needs.commit_list.outputs.commits) }}
     env:
       LANDLOCK_CRATE_TEST_ABI: 1
     steps:
-    - uses: actions/checkout@v3
-
     - name: Install Rust stable
       run: |
         rm ~/.cargo/bin/{cargo-fmt,rustfmt} || :
         rustup default stable
         rustup update
+
+    - uses: actions/checkout@v3
+      with:
+        ref: ${{ matrix.commit }}
 
     - name: Run tests
       run: rustup run stable cargo test --verbose
