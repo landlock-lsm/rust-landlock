@@ -34,11 +34,11 @@ jobs:
 
   ubuntu_18_rust_msrv:
     runs-on: ubuntu-18.04
-    env:
-      # sed -n 's/^rust-version = "\([0-9.]\+\)"$/\1/p' Cargo.toml
-      RUST_TOOLCHAIN: 1.63
     steps:
     - uses: actions/checkout@v3
+
+    - name: Get MSRV
+      run: sed -n 's/^rust-version = "\([0-9.]\+\)"$/RUST_TOOLCHAIN=\1/p' Cargo.toml >> $GITHUB_ENV
 
     - name: Install Rust MSRV
       run: |
