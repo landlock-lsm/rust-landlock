@@ -27,7 +27,7 @@ jobs:
       id: get_commit_list_push
       if: ${{ github.event_name == 'push' }}
       run: |
-        echo "id1=$GITHUB_SHA" > $GITHUB_OUTPUT
+        echo "id0=$GITHUB_SHA" > $GITHUB_OUTPUT
         echo "List of tested commits:" > $GITHUB_STEP_SUMMARY
         sed -n 's,^id[0-9]\+=\(.*\),- https://github.com/landlock-lsm/rust-landlock/commit/\1,p' -- $GITHUB_OUTPUT >> $GITHUB_STEP_SUMMARY
 
@@ -36,6 +36,7 @@ jobs:
       if: ${{ github.event_name == 'pull_request' }}
       run: |
         git rev-list --reverse refs/remotes/origin/${{ github.base_ref }}..${{ github.event.pull_request.head.sha }} | awk '{ print "id" NR "=" $1 }' > $GITHUB_OUTPUT
+        git diff --quiet ${{ github.event.pull_request.head.sha }} ${{ github.sha }} || echo "id0=$GITHUB_SHA" >> $GITHUB_OUTPUT
         echo "List of tested commits:" > $GITHUB_STEP_SUMMARY
         sed -n 's,^id[0-9]\+=\(.*\),- https://github.com/landlock-lsm/rust-landlock/commit/\1,p' -- $GITHUB_OUTPUT >> $GITHUB_STEP_SUMMARY
 
