@@ -1,9 +1,9 @@
 use crate::compat::private::OptionCompatLevelMut;
 use crate::{
-    uapi, Access, AddRuleError, AddRulesError, CompatArg, CompatError, CompatLevel, CompatResult,
-    CompatState, Compatible, HandleAccessError, HandleAccessesError, PathBeneathError, PathFdError,
-    PrivateAccess, PrivateRule, Rule, Ruleset, RulesetCreated, RulesetError, TailoredCompatLevel,
-    TryCompat, ABI,
+    uapi, Access, AddRuleError, AddRulesError, CompatAccess, CompatError, CompatLevel,
+    CompatResult, CompatState, Compatible, HandleAccessError, HandleAccessesError,
+    PathBeneathError, PathFdError, PrivateAccess, PrivateRule, Rule, Ruleset, RulesetCreated,
+    RulesetError, TailoredCompatLevel, TryCompat, ABI,
 };
 use enumflags2::{bitflags, make_bitflags, BitFlags};
 use std::fs::OpenOptions;
@@ -142,7 +142,7 @@ impl AccessFs {
 impl PrivateAccess for AccessFs {
     fn ruleset_handle_access(
         ruleset: &mut Ruleset,
-        access: CompatArg<BitFlags<Self>>,
+        access: CompatAccess<Self>,
     ) -> Result<(), HandleAccessesError> {
         // FIXME: test compat state
         let access = access.unwrap_update(ABI::V1, &mut ruleset.compat.state);
@@ -222,12 +222,12 @@ where
     /// The `parent` file descriptor will be automatically closed with the returned `PathBeneath`.
     pub fn new<A>(parent: F, access: A) -> Self
     where
-        A: Into<CompatArg<BitFlags<AccessFs>>>,
+        A: Into<CompatAccess<AccessFs>>,
     {
         // FIXME:
         // - properly handle and test compat state and ABI version
         // - don't call any kind of unwrap_update() here but set self.allowed_access with this
-        //   CompatArg and deal with it later.
+        //   CompatAccess and deal with it later.
         let mut compat_state = Default::default();
         let access = access.into().unwrap_update(ABI::V1, &mut compat_state);
         PathBeneath {
@@ -548,7 +548,7 @@ pub fn path_beneath_rules<I, P, A>(
 where
     I: IntoIterator<Item = P>,
     P: AsRef<Path>,
-    A: Into<BitFlags<AccessFs>>,
+    A: Into<CompatAccess<AccessFs>>,
 {
     let access = access.into();
     paths.into_iter().filter_map(move |p| match PathFd::new(p) {

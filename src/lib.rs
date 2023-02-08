@@ -81,7 +81,7 @@ extern crate lazy_static;
 
 pub use access::Access;
 pub use compat::{
-    CompatArg, CompatLevel, CompatMode, Compatible, CompatibleArgument, Consequence, ABI,
+    CompatAccess, CompatLevel, CompatMode, Compatible, CompatibleArgument, Consequence, ABI,
 };
 pub use enumflags2::{make_bitflags, BitFlags};
 pub use errors::{

@@ -1,5 +1,5 @@
 use crate::{
-    AccessError, AddRuleError, AddRulesError, BitFlags, CompatArg, CompatError, CompatResult,
+    AccessError, AddRuleError, AddRulesError, BitFlags, CompatAccess, CompatError, CompatResult,
     CompatibleArgument, HandleAccessError, HandleAccessesError, Ruleset, TailoredCompatLevel,
     TryCompat, ABI,
 };
@@ -8,14 +8,20 @@ use enumflags2::BitFlag;
 #[cfg(test)]
 use crate::{make_bitflags, AccessFs, CompatLevel, CompatState, Compatibility};
 
+/*
 pub trait Access
 where
-    Self: PrivateAccess
+    Self: PrivateAccess,
         + Into<BitFlags<Self>>
-        + Into<CompatArg<BitFlags<Self>>>
+        + Into<CompatAccess<Self>>,
         + CompatibleArgument<CompatSelf = BitFlags<Self>>,
     BitFlags<Self>:
-        Into<CompatArg<BitFlags<Self>>> + CompatibleArgument<CompatSelf = BitFlags<Self>>,
+        Into<CompatAccess<BitFlags<Self>>> + CompatibleArgument<CompatSelf = BitFlags<Self>>,
+        Into<CompatAccess<Self>>,
+*/
+pub trait Access
+where
+    Self: PrivateAccess,
 {
     /// Gets the access rights defined by a specific [`ABI`].
     /// Union of [`from_read()`](Access::from_read) and [`from_write()`](Access::from_write).
@@ -39,7 +45,8 @@ where
 pub trait PrivateAccess: BitFlag {
     fn ruleset_handle_access(
         ruleset: &mut Ruleset,
-        access: CompatArg<BitFlags<Self>>,
+        access: CompatAccess<Self>,
+        //access: CompatAccess<BitFlags<Self>>,
     ) -> Result<(), HandleAccessesError>
     where
         Self: Access;
@@ -201,28 +208,30 @@ fn compat_bit_flags() {
     ));
 }
 
-impl<A> From<A> for CompatArg<BitFlags<A>>
+/*
+impl<A> From<BitFlags<A>> for CompatAccess<A>
 where
     A: Access,
 {
-    fn from(access: A) -> Self {
-        let bitflags: BitFlags<A> = access.into();
-        bitflags.into()
+    fn from(access: BitFlags<A>) -> Self {
+        // XXX: How?
+        access.into()
     }
 }
+*/
 
 impl<A> CompatibleArgument for A
 where
     A: Access,
 {
-    type CompatSelf = BitFlags<A>;
+    type CompatSelf = A;
 }
 
 impl<A> CompatibleArgument for BitFlags<A>
 where
     A: Access,
 {
-    type CompatSelf = Self;
+    type CompatSelf = A;
 }
 
 #[test]
