@@ -1,6 +1,6 @@
 use crate::{
-    uapi, Access, AccessFs, AddRuleError, AddRulesError, BitFlags, CompatState, Compatibility,
-    Compatible, CreateRulesetError, RestrictSelfError, RulesetError, TryCompat, ABI,
+    uapi, Access, AccessFs, AddRuleError, AddRulesError, CompatState, Compatibility, Compatible,
+    CreateRulesetError, RestrictSelfError, RulesetError, TryCompat, ABI,
 };
 use libc::close;
 use std::io::Error;
@@ -163,8 +163,8 @@ fn support_no_new_privs() -> bool {
 /// ```
 #[cfg_attr(test, derive(Debug))]
 pub struct Ruleset {
-    pub(crate) requested_handled_fs: BitFlags<AccessFs>,
-    pub(crate) actual_handled_fs: BitFlags<AccessFs>,
+    pub(crate) requested_handled_fs: AccessFs,
+    pub(crate) actual_handled_fs: AccessFs,
     pub(crate) compat: Compatibility,
 }
 
@@ -268,12 +268,11 @@ pub trait RulesetAttr: Sized + AsMut<Ruleset> {
     ///
     /// On error, returns a wrapped [`HandleAccessesError`](crate::HandleAccessesError).
     /// E.g., `RulesetError::HandleAccesses(HandleAccessesError::Fs(HandleAccessError<AccessFs>))`
-    fn handle_access<T, U>(mut self, access: T) -> Result<Self, RulesetError>
+    fn handle_access<T>(mut self, access: T) -> Result<Self, RulesetError>
     where
-        T: Into<BitFlags<U>>,
-        U: Access,
+        T: Access,
     {
-        U::ruleset_handle_access(self.as_mut(), access.into())?;
+        T::ruleset_handle_access(self.as_mut(), access)?;
         Ok(self)
     }
 }
@@ -387,7 +386,7 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> {
     ///
     /// ```
     /// use landlock::{
-    ///     Access, AccessFs, BitFlags, PathBeneath, PathFd, PathFdError, RestrictionStatus, Ruleset,
+    ///     Access, AccessFs, PathBeneath, PathFd, PathFdError, RestrictionStatus, Ruleset,
     ///     RulesetAttr, RulesetCreatedAttr, RulesetError, ABI,
     /// };
     /// use std::env;
@@ -407,7 +406,7 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> {
     ///
     /// struct PathEnv {
     ///     paths: Vec<u8>,
-    ///     access: BitFlags<AccessFs>,
+    ///     access: AccessFs,
     /// }
     ///
     /// impl PathEnv {
@@ -418,7 +417,7 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> {
     ///     // no restrictions are applied.
     ///     // `access` is the set of access rights allowed for each of the parsed paths.
     ///     fn new<'a>(
-    ///         env_var: &'a str, access: BitFlags<AccessFs>
+    ///         env_var: &'a str, access: AccessFs
     ///     ) -> Result<Self, PathEnvError<'a>> {
     ///         Ok(Self {
     ///             paths: env::var_os(env_var)
@@ -447,7 +446,7 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> {
     ///         .handle_access(AccessFs::from_all(ABI::V1))?
     ///         .create()?
     ///         // In the shell: export EXECUTABLE_PATH="/usr:/bin:/sbin"
-    ///         .add_rules(PathEnv::new("EXECUTABLE_PATH", AccessFs::Execute.into())?.iter())?
+    ///         .add_rules(PathEnv::new("EXECUTABLE_PATH", AccessFs::Execute)?.iter())?
     ///         .restrict_self()?)
     /// }
     /// ```
@@ -477,7 +476,7 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> {
 pub struct RulesetCreated {
     fd: RawFd,
     no_new_privs: bool,
-    pub(crate) requested_handled_fs: BitFlags<AccessFs>,
+    pub(crate) requested_handled_fs: AccessFs,
     compat: Compatibility,
 }
 
@@ -683,7 +682,7 @@ fn ruleset_unsupported() {
     // Tests inconsistency between the ruleset handled access-rights and the rule access-rights.
     for handled_access in &[
         make_bitflags!(AccessFs::{Execute | WriteFile}),
-        AccessFs::Execute.into(),
+        AccessFs::Execute,
     ] {
         let ruleset = Ruleset::from(ABI::V1)
             .handle_access(*handled_access)
