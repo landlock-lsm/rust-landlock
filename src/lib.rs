@@ -179,6 +179,47 @@ mod tests {
     }
 
     #[test]
+    fn too_much_access_rights_for_a_file() {
+        let abi = ABI::V1;
+
+        check_ruleset_support(
+            abi,
+            abi,
+            |ruleset: Ruleset| -> _ {
+                Ok(ruleset
+                    .handle_access(AccessFs::from_all(abi))?
+                    .create()?
+                    // Same code as allow_root_compat() but with /etc/passwd instead of /
+                    .add_rule(PathBeneath::new(
+                        PathFd::new("/etc/passwd")?,
+                        AccessFs::from_all(abi),
+                    ))?
+                    .restrict_self()?)
+            },
+            false,
+        );
+    }
+
+    #[test]
+    fn path_beneath_rules_with_too_much_access_rights_for_a_file() {
+        let abi = ABI::V1;
+
+        check_ruleset_support(
+            abi,
+            abi,
+            |ruleset: Ruleset| -> _ {
+                Ok(ruleset
+                    .handle_access(AccessFs::from_all(ABI::V1))?
+                    .create()?
+                    // Same code as too_much_access_rights_for_a_file() but using path_beneath_rules()
+                    .add_rules(path_beneath_rules(["/etc/passwd"], AccessFs::from_all(abi)))?
+                    .restrict_self()?)
+            },
+            false,
+        );
+    }
+
+    #[test]
     fn allow_root_fragile() {
         let abi = ABI::V1;
 
