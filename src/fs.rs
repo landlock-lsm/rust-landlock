@@ -128,6 +128,13 @@ fn consistent_access_fs_rw() {
     }
 }
 
+impl AccessFs {
+    /// Gets the access rights legitimate for non-directory files.
+    pub fn from_file(abi: ABI) -> BitFlags<Self> {
+        Self::from_all(abi) & ACCESS_FILE
+    }
+}
+
 impl PrivateAccess for AccessFs {
     fn ruleset_handle_access(
         ruleset: &mut Ruleset,
