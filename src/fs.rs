@@ -158,6 +158,20 @@ const ACCESS_FILE: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
     ReadFile | WriteFile | Execute
 });
 
+// XXX: What should we do when a stat call failed?
+fn is_file<F>(fd: F) -> Result<bool, Error>
+where
+    F: AsFd,
+{
+    unsafe {
+        let mut stat = zeroed();
+        match libc::fstat(fd.as_fd().as_raw_fd(), &mut stat) {
+            0 => Ok((stat.st_mode & libc::S_IFMT) != libc::S_IFDIR),
+            _ => Err(Error::last_os_error()),
+        }
+    }
+}
+
 /// Landlock rule for a file hierarchy.
 ///
 /// # Example
@@ -173,7 +187,7 @@ const ACCESS_FILE: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
 pub struct PathBeneath<F> {
     attr: uapi::landlock_path_beneath_attr,
     // Ties the lifetime of a file descriptor to this object.
-    _parent_fd: F,
+    parent_fd: F,
     allowed_access: BitFlags<AccessFs>,
     compat_level: CompatLevel,
 }
@@ -195,7 +209,7 @@ where
                 allowed_access: 0,
                 parent_fd: parent.as_fd().as_raw_fd(),
             },
-            _parent_fd: parent,
+            parent_fd: parent,
             allowed_access: access.into(),
             compat_level: CompatLevel::default(),
         }
@@ -206,24 +220,13 @@ where
         mut self,
         compat: &mut Compatibility,
     ) -> Result<Option<Self>, PathBeneathError> {
-        let is_file = unsafe {
-            let mut stat = zeroed();
-            match libc::fstat(self.attr.parent_fd, &mut stat) {
-                0 => (stat.st_mode & libc::S_IFMT) != libc::S_IFDIR,
-                _ => {
-                    return Err(PathBeneathError::StatCall {
-                        source: Error::last_os_error(),
-                    })
-                }
-            }
-        };
-
         // Gets subset of valid accesses according the FD type.
-        let valid_access = if is_file {
-            self.allowed_access & ACCESS_FILE
-        } else {
-            self.allowed_access
-        };
+        let valid_access =
+            if is_file(&self.parent_fd).map_err(|e| PathBeneathError::StatCall { source: e })? {
+                self.allowed_access & ACCESS_FILE
+            } else {
+                self.allowed_access
+            };
 
         if self.allowed_access != valid_access {
             self.allowed_access = match self.compat_level {
@@ -456,7 +459,8 @@ fn path_fd() {
 
 /// Helper to quickly create an iterator of PathBeneath rules.
 ///
-/// Silently ignores paths that cannot be opened.
+/// Silently ignores paths that cannot be opened, and automatically adjust access rights according
+/// to file types when possible.
 ///
 /// # Example
 ///
@@ -497,7 +501,14 @@ where
 {
     let access = access.into();
     paths.into_iter().filter_map(move |p| match PathFd::new(p) {
-        Ok(f) => Some(Ok(PathBeneath::new(f, access))),
+        Ok(f) => {
+            let valid_access = match is_file(&f) {
+                Ok(true) => access & ACCESS_FILE,
+                // If the stat call failed, let's blindly rely on the requested access rights.
+                Err(_) | Ok(false) => access,
+            };
+            Some(Ok(PathBeneath::new(f, valid_access)))
+        }
         Err(_) => None,
     })
 }
