@@ -125,8 +125,14 @@ lazy_static! {
 }
 
 #[cfg(test)]
-pub(crate) fn can_emulate(mock: ABI, partial_support: ABI, full_support: ABI) -> bool {
-    mock < partial_support || mock <= *TEST_ABI || full_support <= *TEST_ABI
+pub(crate) fn can_emulate(mock: ABI, partial_support: ABI, full_support: Option<ABI>) -> bool {
+    mock < partial_support
+        || mock <= *TEST_ABI
+        || if let Some(full) = full_support {
+            full <= *TEST_ABI
+        } else {
+            partial_support <= *TEST_ABI
+        }
 }
 
 #[cfg(test)]

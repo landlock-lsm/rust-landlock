@@ -732,7 +732,7 @@ fn ruleset_unsupported() {
     );
 
     // Don't explicitly call create() on a CI that doesn't support Landlock.
-    if compat::can_emulate(ABI::V1, ABI::V1, ABI::V2) {
+    if compat::can_emulate(ABI::V1, ABI::V1, Some(ABI::V2)) {
         assert_eq!(
             Ruleset::from(ABI::V1)
                 .handle_access(make_bitflags!(AccessFs::{Execute | Refer}))

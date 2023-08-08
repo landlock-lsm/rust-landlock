@@ -115,12 +115,16 @@ mod tests {
     use crate::*;
 
     // Emulate old kernel supports.
-    fn check_ruleset_support<F>(partial: ABI, full: ABI, check: F, error_if_abi_lt_partial: bool)
-    where
+    fn check_ruleset_support<F>(
+        partial: ABI,
+        full: Option<ABI>,
+        check: F,
+        error_if_abi_lt_partial: bool,
+    ) where
         F: Fn(Ruleset) -> Result<RestrictionStatus, TestRulesetError>,
     {
         // If there is no partial support, it means that `full == partial`.
-        assert!(partial <= full);
+        assert!(partial <= full.unwrap_or(partial));
         for abi in ABI::iter() {
             let ret = check(Ruleset::from(abi));
 
@@ -131,13 +135,19 @@ mod tests {
                     // TODO: Check exact error type; this may require better error types.
                     assert!(matches!(ret, Err(TestRulesetError::Ruleset(_))));
                 } else {
-                    let ruleset_status = if abi >= full {
+                    let full_support = if let Some(full_inner) = full {
+                        abi >= full_inner
+                    } else {
+                        false
+                    };
+                    let ruleset_status = if full_support {
                         RulesetStatus::FullyEnforced
                     } else if abi >= partial {
                         RulesetStatus::PartiallyEnforced
                     } else {
                         RulesetStatus::NotEnforced
                     };
+                    println!("Expecting ruleset status {ruleset_status:?}");
                     assert!(matches!(
                         ret,
                         Ok(RestrictionStatus {
@@ -150,6 +160,7 @@ mod tests {
                 // The errno value should be ENOSYS, EOPNOTSUPP, or EINVAL (e.g. when an unknown
                 // access right is provided).
                 let errno = get_errno_from_landlock_status().unwrap_or(libc::EINVAL);
+                println!("Expecting error {errno:?}");
                 assert!(matches!(
                     ret,
                     Err(TestRulesetError::Ruleset(RulesetError::CreateRuleset(
@@ -166,7 +177,7 @@ mod tests {
 
         check_ruleset_support(
             abi,
-            abi,
+            Some(abi),
             |ruleset: Ruleset| -> _ {
                 Ok(ruleset
                     .handle_access(AccessFs::from_all(abi))?
@@ -184,7 +195,7 @@ mod tests {
 
         check_ruleset_support(
             abi,
-            abi,
+            Some(abi),
             |ruleset: Ruleset| -> _ {
                 Ok(ruleset
                     .handle_access(AccessFs::from_all(abi))?
@@ -192,12 +203,15 @@ mod tests {
                     // Same code as allow_root_compat() but with /etc/passwd instead of /
                     .add_rule(PathBeneath::new(
                         PathFd::new("/etc/passwd")?,
+                        // TODO: Only allow legitimate access rights on a file.
                         AccessFs::from_all(abi),
                     ))?
                     .restrict_self()?)
             },
             false,
         );
+
+        // TODO: Fix and test partial compatibility with never-fully-supported ruleset.
     }
 
     #[test]
@@ -206,7 +220,7 @@ mod tests {
 
         check_ruleset_support(
             abi,
-            abi,
+            Some(abi),
             |ruleset: Ruleset| -> _ {
                 Ok(ruleset
                     .handle_access(AccessFs::from_all(ABI::V1))?
@@ -225,7 +239,7 @@ mod tests {
 
         check_ruleset_support(
             abi,
-            abi,
+            Some(abi),
             |ruleset: Ruleset| -> _ {
                 // Sets default support requirement: abort the whole sandboxing for any Landlock error.
                 Ok(ruleset
@@ -250,7 +264,7 @@ mod tests {
 
         check_ruleset_support(
             abi,
-            abi,
+            Some(abi),
             |ruleset: Ruleset| -> _ {
                 Ok(ruleset
                     // Restricting without rule exceptions is legitimate to forbid a set of actions.
@@ -266,7 +280,7 @@ mod tests {
     fn abi_v2_exec_refer() {
         check_ruleset_support(
             ABI::V1,
-            ABI::V2,
+            Some(ABI::V2),
             |ruleset: Ruleset| -> _ {
                 Ok(ruleset
                     .handle_access(AccessFs::Execute)?
@@ -284,7 +298,7 @@ mod tests {
         // When no access is handled, do not try to create a ruleset without access.
         check_ruleset_support(
             ABI::V2,
-            ABI::V2,
+            Some(ABI::V2),
             |ruleset: Ruleset| -> _ {
                 Ok(ruleset
                     .handle_access(AccessFs::Refer)?
