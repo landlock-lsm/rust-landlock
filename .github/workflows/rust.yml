@@ -131,3 +131,20 @@ jobs:
 
     - name: Run tests
       run: rustup run stable cargo test --verbose
+
+    - name: Clone Landlock test tools
+      uses: actions/checkout@v3
+      with:
+        repository: landlock-lsm/landlock-test-tools
+        path: landlock-test-tools
+        fetch-depth: 0
+        ref: ab616e087cffa4b6716ff026e589d0317e19aaa4 # v1.0.0
+
+    - name: Run tests against Linux 5.10
+      run: ./landlock-test-tools/test-rust.sh linux-5.10 0
+
+    - name: Run tests against Linux 5.15
+      run: ./landlock-test-tools/test-rust.sh linux-5.15 1
+
+    - name: Run tests against Linux 6.1
+      run: ./landlock-test-tools/test-rust.sh linux-6.1 2
