@@ -94,7 +94,7 @@ jobs:
     - name: Build
       run: rustup run stable cargo build --verbose
 
-    - name: Run tests
+    - name: Run tests against the local kernel (Landlock ABI ${{ env.LANDLOCK_CRATE_TEST_ABI }})
       run: rustup run stable cargo test --verbose
 
     - name: Check format
@@ -118,6 +118,8 @@ jobs:
         commit: ${{ fromJSON(needs.commit_list.outputs.commits) }}
     env:
       LANDLOCK_CRATE_TEST_ABI: 1
+      # $CARGO is used by landlock-test-tools/test-rust.sh
+      CARGO: rustup run stable cargo
     steps:
     - name: Install Rust stable
       run: |
@@ -129,8 +131,8 @@ jobs:
       with:
         ref: ${{ matrix.commit }}
 
-    - name: Run tests
-      run: rustup run stable cargo test --verbose
+    - name: Run tests against the local kernel (Landlock ABI ${{ env.LANDLOCK_CRATE_TEST_ABI }})
+      run: $CARGO test --verbose
 
     - name: Clone Landlock test tools
       uses: actions/checkout@v3
