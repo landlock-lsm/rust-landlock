@@ -663,20 +663,26 @@ fn ruleset_created_attr() {
         .unwrap();
 
     // ...and finally restrict with the last rules (thanks to non-lexical lifetimes).
-    ruleset_created
-        .set_compatibility(CompatLevel::BestEffort)
-        .add_rule(PathBeneath::new(
-            PathFd::new("/tmp").unwrap(),
-            AccessFs::Execute,
-        ))
-        .unwrap()
-        .add_rule(PathBeneath::new(
-            PathFd::new("/var").unwrap(),
-            AccessFs::Execute,
-        ))
-        .unwrap()
-        .restrict_self()
-        .unwrap();
+    assert_eq!(
+        ruleset_created
+            .set_compatibility(CompatLevel::BestEffort)
+            .add_rule(PathBeneath::new(
+                PathFd::new("/tmp").unwrap(),
+                AccessFs::Execute,
+            ))
+            .unwrap()
+            .add_rule(PathBeneath::new(
+                PathFd::new("/var").unwrap(),
+                AccessFs::Execute,
+            ))
+            .unwrap()
+            .restrict_self()
+            .unwrap(),
+        RestrictionStatus {
+            ruleset: RulesetStatus::NotEnforced,
+            no_new_privs: true,
+        }
+    );
 }
 
 #[test]

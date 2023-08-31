@@ -121,12 +121,15 @@ mod tests {
         check: F,
         error_if_abi_lt_partial: bool,
     ) where
-        F: Fn(Ruleset) -> Result<RestrictionStatus, TestRulesetError>,
+        F: Fn(Ruleset) -> Result<RestrictionStatus, TestRulesetError> + Send + Copy + 'static,
     {
         // If there is no partial support, it means that `full == partial`.
         assert!(partial <= full.unwrap_or(partial));
         for abi in ABI::iter() {
-            let ret = check(Ruleset::from(abi));
+            // Ensures restrict_self() is called on a dedicated thread to avoid inconsistent tests.
+            let ret = std::thread::spawn(move || check(Ruleset::from(abi)))
+                .join()
+                .unwrap();
 
             // Useful for failed tests and with cargo test -- --show-output
             println!("Checking ABI {abi:?}: received {ret:#?}");
@@ -178,7 +181,7 @@ mod tests {
         check_ruleset_support(
             abi,
             Some(abi),
-            |ruleset: Ruleset| -> _ {
+            move |ruleset: Ruleset| -> _ {
                 Ok(ruleset
                     .handle_access(AccessFs::from_all(abi))?
                     .create()?
@@ -196,7 +199,7 @@ mod tests {
         check_ruleset_support(
             abi,
             Some(abi),
-            |ruleset: Ruleset| -> _ {
+            move |ruleset: Ruleset| -> _ {
                 Ok(ruleset
                     .handle_access(AccessFs::from_all(abi))?
                     .create()?
@@ -214,7 +217,7 @@ mod tests {
         check_ruleset_support(
             abi,
             None,
-            |ruleset: Ruleset| -> _ {
+            move |ruleset: Ruleset| -> _ {
                 Ok(ruleset
                     .handle_access(AccessFs::from_all(abi))?
                     .create()?
@@ -237,7 +240,7 @@ mod tests {
         check_ruleset_support(
             abi,
             Some(abi),
-            |ruleset: Ruleset| -> _ {
+            move |ruleset: Ruleset| -> _ {
                 Ok(ruleset
                     .handle_access(AccessFs::from_all(ABI::V1))?
                     .create()?
@@ -256,7 +259,7 @@ mod tests {
         check_ruleset_support(
             abi,
             Some(abi),
-            |ruleset: Ruleset| -> _ {
+            move |ruleset: Ruleset| -> _ {
                 // Sets default support requirement: abort the whole sandboxing for any Landlock error.
                 Ok(ruleset
                     // Must have at least the execute check…
@@ -281,7 +284,7 @@ mod tests {
         check_ruleset_support(
             abi,
             Some(abi),
-            |ruleset: Ruleset| -> _ {
+            move |ruleset: Ruleset| -> _ {
                 Ok(ruleset
                     // Restricting without rule exceptions is legitimate to forbid a set of actions.
                     .handle_access(AccessFs::Execute)?
@@ -297,7 +300,7 @@ mod tests {
         check_ruleset_support(
             ABI::V1,
             Some(ABI::V2),
-            |ruleset: Ruleset| -> _ {
+            move |ruleset: Ruleset| -> _ {
                 Ok(ruleset
                     .handle_access(AccessFs::Execute)?
                     // AccessFs::Refer is not supported by ABI::V1 (best-effort).
@@ -315,7 +318,7 @@ mod tests {
         check_ruleset_support(
             ABI::V2,
             Some(ABI::V2),
-            |ruleset: Ruleset| -> _ {
+            move |ruleset: Ruleset| -> _ {
                 Ok(ruleset
                     .handle_access(AccessFs::Refer)?
                     .create()?
@@ -330,7 +333,7 @@ mod tests {
         check_ruleset_support(
             ABI::V2,
             Some(ABI::V3),
-            |ruleset: Ruleset| -> _ {
+            move |ruleset: Ruleset| -> _ {
                 Ok(ruleset
                     .handle_access(AccessFs::Refer)?
                     .handle_access(AccessFs::Truncate)?
