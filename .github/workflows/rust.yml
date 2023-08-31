@@ -12,6 +12,7 @@ env:
   CARGO_TERM_COLOR: always
   RUSTDOCFLAGS: -D warnings
   RUSTFLAGS: -D warnings
+  LANDLOCK_TEST_TOOLS_COMMIT: ab616e087cffa4b6716ff026e589d0317e19aaa4 # v1.0.0
 
 # Ubuntu versions: https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners#supported-runners-and-hardware-resources
 
@@ -19,6 +20,7 @@ jobs:
   commit_list:
     runs-on: ubuntu-22.04
     steps:
+
     - uses: actions/checkout@v3
       with:
         fetch-depth: 0
@@ -43,17 +45,28 @@ jobs:
     outputs:
       commits: ${{ toJSON(steps.*.outputs.*) }}
 
-  ubuntu_20_rust_msrv:
-    runs-on: ubuntu-20.04
+  ubuntu_22_rust_msrv:
+    runs-on: ubuntu-22.04
     needs: commit_list
     strategy:
       fail-fast: false
       matrix:
         commit: ${{ fromJSON(needs.commit_list.outputs.commits) }}
+    env:
+      LANDLOCK_CRATE_TEST_ABI: 1
     steps:
+
     - uses: actions/checkout@v3
       with:
         ref: ${{ matrix.commit }}
+
+    - name: Clone Landlock test tools
+      uses: actions/checkout@v3
+      with:
+        repository: landlock-lsm/landlock-test-tools
+        fetch-depth: 0
+        ref: ${{ env.LANDLOCK_TEST_TOOLS_COMMIT }}
+        path: landlock-test-tools
 
     - name: Get MSRV
       run: sed -n 's/^rust-version = "\([0-9.]\+\)"$/RUST_TOOLCHAIN=\1/p' Cargo.toml >> $GITHUB_ENV
@@ -70,6 +83,12 @@ jobs:
     - name: Build tests
       run: rustup run ${{ env.RUST_TOOLCHAIN }} cargo build --tests --verbose
 
+    - name: Run tests against the local kernel (Landlock ABI ${{ env.LANDLOCK_CRATE_TEST_ABI }})
+      run: rustup run ${{ env.RUST_TOOLCHAIN }} cargo test --verbose
+
+    - name: Run tests against Linux 6.1
+      run: CARGO="rustup run ${{ env.RUST_TOOLCHAIN }} cargo" ./landlock-test-tools/test-rust.sh linux-6.1 2
+
   ubuntu_20_rust_stable:
     runs-on: ubuntu-20.04
     needs: commit_list
@@ -80,6 +99,7 @@ jobs:
     env:
       LANDLOCK_CRATE_TEST_ABI: 1
     steps:
+
     - name: Install Rust stable
       run: |
         rm ~/.cargo/bin/{cargo-fmt,rustfmt} || :
@@ -121,26 +141,27 @@ jobs:
       # $CARGO is used by landlock-test-tools/test-rust.sh
       CARGO: rustup run stable cargo
     steps:
+
+    - uses: actions/checkout@v3
+      with:
+        ref: ${{ matrix.commit }}
+
+    - name: Clone Landlock test tools
+      uses: actions/checkout@v3
+      with:
+        repository: landlock-lsm/landlock-test-tools
+        fetch-depth: 0
+        ref: ${{ env.LANDLOCK_TEST_TOOLS_COMMIT }}
+        path: landlock-test-tools
+
     - name: Install Rust stable
       run: |
         rm ~/.cargo/bin/{cargo-fmt,rustfmt} || :
         rustup default stable
         rustup update
 
-    - uses: actions/checkout@v3
-      with:
-        ref: ${{ matrix.commit }}
-
     - name: Run tests against the local kernel (Landlock ABI ${{ env.LANDLOCK_CRATE_TEST_ABI }})
       run: $CARGO test --verbose
-
-    - name: Clone Landlock test tools
-      uses: actions/checkout@v3
-      with:
-        repository: landlock-lsm/landlock-test-tools
-        path: landlock-test-tools
-        fetch-depth: 0
-        ref: ab616e087cffa4b6716ff026e589d0317e19aaa4 # v1.0.0
 
     - name: Run tests against Linux 5.10
       run: ./landlock-test-tools/test-rust.sh linux-5.10 0
