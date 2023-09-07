@@ -171,3 +171,6 @@ jobs:
 
     - name: Run tests against Linux 6.1
       run: ./landlock-test-tools/test-rust.sh linux-6.1 2
+
+    - name: Run tests against Linux 6.4
+      run: ./landlock-test-tools/test-rust.sh linux-6.4 3
