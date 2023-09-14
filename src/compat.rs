@@ -9,21 +9,36 @@ use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 
 /// Version of the Landlock [ABI](https://en.wikipedia.org/wiki/Application_binary_interface).
 ///
-/// `ABI` enables to get the features supported by a specific Landlock ABI.
+/// `ABI` enables getting the features supported by a specific Landlock ABI
+/// (without relying on the kernel version which may not be accessible or patched).
 /// For example, [`AccessFs::from_all(ABI::V1)`](Access::from_all)
 /// gets all the file system access rights defined by the first version.
 ///
 /// Without `ABI`, it would be hazardous to rely on the the full set of access flags
 /// (e.g., `BitFlags::<AccessFs>::all()` or `BitFlags::ALL`),
 /// a moving target that would change the semantics of your Landlock rule
-/// when migrating to a newer version of this crate
-/// (i.e. non-breaking change with new supported features).
-/// This usage should then be considered indeterministic because requested features
-/// (e.g., access rights)
-/// could not be tied to the application source code.
+/// when migrating to a newer version of this crate.
+/// Indeed, a simple `cargo update` or `cargo install` run by any developer
+/// can result in a new version of this crate (fixing bugs or bringing non-breaking changes).
+/// This crate cannot give any guarantee concerning the new restrictions resulting from
+/// these unknown bits (i.e. access rights) that would not be controlled by your application but by
+/// a future version of this crate instead.
+/// Because we cannot know what the effect on your application of an unknown restriction would be
+/// when handling an untested Landlock access right (i.e. denied-by-default access),
+/// it could trigger bugs in your application.
 ///
-/// Such `ABI` is also convenient to get the features supported by a specific Linux kernel
-/// without relying on the kernel version (which may not be accessible or patched).
+/// This crate provides a set of tools to sandbox as much as possible
+/// while guaranteeing a consistent behavior thanks to the [`Compatible`] methods.
+/// You should also test with different relevant kernel versions,
+/// see [landlock-test-tools](https://github.com/landlock-lsm/landlock-test-tools) and
+/// [CI integration](https://github.com/landlock-lsm/rust-landlock/pull/41).
+///
+/// This way, we can have the guarantee that the use of a set of tested Landlock ABI works as
+/// expected because features brought by newer Landlock ABI will never be enabled by default
+/// (cf. [Linux kernel compatibility contract](https://docs.kernel.org/userspace-api/landlock.html#compatibility)).
+///
+/// In a nutshell, test the access rights you request on a kernel that support them and
+/// on a kernel that doesn't support them.
 #[cfg_attr(
     test,
     derive(Debug, PartialEq, Eq, PartialOrd, EnumIter, EnumCountMacro)

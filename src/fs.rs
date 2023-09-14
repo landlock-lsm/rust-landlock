@@ -44,11 +44,11 @@ use strum::IntoEnumIterator;
 ///
 /// # Warning
 ///
-/// To avoid compile time behavior at run time,
-/// which may look like undefined behavior,
-/// don't use `BitFlags::<AccessFs>::all()` nor `BitFlags::ALL`,
-/// but [`AccessFs::from_all(ABI::V1)`](Access::from_all) instead.
-/// See [`ABI`] for the rational.
+/// To avoid unknown restrictions **don't use `BitFlags::<AccessFs>::all()` nor `BitFlags::ALL`**,
+/// but use a version you tested and vetted instead,
+/// for instance [`AccessFs::from_all(ABI::V1)`](Access::from_all).
+/// Direct use of **the [`BitFlags`] API is deprecated**.
+/// See [`ABI`] for the rationale and help to test it.
 #[bitflags]
 #[repr(u64)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
