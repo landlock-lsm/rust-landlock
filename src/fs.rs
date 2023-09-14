@@ -1,3 +1,4 @@
+use crate::compat::private::OptionCompatLevelMut;
 use crate::{
     uapi, Access, AddRuleError, AddRulesError, CompatError, CompatLevel, CompatResult, CompatState,
     Compatible, HandleAccessError, HandleAccessesError, PathBeneathError, PathFdError,
@@ -338,8 +339,14 @@ fn path_beneath_try_compat() {
     }
 }
 
-impl<F> AsMut<Option<CompatLevel>> for PathBeneath<F> {
-    fn as_mut(&mut self) -> &mut Option<CompatLevel> {
+impl<F> OptionCompatLevelMut for PathBeneath<F> {
+    fn as_option_compat_level_mut(&mut self) -> &mut Option<CompatLevel> {
+        &mut self.compat_level
+    }
+}
+
+impl<F> OptionCompatLevelMut for &mut PathBeneath<F> {
+    fn as_option_compat_level_mut(&mut self) -> &mut Option<CompatLevel> {
         &mut self.compat_level
     }
 }
@@ -353,7 +360,7 @@ fn path_beneath_compatibility() {
     let mut path = PathBeneath::new(PathFd::new("/").unwrap(), AccessFs::from_all(ABI::V1));
     let path_ref = &mut path;
 
-    let level = path_ref.as_mut();
+    let level = path_ref.as_option_compat_level_mut();
     assert_eq!(level, &None);
     assert_eq!(
         <Option<CompatLevel> as Into<CompatLevel>>::into(*level),
@@ -361,7 +368,10 @@ fn path_beneath_compatibility() {
     );
 
     path_ref.set_compatibility(CompatLevel::SoftRequirement);
-    assert_eq!(path_ref.as_mut(), &Some(CompatLevel::SoftRequirement));
+    assert_eq!(
+        path_ref.as_option_compat_level_mut(),
+        &Some(CompatLevel::SoftRequirement)
+    );
 
     path.set_compatibility(CompatLevel::HardRequirement);
 }

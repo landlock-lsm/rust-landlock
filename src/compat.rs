@@ -277,6 +277,14 @@ impl Compatibility {
     }
 }
 
+pub(crate) mod private {
+    use crate::CompatLevel;
+
+    pub trait OptionCompatLevelMut {
+        fn as_option_compat_level_mut(&mut self) -> &mut Option<CompatLevel>;
+    }
+}
+
 /// Properly handles runtime unsupported features.
 ///
 /// This guarantees consistent behaviors across crate users
@@ -292,7 +300,7 @@ impl Compatibility {
 /// (e.g. applications carefully designed to only be run with a specific set of kernel features),
 /// it may be required to error out if some of these features are not available
 /// and will then not be enforced.
-pub trait Compatible: Sized + AsMut<Option<CompatLevel>> {
+pub trait Compatible: Sized + private::OptionCompatLevelMut {
     /// To enable a best-effort security approach,
     /// Landlock features that are not supported by the running system
     /// are silently ignored by default,
@@ -396,7 +404,7 @@ pub trait Compatible: Sized + AsMut<Option<CompatLevel>> {
     /// }
     /// ```
     fn set_compatibility(mut self, level: CompatLevel) -> Self {
-        *self.as_mut() = Some(level);
+        *self.as_option_compat_level_mut() = Some(level);
         self
     }
 
@@ -491,7 +499,7 @@ where
         // Using a mutable reference is not required but it makes the code simpler (no double AsRef
         // implementations for each Compatible types), and more importantly it guarantees
         // consistency with Compatible::set_compatibility().
-        match self.as_mut() {
+        match self.as_option_compat_level_mut() {
             None => parent_level.into(),
             // Returns the most constrained compatibility level.
             Some(ref level) => parent_level.into().max(*level),

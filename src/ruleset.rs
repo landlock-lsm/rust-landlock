@@ -1,3 +1,4 @@
+use crate::compat::private::OptionCompatLevelMut;
 use crate::{
     uapi, Access, AccessFs, AddRuleError, AddRulesError, BitFlags, CompatLevel, CompatState,
     Compatibility, Compatible, CreateRulesetError, RestrictSelfError, RulesetError, TryCompat,
@@ -284,8 +285,14 @@ impl Ruleset {
     }
 }
 
-impl AsMut<Option<CompatLevel>> for Ruleset {
-    fn as_mut(&mut self) -> &mut Option<CompatLevel> {
+impl OptionCompatLevelMut for Ruleset {
+    fn as_option_compat_level_mut(&mut self) -> &mut Option<CompatLevel> {
+        &mut self.compat.level
+    }
+}
+
+impl OptionCompatLevelMut for &mut Ruleset {
+    fn as_option_compat_level_mut(&mut self) -> &mut Option<CompatLevel> {
         &mut self.compat.level
     }
 }
@@ -298,6 +305,20 @@ impl AsMut<Ruleset> for Ruleset {
     fn as_mut(&mut self) -> &mut Ruleset {
         self
     }
+}
+
+// Tests unambiguous type.
+#[test]
+fn ruleset_as_mut() {
+    let mut ruleset = Ruleset::from(ABI::Unsupported);
+    let _ = ruleset.as_mut();
+
+    let mut ruleset_created = Ruleset::from(ABI::Unsupported)
+        .handle_access(AccessFs::Execute)
+        .unwrap()
+        .create()
+        .unwrap();
+    let _ = ruleset_created.as_mut();
 }
 
 pub trait RulesetAttr: Sized + AsMut<Ruleset> + Compatible {
@@ -372,8 +393,14 @@ fn ruleset_created_handle_access_or() {
     ));
 }
 
-impl AsMut<Option<CompatLevel>> for RulesetCreated {
-    fn as_mut(&mut self) -> &mut Option<CompatLevel> {
+impl OptionCompatLevelMut for RulesetCreated {
+    fn as_option_compat_level_mut(&mut self) -> &mut Option<CompatLevel> {
+        &mut self.compat.level
+    }
+}
+
+impl OptionCompatLevelMut for &mut RulesetCreated {
+    fn as_option_compat_level_mut(&mut self) -> &mut Option<CompatLevel> {
         &mut self.compat.level
     }
 }
