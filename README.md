@@ -24,3 +24,8 @@ More complex examples can be found with the
 and the [sandboxer example](examples/sandboxer.rs).
 
 ## [Crate documentation](https://landlock.io/rust-landlock/landlock/)
+
+## Changelog
+
+* [v0.3.0](CHANGELOG.md#v030)
+* [v0.2.0](CHANGELOG.md#v020)
