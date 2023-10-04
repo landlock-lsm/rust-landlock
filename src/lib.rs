@@ -10,14 +10,14 @@
 //!
 //! This crate provides a safe abstraction for the Landlock system calls, along with some helpers.
 //!
+//! Minimum Supported Rust Version (MSRV): 1.63
+//!
 //! # Use cases
 //!
-//! This crate is especially useful for built-in application sandboxing:
-//! * Parser hardening (e.g., archive tools, file format conversion, renderers).
-//! * (Part of) applications with limited file renaming or linking needs
-//!   (e.g., some system or network services).
-//! * Applications dealing with different levels of confidentiality
-//!   (e.g., web browser, email server).
+//! This crate is especially useful to protect users' data by sandboxing:
+//! * trusted applications dealing with potentially malicious data
+//!   (e.g., complex file format, network request) that could exploit security vulnerabilities;
+//! * sandbox managers, container runtimes or shells launching untrusted applications.
 //!
 //! # Examples
 //!

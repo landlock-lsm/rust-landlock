@@ -7,6 +7,20 @@ Landlock empowers any process, including unprivileged ones, to securely restrict
 More information about Landlock can be found in the [official website](https://landlock.io).
 
 This Rust crate provides a safe abstraction for the Landlock system calls along with some helpers.
-See the [Rust Landlock API documentation](https://landlock.io/rust-landlock/landlock/).
 
-Minimum Supported Rust Version (MSRV): 1.63
+## Use cases
+
+This crate is especially useful to protect users' data by sandboxing:
+* trusted applications dealing with potentially malicious data
+  (e.g., complex file format, network request) that could exploit security vulnerabilities;
+* sandbox managers, container runtimes or shells launching untrusted applications.
+
+## Examples
+
+A simple example can be found with the
+[`path_beneath_rules()`](https://landlock.io/rust-landlock/landlock/fn.path_beneath_rules.html) helper.
+More complex examples can be found with the
+[`Ruleset` documentation](https://landlock.io/rust-landlock/landlock/struct.Ruleset.html)
+and the [sandboxer example](examples/sandboxer.rs).
+
+## [Crate documentation](https://landlock.io/rust-landlock/landlock/)
