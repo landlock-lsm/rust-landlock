@@ -1,4 +1,4 @@
-use crate::{Access, AccessFs, BitFlags};
+use crate::{Access, AccessFs, AccessNet, BitFlags};
 use std::io;
 use std::path::PathBuf;
 use thiserror::Error;
@@ -43,6 +43,8 @@ where
 pub enum HandleAccessesError {
     #[error(transparent)]
     Fs(HandleAccessError<AccessFs>),
+    #[error(transparent)]
+    Net(HandleAccessError<AccessNet>),
 }
 
 // Generically implement for all the access implementations rather than for the cases listed in
@@ -108,6 +110,8 @@ where
 pub enum AddRulesError {
     #[error(transparent)]
     Fs(AddRuleError<AccessFs>),
+    #[error(transparent)]
+    Net(AddRuleError<AccessNet>),
 }
 
 #[derive(Debug, Error)]

@@ -69,6 +69,7 @@ where
 {
     fn try_compat_inner(self, abi: ABI) -> Result<CompatResult<Self, A>, CompatError<A>> {
         if self.is_empty() {
+            // FIXME: handle_access(AccessNet::from_all(ABI::V3)) should be OK
             // Empty access-rights would result to a runtime error.
             Err(AccessError::Empty.into())
         } else if !Self::all().contains(self) {

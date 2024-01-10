@@ -1,7 +1,8 @@
 use crate::compat::private::OptionCompatLevelMut;
 use crate::{
-    uapi, Access, AccessFs, AddRuleError, AddRulesError, BitFlags, CompatLevel, CompatState,
-    Compatibility, Compatible, CreateRulesetError, RestrictSelfError, RulesetError, TryCompat,
+    uapi, Access, AccessFs, AccessNet, AddRuleError, AddRulesError, BitFlags, CompatLevel,
+    CompatState, Compatibility, Compatible, CreateRulesetError, RestrictSelfError, RulesetError,
+    TryCompat,
 };
 use libc::close;
 use std::io::Error;
@@ -166,7 +167,9 @@ fn support_no_new_privs() -> bool {
 #[cfg_attr(test, derive(Debug))]
 pub struct Ruleset {
     pub(crate) requested_handled_fs: BitFlags<AccessFs>,
+    pub(crate) requested_handled_net: BitFlags<AccessNet>,
     pub(crate) actual_handled_fs: BitFlags<AccessFs>,
+    pub(crate) actual_handled_net: BitFlags<AccessNet>,
     pub(crate) compat: Compatibility,
 }
 
@@ -175,7 +178,9 @@ impl From<Compatibility> for Ruleset {
         Ruleset {
             // Non-working default handled FS accesses to force users to set them explicitely.
             requested_handled_fs: Default::default(),
+            requested_handled_net: Default::default(),
             actual_handled_fs: Default::default(),
+            actual_handled_net: Default::default(),
             compat,
         }
     }
@@ -235,7 +240,7 @@ impl Ruleset {
     pub fn create(mut self) -> Result<RulesetCreated, RulesetError> {
         let body = || -> Result<RulesetCreated, CreateRulesetError> {
             // Checks that there is at least one requested access.
-            if self.requested_handled_fs.is_empty() {
+            if self.requested_handled_fs.is_empty() || self.requested_handled_fs.is_empty() {
                 // No handle_access() call.
                 return Err(CreateRulesetError::MissingHandledAccess);
             }
@@ -249,7 +254,7 @@ impl Ruleset {
             }
 
             // Checks that the ruleset handles at least one access.
-            if self.actual_handled_fs.is_empty() {
+            if self.actual_handled_fs.is_empty() && self.actual_handled_net.is_empty() {
                 match self.compat.level.into() {
                     CompatLevel::BestEffort => {
                         self.compat.update(CompatState::No);
@@ -265,7 +270,7 @@ impl Ruleset {
 
             let attr = uapi::landlock_ruleset_attr {
                 handled_access_fs: self.actual_handled_fs.bits(),
-                handled_access_net: 0,
+                handled_access_net: self.actual_handled_net.bits(),
             };
 
             match self.compat.state {
