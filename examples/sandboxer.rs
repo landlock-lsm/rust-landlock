@@ -3,8 +3,8 @@
 
 use anyhow::{anyhow, bail};
 use landlock::{
-    Access, AccessFs, BitFlags, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr,
-    RulesetStatus, ABI,
+    Access, AccessFs, AccessNet, BitFlags, NetPort, PathBeneath, PathFd, Ruleset, RulesetAttr,
+    RulesetCreatedAttr, RulesetStatus, ABI,
 };
 use std::env;
 use std::ffi::OsStr;
@@ -14,6 +14,8 @@ use std::process::Command;
 
 const ENV_FS_RO_NAME: &str = "LL_FS_RO";
 const ENV_FS_RW_NAME: &str = "LL_FS_RW";
+const ENV_TCP_BIND_NAME: &str = "LL_TCP_BIND";
+const ENV_TCP_CONNECT_NAME: &str = "LL_TCP_CONNECT";
 
 struct PathEnv {
     paths: Vec<u8>,
@@ -49,6 +51,37 @@ impl PathEnv {
     }
 }
 
+struct PortEnv {
+    ports: Vec<u8>,
+    access: AccessNet,
+}
+
+impl PortEnv {
+    fn new<'a>(name: &'a str, access: AccessNet) -> anyhow::Result<Self> {
+        Ok(Self {
+            ports: env::var_os(name).unwrap_or_default().into_vec(),
+            access,
+        })
+    }
+
+    fn iter(&self) -> impl Iterator<Item = anyhow::Result<NetPort>> + '_ {
+        let is_empty = self.ports.is_empty();
+        self.ports
+            .split(|b| *b == b':')
+            // Skips the first empty element of an empty string.
+            .skip_while(move |_| is_empty)
+            .map(OsStr::from_bytes)
+            .map(|port| port.to_str().ok_or(anyhow!("failed to convert string")))
+            .map(|ret| {
+                ret.and_then(|port| {
+                    port.parse::<u16>()
+                        .map_err(|_| anyhow!("failed to convert to 16-bit integer"))
+                })
+            })
+            .map(|ret| ret.and_then(|port| Ok(NetPort::new(port, self.access))))
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     let mut args = env::args_os();
     let program_name = args
@@ -62,7 +95,7 @@ fn main() -> anyhow::Result<()> {
             ENV_FS_RO_NAME, ENV_FS_RW_NAME, program_name
         );
         eprintln!("Launch a command in a restricted environment.\n");
-        eprintln!("Environment variables containing paths, each separated by a colon:");
+        eprintln!("Environment variables containing paths and ports, each separated by a colon:");
         eprintln!(
             "* {}: list of paths allowed to be used in a read-only way.",
             ENV_FS_RO_NAME
@@ -71,22 +104,43 @@ fn main() -> anyhow::Result<()> {
             "* {}: list of paths allowed to be used in a read-write way.",
             ENV_FS_RW_NAME
         );
+        eprintln!("Environment variables containing ports are optional and could be skipped.");
+        eprintln!(
+            "* {}: list of ports allowed to bind (server).",
+            ENV_TCP_BIND_NAME
+        );
+        eprintln!(
+            "* {}: list of ports allowed to connect (client).",
+            ENV_TCP_CONNECT_NAME
+        );
         eprintln!(
             "\nexample:\n\
                 {}=\"/bin:/lib:/usr:/proc:/etc:/dev/urandom\" \
                 {}=\"/dev/null:/dev/full:/dev/zero:/dev/pts:/tmp\" \
+                {}=\"9418\" \
+                {}=\"80:443\" \
                 {} bash -i\n",
-            ENV_FS_RO_NAME, ENV_FS_RW_NAME, program_name
+            ENV_FS_RO_NAME, ENV_FS_RW_NAME, ENV_TCP_BIND_NAME, ENV_TCP_CONNECT_NAME, program_name
         );
         anyhow!("Missing command")
     })?;
 
-    let abi = ABI::V3;
-    let status = Ruleset::default()
-        .handle_access(AccessFs::from_all(abi))?
+    let abi = ABI::V4;
+    let mut ruleset = Ruleset::default().handle_access(AccessFs::from_all(abi))?;
+    let ruleset_ref = &mut ruleset;
+
+    if env::var_os(ENV_TCP_BIND_NAME).is_some() {
+        ruleset_ref.handle_access(AccessNet::BindTcp)?;
+    }
+    if env::var_os(ENV_TCP_CONNECT_NAME).is_some() {
+        ruleset_ref.handle_access(AccessNet::ConnectTcp)?;
+    }
+    let status = ruleset
         .create()?
         .add_rules(PathEnv::new(ENV_FS_RO_NAME, AccessFs::from_read(abi))?.iter())?
         .add_rules(PathEnv::new(ENV_FS_RW_NAME, AccessFs::from_all(abi))?.iter())?
+        .add_rules(PortEnv::new(ENV_TCP_BIND_NAME, AccessNet::BindTcp)?.iter())?
+        .add_rules(PortEnv::new(ENV_TCP_CONNECT_NAME, AccessNet::ConnectTcp)?.iter())?
         .restrict_self()
         .expect("Failed to enforce ruleset");
 
@@ -97,6 +151,8 @@ fn main() -> anyhow::Result<()> {
     Err(Command::new(cmd_name)
         .env_remove(ENV_FS_RO_NAME)
         .env_remove(ENV_FS_RW_NAME)
+        .env_remove(ENV_TCP_BIND_NAME)
+        .env_remove(ENV_TCP_CONNECT_NAME)
         .args(args)
         .exec()
         .into())
