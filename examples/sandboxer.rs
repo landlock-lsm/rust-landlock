@@ -3,8 +3,8 @@
 
 use anyhow::{anyhow, bail};
 use landlock::{
-    Access, AccessFs, BitFlags, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr,
-    RulesetStatus, ABI,
+    Access, AccessFs, AccessNet, BitFlags, PathBeneath, PathFd, Ruleset, RulesetAttr,
+    RulesetCreatedAttr, RulesetStatus, ABI,
 };
 use std::env;
 use std::ffi::OsStr;
@@ -81,9 +81,10 @@ fn main() -> anyhow::Result<()> {
         anyhow!("Missing command")
     })?;
 
-    let abi = ABI::V3;
+    let abi = ABI::V4;
     let status = Ruleset::default()
         .handle_access(AccessFs::from_all(abi))?
+        .handle_access(AccessNet::from_all(abi))?
         .create()?
         .add_rules(PathEnv::new(ENV_FS_RO_NAME, AccessFs::from_read(abi))?.iter())?
         .add_rules(PathEnv::new(ENV_FS_RW_NAME, AccessFs::from_all(abi))?.iter())?
