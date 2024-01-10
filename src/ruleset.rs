@@ -265,6 +265,7 @@ impl Ruleset {
 
             let attr = uapi::landlock_ruleset_attr {
                 handled_access_fs: self.actual_handled_fs.bits(),
+                handled_access_net: 0,
             };
 
             match self.compat.state {
