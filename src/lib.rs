@@ -87,6 +87,7 @@ pub use errors::{
     HandleAccessesError, PathBeneathError, PathFdError, RestrictSelfError, RulesetError,
 };
 pub use fs::{path_beneath_rules, AccessFs, PathBeneath, PathFd};
+pub use net::AccessNet;
 pub use ruleset::{
     RestrictionStatus, Rule, Ruleset, RulesetAttr, RulesetCreated, RulesetCreatedAttr,
     RulesetStatus,
@@ -107,6 +108,7 @@ mod access;
 mod compat;
 mod errors;
 mod fs;
+mod net;
 mod ruleset;
 mod uapi;
 

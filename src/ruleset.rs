@@ -1,7 +1,8 @@
 use crate::compat::private::OptionCompatLevelMut;
 use crate::{
-    uapi, Access, AccessFs, AddRuleError, AddRulesError, BitFlags, CompatLevel, CompatState,
-    Compatibility, Compatible, CreateRulesetError, RestrictSelfError, RulesetError, TryCompat,
+    uapi, Access, AccessFs, AccessNet, AddRuleError, AddRulesError, BitFlags, CompatLevel,
+    CompatState, Compatibility, Compatible, CreateRulesetError, RestrictSelfError, RulesetError,
+    TryCompat,
 };
 use libc::close;
 use std::io::Error;
@@ -171,7 +172,9 @@ fn support_no_new_privs() -> bool {
 #[cfg_attr(test, derive(Debug))]
 pub struct Ruleset {
     pub(crate) requested_handled_fs: BitFlags<AccessFs>,
+    pub(crate) requested_handled_net: BitFlags<AccessNet>,
     pub(crate) actual_handled_fs: BitFlags<AccessFs>,
+    pub(crate) actual_handled_net: BitFlags<AccessNet>,
     pub(crate) compat: Compatibility,
 }
 
@@ -180,7 +183,9 @@ impl From<Compatibility> for Ruleset {
         Ruleset {
             // Non-working default handled FS accesses to force users to set them explicitely.
             requested_handled_fs: Default::default(),
+            requested_handled_net: Default::default(),
             actual_handled_fs: Default::default(),
+            actual_handled_net: Default::default(),
             compat,
         }
     }
@@ -248,7 +253,10 @@ impl Ruleset {
                 CompatState::No | CompatState::Dummy => {
                     // There is at least one requested access.
                     #[cfg(test)]
-                    assert!(!self.requested_handled_fs.is_empty());
+                    assert!(
+                        !self.requested_handled_fs.is_empty()
+                            || !self.requested_handled_net.is_empty()
+                    );
 
                     // CompatState::No should be handled as CompatState::Dummy because it is not
                     // possible to create an actual ruleset.
@@ -263,11 +271,13 @@ impl Ruleset {
                 CompatState::Full | CompatState::Partial => {
                     // There is at least one actual handled access.
                     #[cfg(test)]
-                    assert!(!self.actual_handled_fs.is_empty());
+                    assert!(
+                        !self.actual_handled_fs.is_empty() || !self.actual_handled_net.is_empty()
+                    );
 
                     let attr = uapi::landlock_ruleset_attr {
                         handled_access_fs: self.actual_handled_fs.bits(),
-                        handled_access_net: 0,
+                        handled_access_net: self.actual_handled_net.bits(),
                     };
                     match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) } {
                         fd if fd >= 0 => Ok(RulesetCreated::new(self, fd)),
@@ -365,7 +375,7 @@ fn ruleset_attr() {
 }
 
 #[test]
-fn ruleset_created_handle_access_or() {
+fn ruleset_created_handle_access_fs() {
     // Tests AccessFs::ruleset_handle_access()
     let ruleset = Ruleset::from(ABI::V1)
         .handle_access(AccessFs::Execute)
@@ -387,6 +397,34 @@ fn ruleset_created_handle_access_or() {
         RulesetError::HandleAccesses(HandleAccessesError::Fs(HandleAccessError::Compat(
             CompatError::Access(AccessError::Incompatible { access })
         ))) if access == AccessFs::ReadDir
+    ));
+}
+
+#[test]
+fn ruleset_created_handle_access_net_tcp() {
+    let access = make_bitflags!(AccessNet::{BindTcp | ConnectTcp});
+
+    // Tests AccessNet::ruleset_handle_access() with ABI that doesn't support TCP rights.
+    let ruleset = Ruleset::from(ABI::V3).handle_access(access).unwrap();
+    assert_eq!(ruleset.requested_handled_net, access);
+    assert_eq!(ruleset.actual_handled_net, BitFlags::<AccessNet>::EMPTY);
+
+    // Tests AccessNet::ruleset_handle_access() with ABI that supports TCP rights.
+    let ruleset = Ruleset::from(ABI::V4).handle_access(access).unwrap();
+    assert_eq!(ruleset.requested_handled_net, access);
+    assert_eq!(ruleset.actual_handled_net, access);
+
+    // Tests that only the required handled accesses are reported as incompatible:
+    // access should not contains AccessNet::BindTcp.
+    assert!(matches!(Ruleset::from(ABI::Unsupported)
+        .handle_access(AccessNet::BindTcp)
+        .unwrap()
+        .set_compatibility(CompatLevel::HardRequirement)
+        .handle_access(AccessNet::ConnectTcp)
+        .unwrap_err(),
+        RulesetError::HandleAccesses(HandleAccessesError::Net(HandleAccessError::Compat(
+            CompatError::Access(AccessError::Incompatible { access })
+        ))) if access == AccessNet::ConnectTcp
     ));
 }
 
@@ -549,6 +587,7 @@ pub struct RulesetCreated {
     fd: RawFd,
     no_new_privs: bool,
     pub(crate) requested_handled_fs: BitFlags<AccessFs>,
+    pub(crate) requested_handled_net: BitFlags<AccessNet>,
     compat: Compatibility,
 }
 
@@ -562,6 +601,7 @@ impl RulesetCreated {
             fd,
             no_new_privs: true,
             requested_handled_fs: ruleset.requested_handled_fs,
+            requested_handled_net: ruleset.requested_handled_net,
             compat: ruleset.compat,
         }
     }
@@ -656,6 +696,7 @@ impl RulesetCreated {
             },
             no_new_privs: self.no_new_privs,
             requested_handled_fs: self.requested_handled_fs,
+            requested_handled_net: self.requested_handled_net,
             compat: self.compat,
         })
     }
@@ -961,5 +1002,17 @@ fn ignore_abi_v2_with_abi_v1() {
             ruleset: RulesetStatus::NotEnforced,
             no_new_privs: true,
         }
+    );
+}
+
+#[test]
+fn unsupported_handled_access() {
+    matches!(
+        Ruleset::from(ABI::V3)
+            .handle_access(AccessNet::from_all(ABI::V3))
+            .unwrap_err(),
+        RulesetError::HandleAccesses(HandleAccessesError::Net(HandleAccessError::Compat(
+            CompatError::Access(AccessError::Empty)
+        )))
     );
 }
