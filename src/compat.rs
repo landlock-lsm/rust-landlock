@@ -58,6 +58,9 @@ pub enum ABI {
     /// Third Landlock ABI, introduced with
     /// [Linux 6.2](https://git.kernel.org/stable/c/299e2b1967578b1442128ba8b3e86ed3427d3651).
     V3 = 3,
+    /// Fourth Landlock ABI, introduced with
+    /// [Linux 6.7](https://git.kernel.org/stable/c/136cc1e1f5be75f57f1e0404b94ee1c8792cb07d).
+    V4 = 4,
 }
 
 impl ABI {
@@ -83,8 +86,9 @@ impl ABI {
             n if n <= 0 => ABI::Unsupported,
             1 => ABI::V1,
             2 => ABI::V2,
+            3 => ABI::V3,
             // Returns the greatest known ABI.
-            _ => ABI::V3,
+            _ => ABI::V4,
         }
     }
 
@@ -381,7 +385,7 @@ pub trait Compatible: Sized + private::OptionCompatLevelMut {
     ///         // However, this ruleset may also handle other (future) access rights
     ///         // if they are supported by the running kernel.
     ///         .set_compatibility(CompatLevel::BestEffort)
-    ///         .handle_access(AccessFs::from_all(ABI::V3))?
+    ///         .handle_access(AccessFs::from_all(ABI::V4))?
     ///         .create()?)
     /// }
     /// ```

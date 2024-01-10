@@ -12,7 +12,7 @@ env:
   CARGO_TERM_COLOR: always
   RUSTDOCFLAGS: -D warnings
   RUSTFLAGS: -D warnings
-  LANDLOCK_TEST_TOOLS_COMMIT: ab616e087cffa4b6716ff026e589d0317e19aaa4 # v1.0.0
+  LANDLOCK_TEST_TOOLS_COMMIT: a7b4192147a84f4cd5207a83a574ddea6d76ffa0 # v1.1.0
 
 # Ubuntu versions: https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners#supported-runners-and-hardware-resources
 
@@ -174,3 +174,6 @@ jobs:
 
     - name: Run tests against Linux 6.4
       run: ./landlock-test-tools/test-rust.sh linux-6.4 3
+
+    - name: Run tests against Linux 6.7
+      run: ./landlock-test-tools/test-rust.sh linux-6.7 4

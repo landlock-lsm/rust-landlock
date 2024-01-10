@@ -104,7 +104,7 @@ impl AccessFs {
     pub fn from_read(abi: ABI) -> BitFlags<Self> {
         match abi {
             ABI::Unsupported => BitFlags::EMPTY,
-            ABI::V1 | ABI::V2 | ABI::V3 => make_bitflags!(AccessFs::{
+            ABI::V1 | ABI::V2 | ABI::V3 | ABI::V4 => make_bitflags!(AccessFs::{
                 Execute
                 | ReadFile
                 | ReadDir
@@ -131,7 +131,7 @@ impl AccessFs {
                 | MakeSym
             }),
             ABI::V2 => Self::from_write(ABI::V1) | AccessFs::Refer,
-            ABI::V3 => Self::from_write(ABI::V2) | AccessFs::Truncate,
+            ABI::V3 | ABI::V4 => Self::from_write(ABI::V2) | AccessFs::Truncate,
         }
     }
 
