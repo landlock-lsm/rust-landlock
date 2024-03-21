@@ -452,4 +452,33 @@ mod tests {
             false,
         );
     }
+
+    #[test]
+    fn ruleset_created_try_clone_ownedfd() {
+        use std::os::unix::io::{AsRawFd, OwnedFd};
+
+        let abi = ABI::V1;
+        check_ruleset_support(
+            abi,
+            Some(abi),
+            move |ruleset: Ruleset| -> _ {
+                let ruleset1 = ruleset.handle_access(AccessFs::from_all(abi))?.create()?;
+                let ruleset2 = ruleset1.try_clone().unwrap();
+                let ruleset3 = ruleset2.try_clone().unwrap();
+
+                let some1: Option<OwnedFd> = ruleset1.into();
+                if let Some(fd1) = some1 {
+                    assert!(fd1.as_raw_fd() >= 0);
+
+                    let some2: Option<OwnedFd> = ruleset2.into();
+                    let fd2 = some2.unwrap();
+                    assert!(fd2.as_raw_fd() >= 0);
+
+                    assert_ne!(fd1.as_raw_fd(), fd2.as_raw_fd());
+                }
+                Ok(ruleset3.restrict_self()?)
+            },
+            false,
+        );
+    }
 }

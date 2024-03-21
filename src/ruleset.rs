@@ -6,10 +6,9 @@ use crate::{
     Compatibility, Compatible, CreateRulesetError, HandledAccess, PrivateHandledAccess,
     RestrictSelfError, RulesetError, Scope, ScopeError, TryCompat,
 };
-use libc::close;
 use std::io::Error;
 use std::mem::size_of_val;
-use std::os::unix::io::{IntoRawFd, RawFd};
+use std::os::unix::io::{AsRawFd, FromRawFd, OwnedFd};
 
 #[cfg(test)]
 use crate::*;
@@ -272,7 +271,7 @@ impl Ruleset {
                         CompatLevel::HardRequirement => {
                             Err(CreateRulesetError::MissingHandledAccess)
                         }
-                        _ => Ok(RulesetCreated::new(self, -1)),
+                        _ => Ok(RulesetCreated::new(self, None)),
                     }
                 }
                 CompatState::Full | CompatState::Partial => {
@@ -290,7 +289,10 @@ impl Ruleset {
                         scoped: self.actual_scoped.bits(),
                     };
                     match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) } {
-                        fd if fd >= 0 => Ok(RulesetCreated::new(self, fd)),
+                        fd if fd >= 0 => Ok(RulesetCreated::new(
+                            self,
+                            Some(unsafe { OwnedFd::from_raw_fd(fd) }),
+                        )),
                         _ => Err(CreateRulesetError::CreateRulesetCall {
                             source: Error::last_os_error(),
                         }),
@@ -600,15 +602,20 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> + Compatible {
             };
             match self_ref.compat.state {
                 CompatState::Init | CompatState::No | CompatState::Dummy => Ok(self),
-                CompatState::Full | CompatState::Partial => match unsafe {
-                    uapi::landlock_add_rule(self_ref.fd, T::TYPE_ID, compat_rule.as_ptr(), 0)
-                } {
-                    0 => Ok(self),
-                    _ => Err(AddRuleError::<U>::AddRuleCall {
-                        source: Error::last_os_error(),
+                CompatState::Full | CompatState::Partial => {
+                    #[cfg(test)]
+                    assert!(self_ref.fd.is_some());
+                    let fd = self_ref.fd.as_ref().map(|f| f.as_raw_fd()).unwrap_or(-1);
+                    match unsafe {
+                        uapi::landlock_add_rule(fd, T::TYPE_ID, compat_rule.as_ptr(), 0)
+                    } {
+                        0 => Ok(self),
+                        _ => Err(AddRuleError::<U>::AddRuleCall {
+                            source: Error::last_os_error(),
+                        }
+                        .into()),
                     }
-                    .into()),
-                },
+                }
             }
         };
         Ok(body()?)
@@ -715,7 +722,7 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> + Compatible {
 /// Ruleset created with [`Ruleset::create()`].
 #[cfg_attr(test, derive(Debug))]
 pub struct RulesetCreated {
-    fd: RawFd,
+    fd: Option<OwnedFd>,
     no_new_privs: bool,
     pub(crate) requested_handled_fs: BitFlags<AccessFs>,
     pub(crate) requested_handled_net: BitFlags<AccessNet>,
@@ -723,7 +730,7 @@ pub struct RulesetCreated {
 }
 
 impl RulesetCreated {
-    pub(crate) fn new(ruleset: Ruleset, fd: RawFd) -> Self {
+    pub(crate) fn new(ruleset: Ruleset, fd: Option<OwnedFd>) -> Self {
         // The compatibility state is initialized by Ruleset::create().
         #[cfg(test)]
         assert!(!matches!(ruleset.compat.state, CompatState::Init));
@@ -793,7 +800,11 @@ impl RulesetCreated {
                     no_new_privs: enforced_nnp,
                 }),
                 CompatState::Full | CompatState::Partial => {
-                    match unsafe { uapi::landlock_restrict_self(self.fd, 0) } {
+                    #[cfg(test)]
+                    assert!(self.fd.is_some());
+                    // Does not consume ruleset FD, which will be automatically closed after this block.
+                    let fd = self.fd.as_ref().map(|f| f.as_raw_fd()).unwrap_or(-1);
+                    match unsafe { uapi::landlock_restrict_self(fd, 0) } {
                         0 => {
                             self.compat.update(CompatState::Full);
                             Ok(RestrictionStatus {
@@ -818,13 +829,7 @@ impl RulesetCreated {
     /// On error, returns [`std::io::Error`].
     pub fn try_clone(&self) -> std::io::Result<Self> {
         Ok(RulesetCreated {
-            fd: match self.fd {
-                -1 => -1,
-                self_fd => match unsafe { libc::fcntl(self_fd, libc::F_DUPFD_CLOEXEC, 0) } {
-                    dup_fd if dup_fd >= 0 => dup_fd,
-                    _ => return Err(Error::last_os_error()),
-                },
-            },
+            fd: self.fd.as_ref().map(|f| f.try_clone()).transpose()?,
             no_new_privs: self.no_new_privs,
             requested_handled_fs: self.requested_handled_fs,
             requested_handled_net: self.requested_handled_net,
@@ -833,20 +838,21 @@ impl RulesetCreated {
     }
 }
 
-impl Drop for RulesetCreated {
-    fn drop(&mut self) {
-        if self.fd >= 0 {
-            unsafe { close(self.fd) };
-        }
+impl From<RulesetCreated> for Option<OwnedFd> {
+    fn from(ruleset: RulesetCreated) -> Self {
+        ruleset.fd
     }
 }
 
-impl IntoRawFd for RulesetCreated {
-    fn into_raw_fd(self) -> RawFd {
-        let fd = self.fd;
-        std::mem::forget(self);
-        fd
-    }
+#[test]
+fn ruleset_created_ownedfd_none() {
+    let ruleset = Ruleset::from(ABI::Unsupported)
+        .handle_access(AccessFs::Execute)
+        .unwrap()
+        .create()
+        .unwrap();
+    let fd: Option<OwnedFd> = ruleset.into();
+    assert!(fd.is_none());
 }
 
 impl AsMut<RulesetCreated> for RulesetCreated {
@@ -1126,7 +1132,7 @@ fn ruleset_unsupported() {
             .unwrap();
         // Fakes a call to create() to test without involving the kernel (i.e. no
         // landlock_ruleset_create() call).
-        let ruleset_created = RulesetCreated::new(ruleset, -1);
+        let ruleset_created = RulesetCreated::new(ruleset, None);
         assert!(matches!(
             ruleset_created
                 .add_rule(PathBeneath::new(

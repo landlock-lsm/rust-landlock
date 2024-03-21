@@ -318,7 +318,7 @@ fn path_beneath_try_compat_children() {
     // Do not actually perform any syscall.
     ruleset.compat.state = CompatState::Dummy;
     assert!(matches!(
-        RulesetCreated::new(ruleset, -1)
+        RulesetCreated::new(ruleset, None)
             .set_compatibility(CompatLevel::HardRequirement)
             .add_rule(PathBeneath::new(PathFd::new("/dev/null").unwrap(), access_file))
             .unwrap_err(),
@@ -332,7 +332,7 @@ fn path_beneath_try_compat_children() {
     // Do not actually perform any syscall.
     ruleset.compat.state = CompatState::Dummy;
     assert!(matches!(
-        RulesetCreated::new(ruleset, -1)
+        RulesetCreated::new(ruleset, None)
             .set_compatibility(CompatLevel::HardRequirement)
             .add_rule(PathBeneath::new(PathFd::new("/dev/null").unwrap(), access_file))
             .unwrap_err(),
