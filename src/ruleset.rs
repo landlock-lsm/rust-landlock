@@ -653,6 +653,25 @@ impl RulesetCreated {
         };
         Ok(body()?)
     }
+
+    /// Creates a new `RulesetCreated` instance by duplicating the underlying file descriptor.
+    /// Rule modification will affect both `RulesetCreated` instances simultaneously.
+    ///
+    /// On error, returns [`std::io::Error`].
+    pub fn try_clone(&self) -> std::io::Result<Self> {
+        Ok(RulesetCreated {
+            fd: match self.fd {
+                -1 => -1,
+                self_fd => match unsafe { libc::fcntl(self_fd, libc::F_DUPFD_CLOEXEC, 0) } {
+                    dup_fd if dup_fd >= 0 => dup_fd,
+                    _ => return Err(Error::last_os_error()),
+                },
+            },
+            no_new_privs: self.no_new_privs,
+            requested_handled_fs: self.requested_handled_fs,
+            compat: self.compat,
+        })
+    }
 }
 
 impl Drop for RulesetCreated {
