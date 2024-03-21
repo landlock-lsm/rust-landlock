@@ -255,7 +255,7 @@ fn compat_state_update_2() {
 }
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub(crate) struct Compatibility {
     abi: ABI,
     pub(crate) level: Option<CompatLevel>,

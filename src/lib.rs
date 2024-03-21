@@ -343,4 +343,21 @@ mod tests {
             false,
         );
     }
+
+    #[test]
+    fn ruleset_created_try_clone() {
+        check_ruleset_support(
+            ABI::V1,
+            Some(ABI::V1),
+            move |ruleset: Ruleset| -> _ {
+                Ok(ruleset
+                    .handle_access(AccessFs::Execute)?
+                    .create()?
+                    .add_rule(PathBeneath::new(PathFd::new("/")?, AccessFs::Execute))?
+                    .try_clone()?
+                    .restrict_self()?)
+            },
+            false,
+        );
+    }
 }
