@@ -1,0 +1,122 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Properly handles runtime unsupported features."><title>Compatible in landlock - Rust</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/SourceSerif4-Regular-46f98efaafac5295.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/FiraSans-Regular-018c141bf0843ffd.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/FiraSans-Medium-8f9a781e4970d388.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/SourceCodePro-Regular-562dcc5011b6de7d.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/SourceCodePro-Semibold-d899c5a5c4aeb14a.ttf.woff2"><link rel="stylesheet" href="../static.files/normalize-76eba96aa4d2e634.css"><link rel="stylesheet" href="../static.files/rustdoc-5bc39a1768837dd0.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="landlock" data-themes="" data-resource-suffix="" data-rustdoc-version="1.77.0 (aedd173a2 2024-03-17)" data-channel="1.77.0" data-search-js="search-dd67cee4cfa65049.js" data-settings-js="settings-4313503d2e1961c2.js" ><script src="../static.files/storage-4c98445ec4002617.js"></script><script defer src="sidebar-items.js"></script><script defer src="../static.files/main-48f368f3872407c8.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-04d5337699b92874.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-16x16-8b506e7a72182f1c.png"><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-422f7d1d52889060.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-2c020d218678b618.svg"></head><body class="rustdoc trait"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle" title="show sidebar"></button></nav><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../landlock/index.html">landlock</a><span class="version">0.3.1</span></h2></div><h2 class="location"><a href="#">Compatible</a></h2><div class="sidebar-elems"><section><h3><a href="#provided-methods">Provided Methods</a></h3><ul class="block"><li><a href="#method.set_best_effort">set_best_effort</a></li><li><a href="#method.set_compatibility">set_compatibility</a></li></ul><h3><a href="#object-safety">Object Safety</a></h3><h3><a href="#implementors">Implementors</a></h3></section><h2><a href="index.html">In crate landlock</a></h2></div></nav><div class="sidebar-resizer"></div>
+    <main><div class="width-limiter"><nav class="sub"><form class="search-form"><span></span><div id="sidebar-button" tabindex="-1"><a href="../landlock/all.html" title="show sidebar"></a></div><input class="search-input" name="search" aria-label="Run search in the documentation" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><div id="help-button" tabindex="-1"><a href="../help.html" title="help">?</a></div><div id="settings-menu" tabindex="-1"><a href="../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../static.files/wheel-7b819b6101059cd0.svg"></a></div></form></nav><section id="main-content" class="content"><div class="main-heading"><h1>Trait <a href="index.html">landlock</a>::<wbr><a class="trait" href="#">Compatible</a><button id="copy-path" title="Copy item path to clipboard"><img src="../static.files/clipboard-7571035ce49a181d.svg" width="19" height="18" alt="Copy item path"></button></h1><span class="out-of-band"><a class="src" href="../src/landlock/compat.rs.html#318-441">source</a> · <button id="toggle-all-docs" title="collapse all docs">[<span>&#x2212;</span>]</button></span></div><pre class="rust item-decl"><code>pub trait Compatible: <a class="trait" href="https://doc.rust-lang.org/1.77.0/core/marker/trait.Sized.html" title="trait core::marker::Sized">Sized</a> + OptionCompatLevelMut {
+    // Provided methods
+    fn <a href="#method.set_compatibility" class="fn">set_compatibility</a>(self, level: <a class="enum" href="enum.CompatLevel.html" title="enum landlock::CompatLevel">CompatLevel</a>) -&gt; Self { ... }
+<span class="item-spacer"></span>    fn <a href="#method.set_best_effort" class="fn">set_best_effort</a>(self, best_effort: <a class="primitive" href="https://doc.rust-lang.org/1.77.0/std/primitive.bool.html">bool</a>) -&gt; Self
+       <span class="where">where Self: <a class="trait" href="https://doc.rust-lang.org/1.77.0/core/marker/trait.Sized.html" title="trait core::marker::Sized">Sized</a></span> { ... }
+}</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Properly handles runtime unsupported features.</p>
+<p>This guarantees consistent behaviors across crate users
+and runtime kernels even if this crate get new features.
+It eases backward compatibility and enables future-proofness.</p>
+<p>Landlock is a security feature designed to help improve security of a running system
+thanks to application developers.
+To protect users as much as possible,
+compatibility with the running system should then be handled in a best-effort way,
+contrary to common system features.
+In some circumstances
+(e.g. applications carefully designed to only be run with a specific set of kernel features),
+it may be required to error out if some of these features are not available
+and will then not be enforced.</p>
+</div></details><h2 id="provided-methods" class="section-header">Provided Methods<a href="#provided-methods" class="anchor">§</a></h2><div class="methods"><details class="toggle method-toggle" open><summary><section id="method.set_compatibility" class="method"><a class="src rightside" href="../src/landlock/compat.rs.html#421-424">source</a><h4 class="code-header">fn <a href="#method.set_compatibility" class="fn">set_compatibility</a>(self, level: <a class="enum" href="enum.CompatLevel.html" title="enum landlock::CompatLevel">CompatLevel</a>) -&gt; Self</h4></section></summary><div class="docblock"><p>To enable a best-effort security approach,
+Landlock features that are not supported by the running system
+are silently ignored by default,
+which is a sane choice for most use cases.
+However, on some rare circumstances,
+developers may want to have some guarantees that their applications
+will not run if a certain level of sandboxing is not possible.
+If we really want to error out when not all our requested requirements are met,
+then we can configure it with <code>set_compatibility()</code>.</p>
+<p>The <code>Compatible</code> trait is implemented for all object builders
+(e.g. <a href="struct.Ruleset.html" title="struct landlock::Ruleset"><code>Ruleset</code></a>).
+Such builders have a set of methods to incrementally build an object.
+These build methods rely on kernel features that may not be available at runtime.
+The <code>set_compatibility()</code> method enables to control the effect of
+the following build method calls starting after the <code>set_compatibility()</code> call.
+Such effect can be:</p>
+<ul>
+<li>to silently ignore unsupported features
+and continue building (<a href="enum.CompatLevel.html#variant.BestEffort" title="variant landlock::CompatLevel::BestEffort"><code>CompatLevel::BestEffort</code></a>);</li>
+<li>to silently ignore unsupported features
+and ignore the whole build (<a href="enum.CompatLevel.html#variant.SoftRequirement" title="variant landlock::CompatLevel::SoftRequirement"><code>CompatLevel::SoftRequirement</code></a>);</li>
+<li>to return an error for any unsupported feature (<a href="enum.CompatLevel.html#variant.HardRequirement" title="variant landlock::CompatLevel::HardRequirement"><code>CompatLevel::HardRequirement</code></a>).</li>
+</ul>
+<p>Taking <a href="struct.Ruleset.html" title="struct landlock::Ruleset"><code>Ruleset</code></a> as an example,
+the <a href="trait.RulesetAttr.html#method.handle_access" title="method landlock::RulesetAttr::handle_access"><code>handle_access()</code></a> build method
+returns a <a href="https://doc.rust-lang.org/1.77.0/core/result/enum.Result.html" title="enum core::result::Result"><code>Result</code></a> that can be <a href="enum.RulesetError.html" title="enum landlock::RulesetError"><code>Err(RulesetError)</code></a>
+with a nested <a href="enum.CompatError.html" title="enum landlock::CompatError"><code>CompatError</code></a>.
+Such error can only occur with a running Linux kernel not supporting the requested
+Landlock accesses <em>and</em> if the current compatibility level is
+<a href="enum.CompatLevel.html#variant.HardRequirement" title="variant landlock::CompatLevel::HardRequirement"><code>CompatLevel::HardRequirement</code></a>.
+However, such error is not possible with <a href="enum.CompatLevel.html#variant.BestEffort" title="variant landlock::CompatLevel::BestEffort"><code>CompatLevel::BestEffort</code></a>
+nor <a href="enum.CompatLevel.html#variant.SoftRequirement" title="variant landlock::CompatLevel::SoftRequirement"><code>CompatLevel::SoftRequirement</code></a>.</p>
+<p>The order of this call is important because
+it defines the behavior of the following build method calls that return a <a href="https://doc.rust-lang.org/1.77.0/core/result/enum.Result.html" title="enum core::result::Result"><code>Result</code></a>.
+If <code>set_compatibility(CompatLevel::HardRequirement)</code> is called on an object,
+then a <a href="enum.CompatError.html" title="enum landlock::CompatError"><code>CompatError</code></a> may be returned for the next method calls,
+until the next call to <code>set_compatibility()</code>.
+This enables to change the behavior of a set of build method calls,
+for instance to be sure that the sandbox will at least restrict some access rights.</p>
+<p>New objects inherit the compatibility configuration of their parents, if any.
+For instance, <a href="struct.Ruleset.html#method.create" title="method landlock::Ruleset::create"><code>Ruleset::create()</code></a> returns
+a <a href="struct.RulesetCreated.html" title="struct landlock::RulesetCreated"><code>RulesetCreated</code></a> object that inherits the
+<code>Ruleset</code>’s compatibility configuration.</p>
+<h5 id="example-with-softrequirement"><a class="doc-anchor" href="#example-with-softrequirement">§</a>Example with <code>SoftRequirement</code></h5>
+<p>Let’s say an application legitimately needs to rename files between directories.
+Because of <a href="https://docs.kernel.org/userspace-api/landlock.html#file-renaming-and-linking-abi-2">previous Landlock limitations</a>,
+this was forbidden with the <a href="enum.ABI.html#variant.V1" title="variant landlock::ABI::V1">first version of Landlock</a>,
+but it is now handled starting with the <a href="enum.ABI.html#variant.V2" title="variant landlock::ABI::V2">second version</a>.
+For this use case, we only want the application to be sandboxed
+if we have the guarantee that it will not break a legitimate usage (i.e. rename files).
+We then create a ruleset which will either support file renaming
+(thanks to <a href="enum.AccessFs.html#variant.Refer" title="variant landlock::AccessFs::Refer"><code>AccessFs::Refer</code></a>) or silently do nothing.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>landlock::<span class="kw-2">*</span>;
+
+<span class="kw">fn </span>ruleset_handling_renames() -&gt; <span class="prelude-ty">Result</span>&lt;RulesetCreated, RulesetError&gt; {
+    <span class="prelude-val">Ok</span>(Ruleset::default()
+        <span class="comment">// This ruleset must either handle the AccessFs::Refer right,
+        // or it must silently ignore the whole sandboxing.
+        </span>.set_compatibility(CompatLevel::SoftRequirement)
+        .handle_access(AccessFs::Refer)<span class="question-mark">?
+        </span><span class="comment">// However, this ruleset may also handle other (future) access rights
+        // if they are supported by the running kernel.
+        </span>.set_compatibility(CompatLevel::BestEffort)
+        .handle_access(AccessFs::from_all(ABI::V3))<span class="question-mark">?
+        </span>.create()<span class="question-mark">?</span>)
+}</code></pre></div>
+<h5 id="example-with-hardrequirement"><a class="doc-anchor" href="#example-with-hardrequirement">§</a>Example with <code>HardRequirement</code></h5>
+<p>Security-dedicated applications may want to ensure that
+an untrusted software component is subject to a minimum of restrictions before launching it.
+In this case, we want to create a ruleset which will at least support
+all restrictions provided by the <a href="enum.ABI.html#variant.V1" title="variant landlock::ABI::V1">first version of Landlock</a>,
+and opportunistically handle restrictions supported by newer kernels.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>landlock::<span class="kw-2">*</span>;
+
+<span class="kw">fn </span>ruleset_fragile() -&gt; <span class="prelude-ty">Result</span>&lt;RulesetCreated, RulesetError&gt; {
+    <span class="prelude-val">Ok</span>(Ruleset::default()
+        <span class="comment">// This ruleset must either handle at least all accesses defined by
+        // the first Landlock version (e.g. AccessFs::WriteFile),
+        // or the following handle_access() call must return a wrapped
+        // AccessError&lt;AccessFs&gt;::Incompatible error.
+        </span>.set_compatibility(CompatLevel::HardRequirement)
+        .handle_access(AccessFs::from_all(ABI::V1))<span class="question-mark">?
+        </span><span class="comment">// However, this ruleset may also handle new access rights
+        // (e.g. AccessFs::Refer defined by the second version of Landlock)
+        // if they are supported by the running kernel,
+        // but without returning any error otherwise.
+        </span>.set_compatibility(CompatLevel::BestEffort)
+        .handle_access(AccessFs::from_all(ABI::V2))<span class="question-mark">?
+        </span>.create()<span class="question-mark">?</span>)
+}</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.set_best_effort" class="method"><a class="src rightside" href="../src/landlock/compat.rs.html#432-440">source</a><h4 class="code-header">fn <a href="#method.set_best_effort" class="fn">set_best_effort</a>(self, best_effort: <a class="primitive" href="https://doc.rust-lang.org/1.77.0/std/primitive.bool.html">bool</a>) -&gt; Self<div class="where">where
+    Self: <a class="trait" href="https://doc.rust-lang.org/1.77.0/core/marker/trait.Sized.html" title="trait core::marker::Sized">Sized</a>,</div></h4></section></summary><span class="item-info"><div class="stab deprecated"><span class="emoji">👎</span><span>Deprecated: Use set_compatibility() instead</span></div></span><div class="docblock"><p>Cf. <a href="trait.Compatible.html#method.set_compatibility" title="method landlock::Compatible::set_compatibility"><code>set_compatibility()</code></a>:</p>
+<ul>
+<li>
+<p><code>set_best_effort(true)</code> translates to <code>set_compatibility(CompatLevel::BestEffort)</code>.</p>
+</li>
+<li>
+<p><code>set_best_effort(false)</code> translates to <code>set_compatibility(CompatLevel::HardRequirement)</code>.</p>
+</li>
+</ul>
+</div></details></div><h2 id="object-safety" class="section-header">Object Safety<a href="#object-safety" class="anchor">§</a></h2><div class="object-safety-info">This trait is <b>not</b> <a href="https://doc.rust-lang.org/1.77.0/reference/items/traits.html#object-safety">object safe</a>.</div><h2 id="implementors" class="section-header">Implementors<a href="#implementors" class="anchor">§</a></h2><div id="implementors-list"><section id="impl-Compatible-for-%26mut+Ruleset" class="impl"><a class="src rightside" href="../src/landlock/ruleset.rs.html#303">source</a><a href="#impl-Compatible-for-%26mut+Ruleset" class="anchor">§</a><h3 class="code-header">impl <a class="trait" href="trait.Compatible.html" title="trait landlock::Compatible">Compatible</a> for &amp;mut <a class="struct" href="struct.Ruleset.html" title="struct landlock::Ruleset">Ruleset</a></h3></section><section id="impl-Compatible-for-%26mut+RulesetCreated" class="impl"><a class="src rightside" href="../src/landlock/ruleset.rs.html#411">source</a><a href="#impl-Compatible-for-%26mut+RulesetCreated" class="anchor">§</a><h3 class="code-header">impl <a class="trait" href="trait.Compatible.html" title="trait landlock::Compatible">Compatible</a> for &amp;mut <a class="struct" href="struct.RulesetCreated.html" title="struct landlock::RulesetCreated">RulesetCreated</a></h3></section><section id="impl-Compatible-for-Ruleset" class="impl"><a class="src rightside" href="../src/landlock/ruleset.rs.html#301">source</a><a href="#impl-Compatible-for-Ruleset" class="anchor">§</a><h3 class="code-header">impl <a class="trait" href="trait.Compatible.html" title="trait landlock::Compatible">Compatible</a> for <a class="struct" href="struct.Ruleset.html" title="struct landlock::Ruleset">Ruleset</a></h3></section><section id="impl-Compatible-for-RulesetCreated" class="impl"><a class="src rightside" href="../src/landlock/ruleset.rs.html#409">source</a><a href="#impl-Compatible-for-RulesetCreated" class="anchor">§</a><h3 class="code-header">impl <a class="trait" href="trait.Compatible.html" title="trait landlock::Compatible">Compatible</a> for <a class="struct" href="struct.RulesetCreated.html" title="struct landlock::RulesetCreated">RulesetCreated</a></h3></section><section id="impl-Compatible-for-%26mut+PathBeneath%3CF%3E" class="impl"><a class="src rightside" href="../src/landlock/fs.rs.html#356">source</a><a href="#impl-Compatible-for-%26mut+PathBeneath%3CF%3E" class="anchor">§</a><h3 class="code-header">impl&lt;F&gt; <a class="trait" href="trait.Compatible.html" title="trait landlock::Compatible">Compatible</a> for &amp;mut <a class="struct" href="struct.PathBeneath.html" title="struct landlock::PathBeneath">PathBeneath</a>&lt;F&gt;</h3></section><section id="impl-Compatible-for-PathBeneath%3CF%3E" class="impl"><a class="src rightside" href="../src/landlock/fs.rs.html#354">source</a><a href="#impl-Compatible-for-PathBeneath%3CF%3E" class="anchor">§</a><h3 class="code-header">impl&lt;F&gt; <a class="trait" href="trait.Compatible.html" title="trait landlock::Compatible">Compatible</a> for <a class="struct" href="struct.PathBeneath.html" title="struct landlock::PathBeneath">PathBeneath</a>&lt;F&gt;</h3></section></div><script src="../trait.impl/landlock/compat/trait.Compatible.js" async></script></section></div></main></body></html>

@@ -1,0 +1,3 @@
+(function() {var implementors = {
+"landlock":[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.77.0/std/os/fd/owned/trait.AsFd.html\" title=\"trait std::os::fd::owned::AsFd\">AsFd</a> for <a class=\"struct\" href=\"landlock/struct.PathFd.html\" title=\"struct landlock::PathFd\">PathFd</a>"]]
+};if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

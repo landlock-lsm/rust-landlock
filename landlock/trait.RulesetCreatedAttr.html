@@ -1,0 +1,95 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="API documentation for the Rust `RulesetCreatedAttr` trait in crate `landlock`."><title>RulesetCreatedAttr in landlock - Rust</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/SourceSerif4-Regular-46f98efaafac5295.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/FiraSans-Regular-018c141bf0843ffd.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/FiraSans-Medium-8f9a781e4970d388.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/SourceCodePro-Regular-562dcc5011b6de7d.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/SourceCodePro-Semibold-d899c5a5c4aeb14a.ttf.woff2"><link rel="stylesheet" href="../static.files/normalize-76eba96aa4d2e634.css"><link rel="stylesheet" href="../static.files/rustdoc-5bc39a1768837dd0.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="landlock" data-themes="" data-resource-suffix="" data-rustdoc-version="1.77.0 (aedd173a2 2024-03-17)" data-channel="1.77.0" data-search-js="search-dd67cee4cfa65049.js" data-settings-js="settings-4313503d2e1961c2.js" ><script src="../static.files/storage-4c98445ec4002617.js"></script><script defer src="sidebar-items.js"></script><script defer src="../static.files/main-48f368f3872407c8.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-04d5337699b92874.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-16x16-8b506e7a72182f1c.png"><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-422f7d1d52889060.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-2c020d218678b618.svg"></head><body class="rustdoc trait"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle" title="show sidebar"></button></nav><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../landlock/index.html">landlock</a><span class="version">0.3.1</span></h2></div><h2 class="location"><a href="#">RulesetCreatedAttr</a></h2><div class="sidebar-elems"><section><h3><a href="#provided-methods">Provided Methods</a></h3><ul class="block"><li><a href="#method.add_rule">add_rule</a></li><li><a href="#method.add_rules">add_rules</a></li><li><a href="#method.set_no_new_privs">set_no_new_privs</a></li></ul><h3><a href="#object-safety">Object Safety</a></h3><h3><a href="#implementors">Implementors</a></h3></section><h2><a href="index.html">In crate landlock</a></h2></div></nav><div class="sidebar-resizer"></div>
+    <main><div class="width-limiter"><nav class="sub"><form class="search-form"><span></span><div id="sidebar-button" tabindex="-1"><a href="../landlock/all.html" title="show sidebar"></a></div><input class="search-input" name="search" aria-label="Run search in the documentation" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><div id="help-button" tabindex="-1"><a href="../help.html" title="help">?</a></div><div id="settings-menu" tabindex="-1"><a href="../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../static.files/wheel-7b819b6101059cd0.svg"></a></div></form></nav><section id="main-content" class="content"><div class="main-heading"><h1>Trait <a href="index.html">landlock</a>::<wbr><a class="trait" href="#">RulesetCreatedAttr</a><button id="copy-path" title="Copy item path to clipboard"><img src="../static.files/clipboard-7571035ce49a181d.svg" width="19" height="18" alt="Copy item path"></button></h1><span class="out-of-band"><a class="src" href="../src/landlock/ruleset.rs.html#413-554">source</a> · <button id="toggle-all-docs" title="collapse all docs">[<span>&#x2212;</span>]</button></span></div><pre class="rust item-decl"><code>pub trait RulesetCreatedAttr: <a class="trait" href="https://doc.rust-lang.org/1.77.0/core/marker/trait.Sized.html" title="trait core::marker::Sized">Sized</a> + <a class="trait" href="https://doc.rust-lang.org/1.77.0/core/convert/trait.AsMut.html" title="trait core::convert::AsMut">AsMut</a>&lt;<a class="struct" href="struct.RulesetCreated.html" title="struct landlock::RulesetCreated">RulesetCreated</a>&gt; + <a class="trait" href="trait.Compatible.html" title="trait landlock::Compatible">Compatible</a> {
+    // Provided methods
+    fn <a href="#method.add_rule" class="fn">add_rule</a>&lt;T, U&gt;(self, rule: T) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.77.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;Self, <a class="enum" href="enum.RulesetError.html" title="enum landlock::RulesetError">RulesetError</a>&gt;
+       <span class="where">where T: <a class="trait" href="trait.Rule.html" title="trait landlock::Rule">Rule</a>&lt;U&gt;,
+             U: <a class="trait" href="trait.Access.html" title="trait landlock::Access">Access</a></span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.add_rules" class="fn">add_rules</a>&lt;I, T, U, E&gt;(self, rules: I) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.77.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;Self, E&gt;
+       <span class="where">where I: <a class="trait" href="https://doc.rust-lang.org/1.77.0/core/iter/traits/collect/trait.IntoIterator.html" title="trait core::iter::traits::collect::IntoIterator">IntoIterator</a>&lt;Item = <a class="enum" href="https://doc.rust-lang.org/1.77.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;T, E&gt;&gt;,
+             T: <a class="trait" href="trait.Rule.html" title="trait landlock::Rule">Rule</a>&lt;U&gt;,
+             U: <a class="trait" href="trait.Access.html" title="trait landlock::Access">Access</a>,
+             E: <a class="trait" href="https://doc.rust-lang.org/1.77.0/core/convert/trait.From.html" title="trait core::convert::From">From</a>&lt;<a class="enum" href="enum.RulesetError.html" title="enum landlock::RulesetError">RulesetError</a>&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.set_no_new_privs" class="fn">set_no_new_privs</a>(self, no_new_privs: <a class="primitive" href="https://doc.rust-lang.org/1.77.0/std/primitive.bool.html">bool</a>) -&gt; Self { ... }
+}</code></pre><h2 id="provided-methods" class="section-header">Provided Methods<a href="#provided-methods" class="anchor">§</a></h2><div class="methods"><details class="toggle method-toggle" open><summary><section id="method.add_rule" class="method"><a class="src rightside" href="../src/landlock/ruleset.rs.html#417-455">source</a><h4 class="code-header">fn <a href="#method.add_rule" class="fn">add_rule</a>&lt;T, U&gt;(self, rule: T) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.77.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;Self, <a class="enum" href="enum.RulesetError.html" title="enum landlock::RulesetError">RulesetError</a>&gt;<div class="where">where
+    T: <a class="trait" href="trait.Rule.html" title="trait landlock::Rule">Rule</a>&lt;U&gt;,
+    U: <a class="trait" href="trait.Access.html" title="trait landlock::Access">Access</a>,</div></h4></section></summary><div class="docblock"><p>Attempts to add a new rule to the ruleset.</p>
+<p>On error, returns a wrapped <a href="enum.AddRulesError.html" title="enum landlock::AddRulesError"><code>AddRulesError</code></a>.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.add_rules" class="method"><a class="src rightside" href="../src/landlock/ruleset.rs.html#531-542">source</a><h4 class="code-header">fn <a href="#method.add_rules" class="fn">add_rules</a>&lt;I, T, U, E&gt;(self, rules: I) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.77.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;Self, E&gt;<div class="where">where
+    I: <a class="trait" href="https://doc.rust-lang.org/1.77.0/core/iter/traits/collect/trait.IntoIterator.html" title="trait core::iter::traits::collect::IntoIterator">IntoIterator</a>&lt;Item = <a class="enum" href="https://doc.rust-lang.org/1.77.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;T, E&gt;&gt;,
+    T: <a class="trait" href="trait.Rule.html" title="trait landlock::Rule">Rule</a>&lt;U&gt;,
+    U: <a class="trait" href="trait.Access.html" title="trait landlock::Access">Access</a>,
+    E: <a class="trait" href="https://doc.rust-lang.org/1.77.0/core/convert/trait.From.html" title="trait core::convert::From">From</a>&lt;<a class="enum" href="enum.RulesetError.html" title="enum landlock::RulesetError">RulesetError</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Attempts to add a set of new rules to the ruleset.</p>
+<p>On error, returns a (double) wrapped <a href="enum.AddRulesError.html" title="enum landlock::AddRulesError"><code>AddRulesError</code></a>.</p>
+<h5 id="example"><a class="doc-anchor" href="#example">§</a>Example</h5>
+<p>Create a custom iterator to read paths from environment variable.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>landlock::{
+    Access, AccessFs, BitFlags, PathBeneath, PathFd, PathFdError, RestrictionStatus, Ruleset,
+    RulesetAttr, RulesetCreatedAttr, RulesetError, ABI,
+};
+<span class="kw">use </span>std::env;
+<span class="kw">use </span>std::ffi::OsStr;
+<span class="kw">use </span>std::os::unix::ffi::{OsStrExt, OsStringExt};
+<span class="kw">use </span>thiserror::Error;
+
+<span class="attr">#[derive(Debug, Error)]
+</span><span class="kw">enum </span>PathEnvError&lt;<span class="lifetime">'a</span>&gt; {
+    <span class="attr">#[error(transparent)]
+    </span>Ruleset(<span class="attr">#[from] </span>RulesetError),
+    <span class="attr">#[error(transparent)]
+    </span>AddRuleIter(<span class="attr">#[from] </span>PathFdError),
+    <span class="attr">#[error(<span class="string">"missing environment variable {0}"</span>)]
+    </span>MissingVar(<span class="kw-2">&amp;</span><span class="lifetime">'a </span>str),
+}
+
+<span class="kw">struct </span>PathEnv {
+    paths: Vec&lt;u8&gt;,
+    access: BitFlags&lt;AccessFs&gt;,
+}
+
+<span class="kw">impl </span>PathEnv {
+    <span class="comment">// env_var is the name of an environment variable
+    // containing paths requested to be allowed.
+    // Paths are separated with ":", e.g. "/bin:/lib:/usr:/proc".
+    // In case an empty string is provided,
+    // no restrictions are applied.
+    // `access` is the set of access rights allowed for each of the parsed paths.
+    </span><span class="kw">fn </span>new&lt;<span class="lifetime">'a</span>&gt;(
+        env_var: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>str, access: BitFlags&lt;AccessFs&gt;
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, PathEnvError&lt;<span class="lifetime">'a</span>&gt;&gt; {
+        <span class="prelude-val">Ok</span>(<span class="self">Self </span>{
+            paths: env::var_os(env_var)
+                .ok_or(PathEnvError::MissingVar(env_var))<span class="question-mark">?
+                </span>.into_vec(),
+            access,
+        })
+    }
+
+    <span class="kw">fn </span>iter(
+        <span class="kw-2">&amp;</span><span class="self">self</span>,
+    ) -&gt; <span class="kw">impl </span>Iterator&lt;Item = <span class="prelude-ty">Result</span>&lt;PathBeneath&lt;PathFd&gt;, PathEnvError&lt;<span class="lifetime">'static</span>&gt;&gt;&gt; + <span class="lifetime">'_ </span>{
+        <span class="kw">let </span>is_empty = <span class="self">self</span>.paths.is_empty();
+        <span class="self">self</span>.paths
+            .split(|b| <span class="kw-2">*</span>b == <span class="string">b':'</span>)
+            <span class="comment">// Skips the first empty element from of an empty string.
+            </span>.skip_while(<span class="kw">move </span>|<span class="kw">_</span>| is_empty)
+            .map(OsStr::from_bytes)
+            .map(<span class="kw">move </span>|path|
+                <span class="prelude-val">Ok</span>(PathBeneath::new(PathFd::new(path)<span class="question-mark">?</span>, <span class="self">self</span>.access)))
+    }
+}
+
+<span class="kw">fn </span>restrict_env() -&gt; <span class="prelude-ty">Result</span>&lt;RestrictionStatus, PathEnvError&lt;<span class="lifetime">'static</span>&gt;&gt; {
+    <span class="prelude-val">Ok</span>(Ruleset::default()
+        .handle_access(AccessFs::from_all(ABI::V1))<span class="question-mark">?
+        </span>.create()<span class="question-mark">?
+        </span><span class="comment">// In the shell: export EXECUTABLE_PATH="/usr:/bin:/sbin"
+        </span>.add_rules(PathEnv::new(<span class="string">"EXECUTABLE_PATH"</span>, AccessFs::Execute.into())<span class="question-mark">?</span>.iter())<span class="question-mark">?
+        </span>.restrict_self()<span class="question-mark">?</span>)
+}</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.set_no_new_privs" class="method"><a class="src rightside" href="../src/landlock/ruleset.rs.html#550-553">source</a><h4 class="code-header">fn <a href="#method.set_no_new_privs" class="fn">set_no_new_privs</a>(self, no_new_privs: <a class="primitive" href="https://doc.rust-lang.org/1.77.0/std/primitive.bool.html">bool</a>) -&gt; Self</h4></section></summary><div class="docblock"><p>Configures the ruleset to call <code>prctl(2)</code> with the <code>PR_SET_NO_NEW_PRIVS</code> command
+in <a href="struct.RulesetCreated.html#method.restrict_self" title="method landlock::RulesetCreated::restrict_self"><code>restrict_self()</code></a>.</p>
+<p>This is ignored if an error was encountered to a <a href="struct.Ruleset.html" title="struct landlock::Ruleset"><code>Ruleset</code></a> or <a href="struct.RulesetCreated.html" title="struct landlock::RulesetCreated"><code>RulesetCreated</code></a> method
+call while <a href="enum.CompatLevel.html#variant.SoftRequirement" title="variant landlock::CompatLevel::SoftRequirement"><code>CompatLevel::SoftRequirement</code></a> was set (with
+<a href="trait.Compatible.html#method.set_compatibility" title="method landlock::Compatible::set_compatibility"><code>set_compatibility()</code></a>).</p>
+</div></details></div><h2 id="object-safety" class="section-header">Object Safety<a href="#object-safety" class="anchor">§</a></h2><div class="object-safety-info">This trait is <b>not</b> <a href="https://doc.rust-lang.org/1.77.0/reference/items/traits.html#object-safety">object safe</a>.</div><h2 id="implementors" class="section-header">Implementors<a href="#implementors" class="anchor">§</a></h2><div id="implementors-list"><section id="impl-RulesetCreatedAttr-for-%26mut+RulesetCreated" class="impl"><a class="src rightside" href="../src/landlock/ruleset.rs.html#693">source</a><a href="#impl-RulesetCreatedAttr-for-%26mut+RulesetCreated" class="anchor">§</a><h3 class="code-header">impl <a class="trait" href="trait.RulesetCreatedAttr.html" title="trait landlock::RulesetCreatedAttr">RulesetCreatedAttr</a> for &amp;mut <a class="struct" href="struct.RulesetCreated.html" title="struct landlock::RulesetCreated">RulesetCreated</a></h3></section><section id="impl-RulesetCreatedAttr-for-RulesetCreated" class="impl"><a class="src rightside" href="../src/landlock/ruleset.rs.html#691">source</a><a href="#impl-RulesetCreatedAttr-for-RulesetCreated" class="anchor">§</a><h3 class="code-header">impl <a class="trait" href="trait.RulesetCreatedAttr.html" title="trait landlock::RulesetCreatedAttr">RulesetCreatedAttr</a> for <a class="struct" href="struct.RulesetCreated.html" title="struct landlock::RulesetCreated">RulesetCreated</a></h3></section></div><script src="../trait.impl/landlock/ruleset/trait.RulesetCreatedAttr.js" async></script></section></div></main></body></html>
