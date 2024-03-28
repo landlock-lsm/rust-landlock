@@ -187,9 +187,10 @@ fn current_kernel_abi() {
 // CompatState is not public outside this crate.
 /// Returned by ruleset builder.
 #[cfg_attr(test, derive(Debug))]
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Default, PartialEq, Eq)]
 pub enum CompatState {
     /// Initial undefined state.
+    #[default]
     Init,
     /// All requested restrictions are enforced.
     Full,
@@ -459,6 +460,186 @@ fn deprecated_set_best_effort() {
     );
 }
 
+// TODO: Add doc
+#[derive(Default)]
+pub enum Consequence {
+    /// Best-effort approach.
+    #[default]
+    Continue,
+    DisableRuleset,
+    ReturnError,
+}
+
+use crate::BitFlags;
+
+// TODO: Remove Clone and Copy
+#[derive(Clone, Copy)]
+pub struct CompatAccess<A>
+where
+    A: Access,
+{
+    inner_continue: Option<BitFlags<A>>,
+    inner_disable_ruleset: Option<BitFlags<A>>,
+    inner_return_error: Option<BitFlags<A>>,
+}
+
+impl<A> CompatAccess<A>
+where
+    A: Access,
+{
+    pub fn unwrap_update(self, _current_abi: ABI, _compat_state: &mut CompatState) -> BitFlags<A> {
+        /*
+        match self.disable_sandbox_if_unmet {
+            // Similar to CompatLevel::SoftRequirement
+            compat_state.update(CompatState::Dummy);
+        }
+        */
+        // FIXME:
+        self.inner_continue.unwrap()
+    }
+}
+
+impl<A> Default for CompatAccess<A>
+where
+    A: Access,
+{
+    fn default() -> Self {
+        Self {
+            inner_continue: None,
+            inner_disable_ruleset: None,
+            inner_return_error: None,
+        }
+    }
+}
+
+impl<A> CompatAccess<A>
+where
+    A: Access,
+{
+    // FIXME: Use CompatError
+    //fn try_inner(self, abi: ABI) -> Result<Option<BitFlags<A>>, CompatError<A>> {
+    //fn try_compat_inner(self, abi: ABI) -> Result<CompatResult<BitFlags<A>, A>, CompatError<A>> {
+    fn try_compat_inner(self, abi: ABI) -> Result<UnmetAction<A>, UnmetError> {
+        let mut has_access = false;
+        if let Some(inner_return_error) = self.inner_return_error {
+            match inner_return_error.try_compat_inner(abi)? {
+                CompatResult::Full(_) => has_access = true,
+                //CompatResult::Partial(_, _) => return Err(UnmetError),
+                //CompatResult::No(_) => return Err(UnmetError),
+                // TODO: Include unmet access rights in UnmetError.
+                _ => return Err(UnmetError),
+            };
+        }
+        if let Some(inner_disable_ruleset) = self.inner_disable_ruleset {
+            match inner_disable_ruleset.try_compat_inner(abi)? {
+                CompatResult::Full(_) => has_access = true,
+                // TODO: Include unmet access rights in DisableRuleset.
+                _ => return Ok(UnmetAction::DisableRuleset),
+            };
+        }
+        if let Some(inner_continue) = self.inner_continue {
+            let _ = inner_continue.try_compat_inner(abi)?;
+            has_access = true;
+        }
+        if !has_access {
+            // FIXME: add dedicated error
+            return Err(UnmetError);
+        }
+        Ok(UnmetAction::Continue(
+            self.inner_return_error.unwrap_or_default()
+                | self.inner_disable_ruleset.unwrap_or_default()
+                | self.inner_continue.unwrap_or_default(),
+        ))
+    }
+}
+
+pub trait CompatibleArgument
+where
+    Self: Into<CompatAccess<Self::CompatSelf>>,
+    Self::CompatSelf: Access,
+{
+    type CompatSelf;
+
+    // TODO: Move if_unmet() to the CompatibleArgument trait (and keep its name for genericity),
+    // implemented for all Access implementation and all BitFlags<A>.
+    //fn if_unmet(self, consequence: Consequence) -> Self {
+    fn if_unmet(self, consequence: Consequence) -> CompatAccess<Self::CompatSelf> {
+        let compat_self = self.into();
+        let has_access = compat_self.inner_continue.is_some()
+            || compat_self.inner_disable_ruleset.is_some()
+            || compat_self.inner_return_error.is_some();
+        let option_access = || {
+            if has_access {
+                Some(
+                    compat_self.inner_continue.unwrap_or_default()
+                        | compat_self.inner_disable_ruleset.unwrap_or_default()
+                        | compat_self.inner_return_error.unwrap_or_default(),
+                )
+            } else {
+                None
+            }
+        };
+        match consequence {
+            Consequence::Continue => CompatAccess {
+                inner_continue: option_access(),
+                ..Default::default()
+            },
+            Consequence::DisableRuleset => CompatAccess {
+                inner_disable_ruleset: option_access(),
+                ..Default::default()
+            },
+            Consequence::ReturnError => CompatAccess {
+                inner_return_error: option_access(),
+                ..Default::default()
+            },
+        }
+    }
+}
+
+impl<A, B> From<B> for CompatAccess<A>
+where
+    A: Access,
+    B: Into<BitFlags<A>>,
+    // TODO: Move as Access requirement
+    //A: CompatibleArgument<CompatSelf = A>,
+{
+    fn from(access: B) -> Self {
+        // Best-effort approach by default: Consequence::Continue
+        Self {
+            inner_continue: Some(access.into()),
+            ..Default::default()
+        }
+    }
+}
+
+#[test]
+fn from_compat_arg_to_compat_arg() {
+    // TODO: test that a CompatibleArgument with non-Consequence::default() cannot be converted to
+    // a Consequence::default() through the From trait.
+}
+
+/// See the [`Compatible`] documentation.
+#[derive(Default)]
+pub enum CompatMode {
+    /// Takes into account the build requests if they are supported by the running system,
+    /// or silently ignores them otherwise.
+    /// Never returns a compatibility error.
+    #[default]
+    BestEffort,
+    /// Takes into account the build requests if they are supported by the running system,
+    /// or returns a compatibility error otherwise ([`CompatError`]).
+    ErrorIfUnmet,
+}
+
+impl From<CompatMode> for CompatLevel {
+    fn from(mode: CompatMode) -> Self {
+        match mode {
+            CompatMode::BestEffort => CompatLevel::BestEffort,
+            CompatMode::ErrorIfUnmet => CompatLevel::HardRequirement,
+        }
+    }
+}
+
 /// See the [`Compatible`] documentation.
 #[cfg_attr(test, derive(EnumIter))]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -658,4 +839,41 @@ where
             }
         }
     }
+}
+
+use thiserror::Error;
+
+/*
+#[derive(Debug, Error)]
+#[error(transparent)]
+pub struct UnmetError<A>
+where
+    A: Access,
+(
+    #[from] A
+);
+*/
+
+#[derive(Debug, Error)]
+#[error("failed to meet the required access")]
+pub struct UnmetError;
+
+impl<A> From<CompatError<A>> for UnmetError
+where
+    A: Access,
+{
+    fn from(_: CompatError<A>) -> Self {
+        Self
+    }
+}
+
+pub enum UnmetAction<A>
+where
+    A: Access,
+{
+    // Fully matches the request.
+    Continue(BitFlags<A>),
+    // Partially matches the request.
+    //DisableRuleset(BitFlags<A>),
+    DisableRuleset,
 }

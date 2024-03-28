@@ -1,7 +1,8 @@
 use crate::compat::private::OptionCompatLevelMut;
 use crate::{
-    uapi, Access, AccessFs, AddRuleError, AddRulesError, BitFlags, CompatLevel, CompatState,
-    Compatibility, Compatible, CreateRulesetError, RestrictSelfError, RulesetError, TryCompat,
+    uapi, Access, AccessFs, AddRuleError, AddRulesError, BitFlags, CompatAccess, CompatLevel,
+    CompatMode, CompatState, Compatibility, Compatible, CreateRulesetError, RestrictSelfError,
+    RulesetError, TryCompat,
 };
 use libc::close;
 use std::io::Error;
@@ -222,11 +223,26 @@ impl Default for Ruleset {
 }
 
 impl Ruleset {
-    #[allow(clippy::new_without_default)]
-    #[deprecated(note = "Use Ruleset::default() instead")]
-    pub fn new() -> Self {
-        Ruleset::default()
+    /// Returns a new `Ruleset` with a specific compatibility mode.
+    ///
+    /// In most cases we should use [`Ruleset::default()`] instead.
+    pub fn new<T, U>(mode: CompatMode, handle_access: T) -> Result<Self, RulesetError>
+    where
+        T: Into<CompatAccess<U>>,
+        U: Access,
+    {
+        Self::default()
+            .set_compatibility(mode.into())
+            .handle_access(handle_access.into())
     }
+
+    /*
+    // TODO:
+    #[cfg(test)]
+    pub(crate) fn new_from(mode: CompatMode, abi: ABI) -> Self {
+        Self::from(abi).set_compatibility(mode.into())
+    }
+    */
 
     /// Attempts to create a real Landlock ruleset (if supported by the running kernel).
     /// The returned [`RulesetCreated`] is also a builder.
@@ -332,7 +348,8 @@ pub trait RulesetAttr: Sized + AsMut<Ruleset> + Compatible {
     /// E.g., `RulesetError::HandleAccesses(HandleAccessesError::Fs(HandleAccessError<AccessFs>))`
     fn handle_access<T, U>(mut self, access: T) -> Result<Self, RulesetError>
     where
-        T: Into<BitFlags<U>>,
+        T: Into<CompatAccess<U>>,
+        //T: Into<BitFlags<U>> // XXX: CompatibleArgument is not required but could help users
         U: Access,
     {
         U::ruleset_handle_access(self.as_mut(), access.into())?;
