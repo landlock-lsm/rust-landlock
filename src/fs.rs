@@ -87,8 +87,21 @@ pub enum AccessFs {
 }
 
 impl Access for AccessFs {
+    /// Union of [`from_read()`](AccessFs::from_read) and [`from_write()`](AccessFs::from_write).
+    fn from_all(abi: ABI) -> BitFlags<Self> {
+        // An empty access-right would be an error if passed to the kernel, but because the kernel
+        // doesn't support Landlock, no Landlock syscall should be called.  try_compat() should
+        // also return RestrictionStatus::Unrestricted when called with unsupported/empty
+        // access-rights.
+        Self::from_read(abi) | Self::from_write(abi)
+    }
+}
+
+impl AccessFs {
     // Roughly read (i.e. not all FS actions are handled).
-    fn from_read(abi: ABI) -> BitFlags<Self> {
+    /// Gets the access rights identified as read-only according to a specific ABI.
+    /// Exclusive with [`from_write()`](AccessFs::from_write).
+    pub fn from_read(abi: ABI) -> BitFlags<Self> {
         match abi {
             ABI::Unsupported => BitFlags::EMPTY,
             ABI::V1 | ABI::V2 | ABI::V3 => make_bitflags!(AccessFs::{
@@ -100,7 +113,9 @@ impl Access for AccessFs {
     }
 
     // Roughly write (i.e. not all FS actions are handled).
-    fn from_write(abi: ABI) -> BitFlags<Self> {
+    /// Gets the access rights identified as write-only according to a specific ABI.
+    /// Exclusive with [`from_read()`](AccessFs::from_read).
+    pub fn from_write(abi: ABI) -> BitFlags<Self> {
         match abi {
             ABI::Unsupported => BitFlags::EMPTY,
             ABI::V1 => make_bitflags!(AccessFs::{
@@ -119,6 +134,11 @@ impl Access for AccessFs {
             ABI::V3 => Self::from_write(ABI::V2) | AccessFs::Truncate,
         }
     }
+
+    /// Gets the access rights legitimate for non-directory files.
+    pub fn from_file(abi: ABI) -> BitFlags<Self> {
+        Self::from_all(abi) & ACCESS_FILE
+    }
 }
 
 #[test]
@@ -129,13 +149,6 @@ fn consistent_access_fs_rw() {
         let access_write = AccessFs::from_write(abi);
         assert_eq!(access_read, !access_write & access_all);
         assert_eq!(access_read | access_write, access_all);
-    }
-}
-
-impl AccessFs {
-    /// Gets the access rights legitimate for non-directory files.
-    pub fn from_file(abi: ABI) -> BitFlags<Self> {
-        Self::from_all(abi) & ACCESS_FILE
     }
 }
 

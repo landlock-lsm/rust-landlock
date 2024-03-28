@@ -9,22 +9,7 @@ use crate::{make_bitflags, AccessFs, CompatLevel, CompatState, Compatibility};
 
 pub trait Access: PrivateAccess {
     /// Gets the access rights defined by a specific [`ABI`].
-    /// Union of [`from_read()`](Access::from_read) and [`from_write()`](Access::from_write).
-    fn from_all(abi: ABI) -> BitFlags<Self> {
-        // An empty access-right would be an error if passed to the kernel, but because the kernel
-        // doesn't support Landlock, no Landlock syscall should be called.  try_compat() should
-        // also return RestrictionStatus::Unrestricted when called with unsupported/empty
-        // access-righs.
-        Self::from_read(abi) | Self::from_write(abi)
-    }
-
-    /// Gets the access rights identified as read-only according to a specific ABI.
-    /// Exclusive with [`from_write()`](Access::from_write).
-    fn from_read(abi: ABI) -> BitFlags<Self>;
-
-    /// Gets the access rights identified as write-only according to a specific ABI.
-    /// Exclusive with [`from_read()`](Access::from_read).
-    fn from_write(abi: ABI) -> BitFlags<Self>;
+    fn from_all(abi: ABI) -> BitFlags<Self>;
 }
 
 pub trait PrivateAccess: BitFlag {
