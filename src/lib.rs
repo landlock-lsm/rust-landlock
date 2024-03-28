@@ -87,7 +87,7 @@ pub use errors::{
     HandleAccessesError, PathBeneathError, PathFdError, RestrictSelfError, RulesetError,
 };
 pub use fs::{path_beneath_rules, AccessFs, PathBeneath, PathFd};
-pub use net::AccessNet;
+pub use net::{AccessNet, NetPort};
 pub use ruleset::{
     RestrictionStatus, Rule, Ruleset, RulesetAttr, RulesetCreated, RulesetCreatedAttr,
     RulesetStatus,
@@ -162,16 +162,21 @@ mod tests {
                     ))
                 }
             } else {
-                // The errno value should be ENOSYS, EOPNOTSUPP, or EINVAL (e.g. when an unknown
-                // access right is provided).
-                let errno = get_errno_from_landlock_status().unwrap_or(libc::EINVAL);
+                // The errno value should be ENOSYS, EOPNOTSUPP, EINVAL (e.g. when an unknown
+                // access right is provided), or E2BIG (e.g. when there is an unknown field in a
+                // Landlock syscall attribute).
+                let errno = get_errno_from_landlock_status();
                 println!("Expecting error {errno:?}");
-                assert!(matches!(
-                    ret,
+                match ret {
                     Err(TestRulesetError::Ruleset(RulesetError::CreateRuleset(
-                        CreateRulesetError::CreateRulesetCall { source }
-                    ))) if source.raw_os_error() == Some(errno)
-                ))
+                        CreateRulesetError::CreateRulesetCall { source },
+                    ))) => match (source.raw_os_error(), errno) {
+                        (Some(e1), Some(e2)) => assert_eq!(e1, e2),
+                        (Some(e1), None) => assert!(matches!(e1, libc::EINVAL | libc::E2BIG)),
+                        _ => unreachable!(),
+                    },
+                    _ => unreachable!(),
+                }
             }
         }
     }
@@ -358,6 +363,23 @@ mod tests {
                     .create()?
                     .add_rule(PathBeneath::new(PathFd::new("/")?, AccessFs::Execute))?
                     .try_clone()?
+                    .restrict_self()?)
+            },
+            false,
+        );
+    }
+
+    #[test]
+    fn abi_v4_tcp() {
+        check_ruleset_support(
+            ABI::V3,
+            Some(ABI::V4),
+            move |ruleset: Ruleset| -> _ {
+                Ok(ruleset
+                    .handle_access(AccessFs::Truncate)?
+                    .handle_access(AccessNet::BindTcp | AccessNet::ConnectTcp)?
+                    .create()?
+                    .add_rule(NetPort::new(1, AccessNet::ConnectTcp))?
                     .restrict_self()?)
             },
             false,

@@ -6,10 +6,12 @@ mod landlock;
 
 #[rustfmt::skip]
 pub use self::landlock::{
+    landlock_net_port_attr,
     landlock_path_beneath_attr,
-    landlock_ruleset_attr,
     landlock_rule_type,
+    landlock_rule_type_LANDLOCK_RULE_NET_PORT,
     landlock_rule_type_LANDLOCK_RULE_PATH_BENEATH,
+    landlock_ruleset_attr,
     LANDLOCK_ACCESS_FS_EXECUTE,
     LANDLOCK_ACCESS_FS_WRITE_FILE,
     LANDLOCK_ACCESS_FS_READ_FILE,
