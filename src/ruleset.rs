@@ -24,7 +24,12 @@ where
     Self: TryCompat<T> + Compatible,
     T: Access,
 {
-    fn as_ptr(&self) -> *const libc::c_void;
+    /// Returns a raw pointer to the rule's inner attribute.
+    ///
+    /// The caller must ensure that the rule outlives the pointer this function returns, or else it
+    /// will end up pointing to garbage.
+    fn as_ptr(&mut self) -> *const libc::c_void;
+
     fn get_type_id(&self) -> uapi::landlock_rule_type;
     fn get_flags(&self) -> u32;
     fn check_consistency(&self, ruleset: &RulesetCreated) -> Result<(), AddRulesError>;
@@ -422,7 +427,7 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> + Compatible {
         let body = || -> Result<Self, AddRulesError> {
             let self_ref = self.as_mut();
             rule.check_consistency(self_ref)?;
-            let compat_rule = match rule
+            let mut compat_rule = match rule
                 .try_compat(
                     self_ref.compat.abi(),
                     self_ref.compat.level,

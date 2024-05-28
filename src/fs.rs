@@ -221,21 +221,12 @@ where
         A: Into<BitFlags<AccessFs>>,
     {
         PathBeneath {
-            attr: uapi::landlock_path_beneath_attr {
-                // Invalid access-rights until try_compat() is called.
-                allowed_access: 0,
-                parent_fd: parent.as_fd().as_raw_fd(),
-            },
+            // Invalid access rights until as_ptr() is called.
+            attr: unsafe { zeroed() },
             parent_fd: parent,
             allowed_access: access.into(),
             compat_level: None,
         }
-    }
-
-    fn sync_attr(mut self) -> Self {
-        // Synchronizes rule attributes.
-        self.attr.allowed_access = self.allowed_access.bits();
-        self
     }
 }
 
@@ -268,7 +259,7 @@ where
         mut self,
         _abi: ABI,
     ) -> Result<CompatResult<Self, AccessFs>, CompatError<AccessFs>> {
-        // self.attr.allowed_access was updated with try_compat_children(), called by try_compat().
+        // self.allowed_access was updated with try_compat_children(), called by try_compat().
 
         // Gets subset of valid accesses according the FD type.
         let valid_access =
@@ -286,9 +277,9 @@ where
             .into();
             self.allowed_access = valid_access;
             // Linux would return EINVAL.
-            Ok(CompatResult::Partial(self.sync_attr(), error))
+            Ok(CompatResult::Partial(self, error))
         } else {
-            Ok(CompatResult::Full(self.sync_attr()))
+            Ok(CompatResult::Full(self))
         }
     }
 }
@@ -328,14 +319,20 @@ fn path_beneath_try_compat() {
         CompatLevel::HardRequirement,
     ] {
         let mut compat_state = CompatState::Init;
-        let raw_access = PathBeneath::new(PathFd::new("/").unwrap(), full_access)
+        let mut path_beneath = PathBeneath::new(PathFd::new("/").unwrap(), full_access)
             .try_compat(abi, *compat_level, &mut compat_state)
             .unwrap()
-            .unwrap()
-            .attr
-            .allowed_access;
-        assert_eq!(raw_access, full_access.bits());
+            .unwrap();
         assert_eq!(compat_state, CompatState::Full);
+
+        // Without synchronization.
+        let raw_access = path_beneath.attr.allowed_access;
+        assert_eq!(raw_access, 0);
+
+        // Synchronize the inner attribute buffer.
+        let _ = path_beneath.as_ptr();
+        let raw_access = path_beneath.attr.allowed_access;
+        assert_eq!(raw_access, full_access.bits());
     }
 }
 
@@ -384,7 +381,9 @@ impl<F> PrivateRule<AccessFs> for PathBeneath<F>
 where
     F: AsFd,
 {
-    fn as_ptr(&self) -> *const libc::c_void {
+    fn as_ptr(&mut self) -> *const libc::c_void {
+        self.attr.parent_fd = self.parent_fd.as_fd().as_raw_fd();
+        self.attr.allowed_access = self.allowed_access.bits();
         &self.attr as *const _ as _
     }
 
