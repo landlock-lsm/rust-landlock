@@ -24,13 +24,14 @@ where
     Self: TryCompat<T> + Compatible,
     T: Access,
 {
+    const TYPE_ID: uapi::landlock_rule_type;
+
     /// Returns a raw pointer to the rule's inner attribute.
     ///
     /// The caller must ensure that the rule outlives the pointer this function returns, or else it
     /// will end up pointing to garbage.
     fn as_ptr(&mut self) -> *const libc::c_void;
 
-    fn get_type_id(&self) -> uapi::landlock_rule_type;
     fn check_consistency(&self, ruleset: &RulesetCreated) -> Result<(), AddRulesError>;
 }
 
@@ -440,12 +441,7 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> + Compatible {
             match self_ref.compat.state {
                 CompatState::Init | CompatState::No | CompatState::Dummy => Ok(self),
                 CompatState::Full | CompatState::Partial => match unsafe {
-                    uapi::landlock_add_rule(
-                        self_ref.fd,
-                        compat_rule.get_type_id(),
-                        compat_rule.as_ptr(),
-                        0,
-                    )
+                    uapi::landlock_add_rule(self_ref.fd, T::TYPE_ID, compat_rule.as_ptr(), 0)
                 } {
                     0 => Ok(self),
                     _ => Err(AddRuleError::<U>::AddRuleCall {

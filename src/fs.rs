@@ -381,14 +381,12 @@ impl<F> PrivateRule<AccessFs> for PathBeneath<F>
 where
     F: AsFd,
 {
+    const TYPE_ID: uapi::landlock_rule_type = uapi::landlock_rule_type_LANDLOCK_RULE_PATH_BENEATH;
+
     fn as_ptr(&mut self) -> *const libc::c_void {
         self.attr.parent_fd = self.parent_fd.as_fd().as_raw_fd();
         self.attr.allowed_access = self.allowed_access.bits();
         &self.attr as *const _ as _
-    }
-
-    fn get_type_id(&self) -> uapi::landlock_rule_type {
-        uapi::landlock_rule_type_LANDLOCK_RULE_PATH_BENEATH
     }
 
     fn check_consistency(&self, ruleset: &RulesetCreated) -> Result<(), AddRulesError> {
