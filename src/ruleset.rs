@@ -31,7 +31,6 @@ where
     fn as_ptr(&mut self) -> *const libc::c_void;
 
     fn get_type_id(&self) -> uapi::landlock_rule_type;
-    fn get_flags(&self) -> u32;
     fn check_consistency(&self, ruleset: &RulesetCreated) -> Result<(), AddRulesError>;
 }
 
@@ -445,7 +444,7 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> + Compatible {
                         self_ref.fd,
                         compat_rule.get_type_id(),
                         compat_rule.as_ptr(),
-                        compat_rule.get_flags(),
+                        0,
                     )
                 } {
                     0 => Ok(self),

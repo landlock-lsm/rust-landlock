@@ -391,10 +391,6 @@ where
         uapi::landlock_rule_type_LANDLOCK_RULE_PATH_BENEATH
     }
 
-    fn get_flags(&self) -> u32 {
-        0
-    }
-
     fn check_consistency(&self, ruleset: &RulesetCreated) -> Result<(), AddRulesError> {
         // Checks that this rule doesn't contain a superset of the access-rights handled by the
         // ruleset.  This check is about requested access-rights but not actual access-rights.
