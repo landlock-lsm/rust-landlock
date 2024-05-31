@@ -558,20 +558,15 @@ fn tailored_compat_level() {
     }
 }
 
-// CompatResult is useful because we don't want to duplicate objects (potentially wrapping a file
-// descriptor), and we may not have compatibility errors for some objects.  TryCompat::try_compat()
-// is responsible to either take T or CompatError<A> according to the compatibility level.
-//
 // CompatResult is not public outside this crate.
-pub enum CompatResult<T, A>
+pub enum CompatResult<A>
 where
-    T: TryCompat<A>,
     A: Access,
 {
     // Fully matches the request.
-    Full(T),
+    Full,
     // Partially matches the request.
-    Partial(T, CompatError<A>),
+    Partial(CompatError<A>),
     // Doesn't matches the request.
     No(CompatError<A>),
 }
@@ -582,7 +577,7 @@ where
     Self: Sized + TailoredCompatLevel,
     A: Access,
 {
-    fn try_compat_inner(self, abi: ABI) -> Result<CompatResult<Self, A>, CompatError<A>>;
+    fn try_compat_inner(&mut self, abi: ABI) -> Result<CompatResult<A>, CompatError<A>>;
 
     // Default implementation for objects without children.
     //
@@ -590,6 +585,11 @@ where
     // compatibility level, if any, with self.tailored_compat_level(default_compat_level), and pass
     // it with the abi and compat_state to each child.try_compat().  See PathBeneath implementation
     // and the self.allowed_access.try_compat() call.
+    //
+    // # Warning
+    //
+    // Errors must be prioritized over incompatibility (i.e. return Err(e) over Ok(None)) for all
+    // children.
     fn try_compat_children<L>(
         self,
         _abi: ABI,
@@ -614,48 +614,51 @@ where
         L: Into<CompatLevel>,
     {
         let compat_level = self.tailored_compat_level(parent_level);
-        let new_self = match self.try_compat_children(abi, compat_level, compat_state)? {
-            Some(n) => n,
-            None => return Ok(None),
-        };
-        match new_self.try_compat_inner(abi) {
-            Ok(CompatResult::Full(new_self)) => {
+        let some_inner = match self.try_compat_inner(abi) {
+            Ok(CompatResult::Full) => {
                 compat_state.update(CompatState::Full);
-                Ok(Some(new_self))
+                true
             }
-            Ok(CompatResult::Partial(new_self, error)) => match compat_level {
+            Ok(CompatResult::Partial(error)) => match compat_level {
                 CompatLevel::BestEffort => {
                     compat_state.update(CompatState::Partial);
-                    Ok(Some(new_self))
+                    true
                 }
                 CompatLevel::SoftRequirement => {
                     compat_state.update(CompatState::Dummy);
-                    Ok(None)
+                    false
                 }
                 CompatLevel::HardRequirement => {
                     compat_state.update(CompatState::Dummy);
-                    Err(error)
+                    return Err(error);
                 }
             },
             Ok(CompatResult::No(error)) => match compat_level {
                 CompatLevel::BestEffort => {
                     compat_state.update(CompatState::No);
-                    Ok(None)
+                    false
                 }
                 CompatLevel::SoftRequirement => {
                     compat_state.update(CompatState::Dummy);
-                    Ok(None)
+                    false
                 }
                 CompatLevel::HardRequirement => {
                     compat_state.update(CompatState::Dummy);
-                    Err(error)
+                    return Err(error);
                 }
             },
-            Err(e) => {
+            Err(error) => {
                 // Safeguard to help for test consistency.
                 compat_state.update(CompatState::Dummy);
-                Err(e)
+                return Err(error);
             }
+        };
+
+        // At this point, any inner error have been returned, so we can proceed with
+        // try_compat_children()?.
+        match self.try_compat_children(abi, compat_level, compat_state)? {
+            Some(n) if some_inner => Ok(Some(n)),
+            _ => Ok(None),
         }
     }
 }

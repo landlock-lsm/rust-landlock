@@ -52,34 +52,36 @@ impl<A> TryCompat<A> for BitFlags<A>
 where
     A: Access,
 {
-    fn try_compat_inner(self, abi: ABI) -> Result<CompatResult<Self, A>, CompatError<A>> {
+    fn try_compat_inner(&mut self, abi: ABI) -> Result<CompatResult<A>, CompatError<A>> {
         if self.is_empty() {
             // Empty access-rights would result to a runtime error.
             Err(AccessError::Empty.into())
-        } else if !Self::all().contains(self) {
+        } else if !Self::all().contains(*self) {
             // Unknown access-rights (at build time) would result to a runtime error.
             // This can only be reached by using the unsafe BitFlags::from_bits_unchecked().
             Err(AccessError::Unknown {
-                access: self,
-                unknown: self & full_negation(Self::all()),
+                access: *self,
+                unknown: *self & full_negation(Self::all()),
             }
             .into())
         } else {
-            let compat = self & A::from_all(abi);
-            if compat.is_empty() {
+            let compat = *self & A::from_all(abi);
+            let ret = if compat.is_empty() {
                 Ok(CompatResult::No(
-                    AccessError::Incompatible { access: self }.into(),
+                    AccessError::Incompatible { access: *self }.into(),
                 ))
-            } else if compat != self {
+            } else if compat != *self {
                 let error = AccessError::PartiallyCompatible {
-                    access: self,
-                    incompatible: self & full_negation(compat),
+                    access: *self,
+                    incompatible: *self & full_negation(compat),
                 }
                 .into();
-                Ok(CompatResult::Partial(compat, error))
+                Ok(CompatResult::Partial(error))
             } else {
-                Ok(CompatResult::Full(self))
-            }
+                Ok(CompatResult::Full)
+            };
+            *self = compat;
+            ret
         }
     }
 }

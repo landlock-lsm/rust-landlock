@@ -269,11 +269,9 @@ where
     }
 
     fn try_compat_inner(
-        mut self,
+        &mut self,
         _abi: ABI,
-    ) -> Result<CompatResult<Self, AccessFs>, CompatError<AccessFs>> {
-        // self.allowed_access was updated with try_compat_children(), called by try_compat().
-
+    ) -> Result<CompatResult<AccessFs>, CompatError<AccessFs>> {
         // Gets subset of valid accesses according the FD type.
         let valid_access =
             if is_file(&self.parent_fd).map_err(|e| PathBeneathError::StatCall { source: e })? {
@@ -290,9 +288,9 @@ where
             .into();
             self.allowed_access = valid_access;
             // Linux would return EINVAL.
-            Ok(CompatResult::Partial(self, error))
+            Ok(CompatResult::Partial(error))
         } else {
-            Ok(CompatResult::Full(self))
+            Ok(CompatResult::Full)
         }
     }
 }
@@ -314,8 +312,8 @@ fn path_beneath_try_compat_children() {
             .add_rule(PathBeneath::new(PathFd::new("/dev/null").unwrap(), access_file))
             .unwrap_err(),
         RulesetError::AddRules(AddRulesError::Fs(AddRuleError::Compat(
-            CompatError::Access(AccessError::PartiallyCompatible { access, incompatible }))
-        )) if access == access_file && incompatible == AccessFs::Refer
+            CompatError::PathBeneath(PathBeneathError::DirectoryAccess { access, incompatible })
+        ))) if access == access_file && incompatible == AccessFs::Refer
     ));
 
     // Test error ordering with ABI::V2
