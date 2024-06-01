@@ -544,9 +544,8 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> + Compatible {
     /// Configures the ruleset to call `prctl(2)` with the `PR_SET_NO_NEW_PRIVS` command
     /// in [`restrict_self()`](RulesetCreated::restrict_self).
     ///
-    /// This is ignored if an error was encountered to a [`Ruleset`] or [`RulesetCreated`] method
-    /// call while [`CompatLevel::SoftRequirement`] was set (with
-    /// [`set_compatibility()`](Compatible::set_compatibility)).
+    /// This `prctl(2)` call is never ignored, even if an error was encountered on a [`Ruleset`] or
+    /// [`RulesetCreated`] method call while [`CompatLevel::SoftRequirement`] was set.
     fn set_no_new_privs(mut self, no_new_privs: bool) -> Self {
         <Self as AsMut<RulesetCreated>>::as_mut(&mut self).no_new_privs = no_new_privs;
         self
@@ -585,13 +584,10 @@ impl RulesetCreated {
     /// On error, returns a wrapped [`RestrictSelfError`].
     pub fn restrict_self(mut self) -> Result<RestrictionStatus, RulesetError> {
         let mut body = || -> Result<RestrictionStatus, RestrictSelfError> {
-            // FIXME: Enforce no_new_privs even if something failed with SoftRequirement. The
-            // rationale is that no_new_privs should not be an issue on its own if it is not
-            // explicitly deactivated.
-            //
-            // Ignores prctl_set_no_new_privs() if an error was encountered with
-            // CompatLevel::SoftRequirement set.
-            let enforced_nnp = if self.compat.state != CompatState::Dummy && self.no_new_privs {
+            // Enforce no_new_privs even if something failed with SoftRequirement. The rationale is
+            // that no_new_privs should not be an issue on its own if it is not explicitly
+            // deactivated.
+            let enforced_nnp = if self.no_new_privs {
                 if let Err(e) = prctl_set_no_new_privs() {
                     match self.compat.level.into() {
                         CompatLevel::BestEffort => {}
@@ -739,6 +735,52 @@ fn ruleset_created_attr() {
 }
 
 #[test]
+fn ruleset_compat_dummy() {
+    for level in [CompatLevel::BestEffort, CompatLevel::SoftRequirement] {
+        println!("level: {:?}", level);
+
+        // ABI:Unsupported does not support AccessFs::Execute.
+        let ruleset = Ruleset::from(ABI::Unsupported);
+        assert_eq!(ruleset.compat.state, CompatState::Dummy);
+
+        let ruleset = ruleset.set_compatibility(level);
+        assert_eq!(ruleset.compat.state, CompatState::Dummy);
+
+        let ruleset = ruleset.handle_access(AccessFs::Execute).unwrap();
+        assert_eq!(ruleset.compat.state, CompatState::Dummy);
+
+        let ruleset_created = ruleset.create().unwrap();
+        assert_eq!(ruleset_created.compat.state, CompatState::Dummy);
+
+        let ruleset_created = ruleset_created
+            .add_rule(PathBeneath::new(
+                PathFd::new("/usr").unwrap(),
+                AccessFs::Execute,
+            ))
+            .unwrap();
+        assert_eq!(ruleset_created.compat.state, CompatState::Dummy);
+    }
+}
+
+#[test]
+fn ruleset_compat_partial() {
+    // CompatLevel::BestEffort
+    let ruleset = Ruleset::from(ABI::V1);
+    assert_eq!(ruleset.compat.state, CompatState::Init);
+
+    // ABI::V1 does not support AccessFs::Refer.
+    let ruleset = ruleset.handle_access(AccessFs::Refer).unwrap();
+    assert_eq!(ruleset.compat.state, CompatState::No);
+
+    let ruleset = ruleset.handle_access(AccessFs::Execute).unwrap();
+    assert_eq!(ruleset.compat.state, CompatState::Partial);
+
+    // Requesting to handle another unsupported handled access does not change anything.
+    let ruleset = ruleset.handle_access(AccessFs::Refer).unwrap();
+    assert_eq!(ruleset.compat.state, CompatState::Partial);
+}
+
+#[test]
 fn ruleset_unsupported() {
     assert_eq!(
         Ruleset::from(ABI::Unsupported)
@@ -768,8 +810,8 @@ fn ruleset_unsupported() {
             .unwrap(),
         RestrictionStatus {
             ruleset: RulesetStatus::NotEnforced,
-            // With SoftRequirement, no_new_privs is discarded.
-            no_new_privs: false,
+            // With SoftRequirement, no_new_privs is still enabled.
+            no_new_privs: true,
         }
     );
 
@@ -815,9 +857,9 @@ fn ruleset_unsupported() {
                 .unwrap(),
             RestrictionStatus {
                 ruleset: RulesetStatus::NotEnforced,
-                // With SoftRequirement, no_new_privs is discarded if there is an error
+                // With SoftRequirement, no_new_privs is still enabled, even if there is an error
                 // (e.g. unsupported access right).
-                no_new_privs: false,
+                no_new_privs: true,
             }
         );
     }
@@ -917,7 +959,7 @@ fn ignore_abi_v2_with_abi_v1() {
             .unwrap(),
         RestrictionStatus {
             ruleset: RulesetStatus::NotEnforced,
-            no_new_privs: false,
+            no_new_privs: true,
         }
     );
 }

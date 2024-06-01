@@ -127,7 +127,7 @@ fn compat_bit_flags() {
     compat = ABI::Unsupported.into();
 
     // Tests that the ruleset is marked as unsupported.
-    assert!(compat.state == CompatState::No);
+    assert!(compat.state == CompatState::Dummy);
 
     // Access-rights are valid (but ignored) when they are not required for the current ABI.
     assert_eq!(
@@ -139,7 +139,7 @@ fn compat_bit_flags() {
 
     // Tests that the ruleset is in an unsupported state, which is important to be able to still
     // enforce no_new_privs.
-    assert!(compat.state == CompatState::No);
+    assert!(compat.state == CompatState::Dummy);
 
     // Access-rights are not valid when they are required for the current ABI.
     compat.level = Some(CompatLevel::HardRequirement);
