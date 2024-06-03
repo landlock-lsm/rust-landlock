@@ -298,14 +298,48 @@ where
 }
 
 #[test]
+fn path_beneath_try_compat_children() {
+    use crate::*;
+
+    // AccessFs::Refer is not handled by ABI::V1 and only for directories.
+    let access_file = AccessFs::ReadFile | AccessFs::Refer;
+
+    // Test error ordering with ABI::V1
+    let mut ruleset = Ruleset::from(ABI::V1).handle_access(access_file).unwrap();
+    // Do not actually perform any syscall.
+    ruleset.compat.state = CompatState::Dummy;
+    assert!(matches!(
+        RulesetCreated::new(ruleset, -1)
+            .set_compatibility(CompatLevel::HardRequirement)
+            .add_rule(PathBeneath::new(PathFd::new("/dev/null").unwrap(), access_file))
+            .unwrap_err(),
+        RulesetError::AddRules(AddRulesError::Fs(AddRuleError::Compat(
+            CompatError::Access(AccessError::PartiallyCompatible { access, incompatible }))
+        )) if access == access_file && incompatible == AccessFs::Refer
+    ));
+
+    // Test error ordering with ABI::V2
+    let mut ruleset = Ruleset::from(ABI::V2).handle_access(access_file).unwrap();
+    // Do not actually perform any syscall.
+    ruleset.compat.state = CompatState::Dummy;
+    assert!(matches!(
+        RulesetCreated::new(ruleset, -1)
+            .set_compatibility(CompatLevel::HardRequirement)
+            .add_rule(PathBeneath::new(PathFd::new("/dev/null").unwrap(), access_file))
+            .unwrap_err(),
+        RulesetError::AddRules(AddRulesError::Fs(AddRuleError::Compat(
+            CompatError::PathBeneath(PathBeneathError::DirectoryAccess { access, incompatible })
+        ))) if access == access_file && incompatible == AccessFs::Refer
+    ));
+}
+
+#[test]
 fn path_beneath_try_compat() {
     use crate::*;
 
     let abi = ABI::V1;
 
     for file in &["/etc/passwd", "/dev/null"] {
-        // TODO: test try_compat_children
-
         let mut compat_state = CompatState::Init;
         let ro_access = AccessFs::ReadDir | AccessFs::ReadFile;
         assert!(matches!(

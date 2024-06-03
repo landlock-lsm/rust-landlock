@@ -562,7 +562,7 @@ pub struct RulesetCreated {
 }
 
 impl RulesetCreated {
-    fn new(ruleset: Ruleset, fd: RawFd) -> Self {
+    pub(crate) fn new(ruleset: Ruleset, fd: RawFd) -> Self {
         // The compatibility state is initialized by Ruleset::create().
         #[cfg(test)]
         assert!(!matches!(ruleset.compat.state, CompatState::Init));
