@@ -338,6 +338,7 @@ mod tests {
                     .handle_access(AccessFs::Refer)?
                     .handle_access(AccessFs::Truncate)?
                     .create()?
+                    .add_rule(PathBeneath::new(PathFd::new("/")?, AccessFs::Refer))?
                     .restrict_self()?)
             },
             false,

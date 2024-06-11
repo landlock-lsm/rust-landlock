@@ -239,45 +239,36 @@ impl Ruleset {
     /// On error, returns a wrapped [`CreateRulesetError`].
     pub fn create(mut self) -> Result<RulesetCreated, RulesetError> {
         let body = || -> Result<RulesetCreated, CreateRulesetError> {
-            // Checks that there is at least one requested access.
-            if self.requested_handled_fs.is_empty() {
-                // No handle_access() call.
-                return Err(CreateRulesetError::MissingHandledAccess);
-            }
-
-            // The compatibility state is initialized by handle_access() and verified by the
-            // requested_handled_fs check.
-            #[cfg(test)]
-            assert!(!matches!(self.compat.state, CompatState::Init));
-            if self.compat.state == CompatState::Init {
-                return Err(CreateRulesetError::MissingHandledAccess);
-            }
-
-            // Checks that the ruleset handles at least one access.
-            if self.actual_handled_fs.is_empty() {
-                match self.compat.level.into() {
-                    CompatLevel::BestEffort => {
-                        self.compat.update(CompatState::No);
-                    }
-                    CompatLevel::SoftRequirement => {
-                        self.compat.update(CompatState::Dummy);
-                    }
-                    CompatLevel::HardRequirement => {
-                        return Err(CreateRulesetError::MissingHandledAccess);
-                    }
-                }
-            }
-
-            let attr = uapi::landlock_ruleset_attr {
-                handled_access_fs: self.actual_handled_fs.bits(),
-                handled_access_net: 0,
-            };
-
             match self.compat.state {
-                CompatState::Init | CompatState::No | CompatState::Dummy => {
-                    Ok(RulesetCreated::new(self, -1))
+                CompatState::Init => {
+                    // Checks that there is at least one requested access (e.g.
+                    // requested_handled_fs): one call to handle_access().
+                    Err(CreateRulesetError::MissingHandledAccess)
+                }
+                CompatState::No | CompatState::Dummy => {
+                    // There is at least one requested access.
+                    #[cfg(test)]
+                    assert!(!self.requested_handled_fs.is_empty());
+
+                    // CompatState::No should be handled as CompatState::Dummy because it is not
+                    // possible to create an actual ruleset.
+                    self.compat.update(CompatState::Dummy);
+                    match self.compat.level.into() {
+                        CompatLevel::HardRequirement => {
+                            Err(CreateRulesetError::MissingHandledAccess)
+                        }
+                        _ => Ok(RulesetCreated::new(self, -1)),
+                    }
                 }
                 CompatState::Full | CompatState::Partial => {
+                    // There is at least one actual handled access.
+                    #[cfg(test)]
+                    assert!(!self.actual_handled_fs.is_empty());
+
+                    let attr = uapi::landlock_ruleset_attr {
+                        handled_access_fs: self.actual_handled_fs.bits(),
+                        handled_access_net: 0,
+                    };
                     match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) } {
                         fd if fd >= 0 => Ok(RulesetCreated::new(self, fd)),
                         _ => Err(CreateRulesetError::CreateRulesetCall {
@@ -741,15 +732,24 @@ fn ruleset_compat_dummy() {
 
         // ABI:Unsupported does not support AccessFs::Execute.
         let ruleset = Ruleset::from(ABI::Unsupported);
-        assert_eq!(ruleset.compat.state, CompatState::Dummy);
+        assert_eq!(ruleset.compat.state, CompatState::Init);
 
         let ruleset = ruleset.set_compatibility(level);
-        assert_eq!(ruleset.compat.state, CompatState::Dummy);
+        assert_eq!(ruleset.compat.state, CompatState::Init);
 
         let ruleset = ruleset.handle_access(AccessFs::Execute).unwrap();
-        assert_eq!(ruleset.compat.state, CompatState::Dummy);
+        assert_eq!(
+            ruleset.compat.state,
+            match level {
+                CompatLevel::BestEffort => CompatState::No,
+                CompatLevel::SoftRequirement => CompatState::Dummy,
+                _ => unreachable!(),
+            }
+        );
 
         let ruleset_created = ruleset.create().unwrap();
+        // Because the compatibility state was either No or Dummy, calling create() updates it to
+        // Dummy.
         assert_eq!(ruleset_created.compat.state, CompatState::Dummy);
 
         let ruleset_created = ruleset_created

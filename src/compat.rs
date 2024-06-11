@@ -267,11 +267,7 @@ impl From<ABI> for Compatibility {
         Compatibility {
             abi,
             level: Default::default(),
-            state: match abi {
-                // Don't forces the state as Dummy because no_new_privs may still be legitimate.
-                ABI::Unsupported => CompatState::Dummy,
-                _ => CompatState::Init,
-            },
+            state: CompatState::Init,
         }
     }
 }
