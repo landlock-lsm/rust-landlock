@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::{uapi, Access, CompatError};
+use std::fmt::{self, Display, Formatter};
+use std::io::Error;
 
 #[cfg(test)]
 use std::convert::TryInto;
@@ -70,20 +72,10 @@ pub enum ABI {
     V6 = 6,
 }
 
+// ABI should not be dynamically created (in other crates) according to the running kernel
+// to avoid inconsistent behaviors and non-determinism. Creating ABIs based on runtime detection
+// can lead to unreliable sandboxing where rules might differ between executions.
 impl ABI {
-    // Must remain private to avoid inconsistent behavior by passing Ok(self) to a builder method,
-    // e.g. to make it impossible to call ruleset.handle_fs(ABI::new_current()?)
-    fn new_current() -> Self {
-        ABI::from(unsafe {
-            // Landlock ABI version starts at 1 but errno is only set for negative values.
-            uapi::landlock_create_ruleset(
-                std::ptr::null(),
-                0,
-                uapi::LANDLOCK_CREATE_RULESET_VERSION,
-            )
-        })
-    }
-
     #[cfg(test)]
     fn is_known(value: i32) -> bool {
         value > 0 && value < ABI::COUNT as i32
@@ -96,8 +88,6 @@ impl ABI {
 impl From<i32> for ABI {
     fn from(value: i32) -> ABI {
         match value {
-            // The only possible error values should be EOPNOTSUPP and ENOSYS, but let's interpret
-            // all kind of errors as unsupported.
             n if n <= 0 => ABI::Unsupported,
             1 => ABI::V1,
             2 => ABI::V2,
@@ -126,14 +116,14 @@ fn abi_from() {
     }
 
     assert_eq!(ABI::from(last_i + 1), last_abi);
-    assert_eq!(ABI::from(9), last_abi);
+    assert_eq!(ABI::from(999), last_abi);
 }
 
 #[test]
 fn known_abi() {
     assert!(!ABI::is_known(-1));
     assert!(!ABI::is_known(0));
-    assert!(!ABI::is_known(99));
+    assert!(!ABI::is_known(999));
 
     let mut last_i = -1;
     for (i, _) in ABI::iter().enumerate().skip(1) {
@@ -142,6 +132,108 @@ fn known_abi() {
     }
     assert!(!ABI::is_known(last_i + 1));
 }
+
+impl Display for ABI {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            ABI::Unsupported => write!(f, "unsupported"),
+            v => (*v as u32).fmt(f),
+        }
+    }
+}
+
+/// Status of Landlock support for the running system.
+///
+/// This enum is used to represent the status of the Landlock support for the system where the code
+/// is executed. It can indicate whether Landlock is available or not.
+///
+/// # Warning
+///
+/// Sandboxed programs should only use this data to log or provide information to users,
+/// not to change their behavior according to this status.  Indeed, the `Ruleset` and the other
+/// types are designed to handle the compatibility in a simple and safe way.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum LandlockStatus {
+    /// Landlock is supported but not enabled (`EOPNOTSUPP`).
+    NotEnabled,
+    /// Landlock is not implemented (i.e. not built into the running kernel: `ENOSYS`).
+    NotImplemented,
+    /// Landlock is available and supported up to the given ABI.
+    ///
+    /// `Option<i32>` contains the raw ABI value if it's greater than the greatest known ABI,
+    /// which would mean that the running kernel is newer than the Landlock crate.
+    Available(ABI, Option<i32>),
+}
+
+impl LandlockStatus {
+    // Must remain private to avoid inconsistent behavior using such unknown-at-build-time ABI
+    // e.g., AccessFs::from_all(ABI::new_current())
+    //
+    // This should not be Default::default() because the returned value would may not be the same
+    // for all users.
+    fn current() -> Self {
+        // Landlock ABI version starts at 1 but errno is only set for negative values.
+        let v = unsafe {
+            uapi::landlock_create_ruleset(
+                std::ptr::null(),
+                0,
+                uapi::LANDLOCK_CREATE_RULESET_VERSION,
+            )
+        };
+        if v < 0 {
+            // The only possible error values should be EOPNOTSUPP and ENOSYS.
+            match Error::last_os_error().raw_os_error() {
+                Some(libc::EOPNOTSUPP) => Self::NotEnabled,
+                _ => Self::NotImplemented,
+            }
+        } else {
+            let abi = ABI::from(v);
+            Self::Available(abi, (v != abi as i32).then_some(v))
+        }
+    }
+}
+
+// Test against the running kernel.
+#[test]
+fn test_current_landlock_status() {
+    let status = LandlockStatus::current();
+    if *TEST_ABI == ABI::Unsupported {
+        assert_eq!(status, LandlockStatus::NotImplemented);
+    } else {
+        assert!(matches!(status, LandlockStatus::Available(abi, _) if abi == *TEST_ABI));
+        if std::env::var(TEST_ABI_ENV_NAME).is_ok() {
+            // We cannot reliably check for unknown kernel.
+            assert!(matches!(status, LandlockStatus::Available(_, None)));
+        }
+    }
+}
+
+impl From<LandlockStatus> for ABI {
+    fn from(status: LandlockStatus) -> Self {
+        match status {
+            // The only possible error values should be EOPNOTSUPP and ENOSYS,
+            // but let's convert all kind of errors as unsupported.
+            LandlockStatus::NotEnabled | LandlockStatus::NotImplemented => ABI::Unsupported,
+            LandlockStatus::Available(abi, _) => abi,
+        }
+    }
+}
+
+// This is only useful to tests and should not be exposed publicly because
+// the mapping can only be partial.
+#[cfg(test)]
+impl From<ABI> for LandlockStatus {
+    fn from(abi: ABI) -> Self {
+        match abi {
+            // Convert to ENOSYS because of check_ruleset_support() and ruleset_unsupported() tests.
+            ABI::Unsupported => Self::NotImplemented,
+            _ => Self::Available(abi, None),
+        }
+    }
+}
+
+#[cfg(test)]
+static TEST_ABI_ENV_NAME: &str = "LANDLOCK_CRATE_TEST_ABI";
 
 #[cfg(test)]
 lazy_static! {
@@ -154,7 +246,7 @@ lazy_static! {
                 panic!("Unknown ABI: {n}");
             }
         }
-        Err(std::env::VarError::NotPresent) => ABI::new_current(),
+        Err(std::env::VarError::NotPresent) => LandlockStatus::current().into(),
         Err(e) => panic!("Failed to read LANDLOCK_CRATE_TEST_ABI: {e}"),
     };
 }
@@ -172,17 +264,21 @@ pub(crate) fn can_emulate(mock: ABI, partial_support: ABI, full_support: Option<
 
 #[cfg(test)]
 pub(crate) fn get_errno_from_landlock_status() -> Option<i32> {
-    use std::io::Error;
-
-    match ABI::new_current() {
-        ABI::Unsupported => match Error::last_os_error().raw_os_error() {
-            // Returns ENOSYS when the kernel is not built with Landlock support,
-            // or EOPNOTSUPP when Landlock is supported but disabled at boot time.
-            ret @ Some(libc::ENOSYS | libc::EOPNOTSUPP) => ret,
-            // Other values can only come from bogus seccomp filters or debug tampering.
-            _ => unreachable!(),
-        },
-        _ => None,
+    match LandlockStatus::current() {
+        LandlockStatus::NotImplemented | LandlockStatus::NotEnabled => {
+            match Error::last_os_error().raw_os_error() {
+                // Returns ENOSYS when the kernel is not built with Landlock support,
+                // or EOPNOTSUPP when Landlock is supported but disabled at boot time.
+                ret @ Some(libc::ENOSYS | libc::EOPNOTSUPP) => ret,
+                // Other values can only come from bogus seccomp filters or debugging tampering.
+                ret => {
+                    eprintln!("Current kernel should support this Landlock ABI according to $LANDLOCK_CRATE_TEST_ABI");
+                    eprintln!("Unexpected result: {ret:?}");
+                    unreachable!();
+                }
+            }
+        }
+        LandlockStatus::Available(_, _) => None,
     }
 }
 
@@ -194,7 +290,7 @@ fn current_kernel_abi() {
     // Landlock ABI version known by this crate is automatically set.
     // From Linux 5.13 to 5.18, you need to run: LANDLOCK_CRATE_TEST_ABI=1 cargo test
     let test_abi = *TEST_ABI;
-    let current_abi = ABI::new_current();
+    let current_abi = LandlockStatus::current().into();
     println!(
         "Current kernel version: {}",
         std::fs::read_to_string("/proc/version")
@@ -277,18 +373,25 @@ fn compat_state_update_2() {
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Copy, Clone, Debug)]
 pub(crate) struct Compatibility {
-    abi: ABI,
+    status: LandlockStatus,
     pub(crate) level: Option<CompatLevel>,
     pub(crate) state: CompatState,
 }
 
-impl From<ABI> for Compatibility {
-    fn from(abi: ABI) -> Self {
+impl From<LandlockStatus> for Compatibility {
+    fn from(status: LandlockStatus) -> Self {
         Compatibility {
-            abi,
+            status,
             level: Default::default(),
             state: CompatState::Init,
         }
+    }
+}
+
+#[cfg(test)]
+impl From<ABI> for Compatibility {
+    fn from(abi: ABI) -> Self {
+        Self::from(LandlockStatus::from(abi))
     }
 }
 
@@ -296,7 +399,7 @@ impl Compatibility {
     // Compatibility is a semi-opaque struct.
     #[allow(clippy::new_without_default)]
     pub(crate) fn new() -> Self {
-        ABI::new_current().into()
+        LandlockStatus::current().into()
     }
 
     pub(crate) fn update(&mut self, state: CompatState) {
@@ -304,7 +407,11 @@ impl Compatibility {
     }
 
     pub(crate) fn abi(&self) -> ABI {
-        self.abi
+        self.status.into()
+    }
+
+    pub(crate) fn status(&self) -> LandlockStatus {
+        self.status
     }
 }
 

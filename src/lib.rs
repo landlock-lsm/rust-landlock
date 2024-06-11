@@ -82,7 +82,7 @@
 extern crate lazy_static;
 
 pub use access::{Access, HandledAccess};
-pub use compat::{CompatLevel, Compatible, ABI};
+pub use compat::{CompatLevel, Compatible, LandlockStatus, ABI};
 pub use enumflags2::{make_bitflags, BitFlags};
 pub use errors::{
     AccessError, AddRuleError, AddRulesError, CompatError, CreateRulesetError, Errno,
@@ -166,13 +166,16 @@ mod tests {
                     } else {
                         RulesetStatus::NotEnforced
                     };
+                    let landlock_status = abi.into();
                     println!("Expecting ruleset status {ruleset_status:?}");
+                    println!("Expecting Landlock status {landlock_status:?}");
                     assert!(matches!(
                         ret,
                         Ok(RestrictionStatus {
                             ruleset,
+                            landlock,
                             no_new_privs: true,
-                        }) if ruleset == ruleset_status
+                        }) if ruleset == ruleset_status && landlock == landlock_status
                     ))
                 }
             } else {

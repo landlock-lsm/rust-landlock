@@ -5,8 +5,8 @@
 
 use anyhow::{anyhow, bail, Context};
 use landlock::{
-    path_beneath_rules, Access, AccessFs, AccessNet, BitFlags, NetPort, PathBeneath, PathFd,
-    Ruleset, RulesetAttr, RulesetCreatedAttr, RulesetStatus, Scope, ABI,
+    path_beneath_rules, Access, AccessFs, AccessNet, BitFlags, LandlockStatus, NetPort,
+    PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, RulesetStatus, Scope, ABI,
 };
 use std::env;
 use std::ffi::OsStr;
@@ -168,8 +168,51 @@ fn main() -> anyhow::Result<()> {
         .restrict_self()
         .expect("Failed to enforce ruleset");
 
+    match status.landlock {
+        // This should never happen because of the previous check:
+        LandlockStatus::NotEnabled => {
+            eprintln!(
+                "Hint: Landlock is currently disabled. \
+                It can be enabled in the kernel configuration by prepending \"landlock,\"
+                to the content of CONFIG_LSM, or at boot time by setting the same content to
+                the \"lsm\" kernel parameter."
+            );
+        }
+        LandlockStatus::NotImplemented => {
+            eprintln!(
+                "Hint: Landlock is not built into the current kernel. \
+                To support it, build the kernel with CONFIG_SECURITY_LANDLOCK=y and \
+                prepend \"landlock,\" to the content of CONFIG_LSM."
+            );
+        }
+        LandlockStatus::Available(_, Some(raw_abi)) => {
+            eprintln!(
+                "Hint: This sandboxer only supports Landlock ABI version up to {abi} \
+                whereas the current kernel supports Landlock ABI version {raw_abi}. \
+                To leverage all Landlock features, update this sandboxer."
+            );
+        }
+        LandlockStatus::Available(current_abi, None) => {
+            if current_abi < abi {
+                eprintln!(
+                    "Hint: This sandboxer supports Landlock ABI version up to {abi} \
+                    but the current kernel only supports Landlock ABI version {current_abi}. \
+                    To leverage all Landlock features, update the kernel."
+                );
+            } else if current_abi > abi {
+                // This should not happen because the ABI used by the sandboxer
+                // should be the latest supported by the Landlock crate, and
+                // they should be updated at the same time.
+                eprintln!(
+                    "Warning: This sandboxer only supports Landlock ABI version up to {abi} \
+                    but the current kernel supports Landlock ABI version {current_abi}. \
+                    To leverage all Landlock features, update this sandboxer."
+                );
+            }
+        }
+    }
     if status.ruleset == RulesetStatus::NotEnforced {
-        bail!("Landlock is not supported by the running kernel.");
+        bail!("The ruleset cannot be enforced at all");
     }
 
     eprintln!("Executing the sandboxed command...");

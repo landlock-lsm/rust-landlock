@@ -3,8 +3,8 @@
 use crate::compat::private::OptionCompatLevelMut;
 use crate::{
     uapi, AccessFs, AccessNet, AddRuleError, AddRulesError, BitFlags, CompatLevel, CompatState,
-    Compatibility, Compatible, CreateRulesetError, HandledAccess, PrivateHandledAccess,
-    RestrictSelfError, RulesetError, Scope, ScopeError, TryCompat,
+    Compatibility, Compatible, CreateRulesetError, HandledAccess, LandlockStatus,
+    PrivateHandledAccess, RestrictSelfError, RulesetError, Scope, ScopeError, TryCompat,
 };
 use std::io::Error;
 use std::mem::size_of_val;
@@ -71,6 +71,8 @@ pub struct RestrictionStatus {
     pub ruleset: RulesetStatus,
     /// Status of `prctl(2)`'s `PR_SET_NO_NEW_PRIVS` enforcement.
     pub no_new_privs: bool,
+    /// Status of Landlock for the running kernel.
+    pub landlock: LandlockStatus,
 }
 
 fn prctl_set_no_new_privs() -> Result<(), Error> {
@@ -797,6 +799,7 @@ impl RulesetCreated {
             match self.compat.state {
                 CompatState::Init | CompatState::No | CompatState::Dummy => Ok(RestrictionStatus {
                     ruleset: self.compat.state.into(),
+                    landlock: self.compat.status(),
                     no_new_privs: enforced_nnp,
                 }),
                 CompatState::Full | CompatState::Partial => {
@@ -809,6 +812,7 @@ impl RulesetCreated {
                             self.compat.update(CompatState::Full);
                             Ok(RestrictionStatus {
                                 ruleset: self.compat.state.into(),
+                                landlock: self.compat.status(),
                                 no_new_privs: enforced_nnp,
                             })
                         }
@@ -906,6 +910,7 @@ fn ruleset_created_attr() {
             .unwrap(),
         RestrictionStatus {
             ruleset: RulesetStatus::NotEnforced,
+            landlock: LandlockStatus::NotImplemented,
             no_new_privs: true,
         }
     );
@@ -979,6 +984,7 @@ fn ruleset_unsupported() {
             .unwrap(),
         RestrictionStatus {
             ruleset: RulesetStatus::NotEnforced,
+            landlock: LandlockStatus::NotImplemented,
             // With BestEffort, no_new_privs is still enabled.
             no_new_privs: true,
         }
@@ -996,6 +1002,7 @@ fn ruleset_unsupported() {
             .unwrap(),
         RestrictionStatus {
             ruleset: RulesetStatus::NotEnforced,
+            landlock: LandlockStatus::NotImplemented,
             // With SoftRequirement, no_new_privs is still enabled.
             no_new_privs: true,
         }
@@ -1033,6 +1040,7 @@ fn ruleset_unsupported() {
             .unwrap(),
         RestrictionStatus {
             ruleset: RulesetStatus::NotEnforced,
+            landlock: LandlockStatus::NotImplemented,
             // With SoftRequirement, no_new_privs is untouched if there is no error (e.g. no rule).
             no_new_privs: true,
         }
@@ -1054,6 +1062,7 @@ fn ruleset_unsupported() {
                 .unwrap(),
             RestrictionStatus {
                 ruleset: RulesetStatus::NotEnforced,
+                landlock: LandlockStatus::Available(ABI::V1, None),
                 // With SoftRequirement, no_new_privs is still enabled, even if there is an error
                 // (e.g. unsupported access right).
                 no_new_privs: true,
@@ -1072,6 +1081,7 @@ fn ruleset_unsupported() {
             .unwrap(),
         RestrictionStatus {
             ruleset: RulesetStatus::NotEnforced,
+            landlock: LandlockStatus::NotImplemented,
             no_new_privs: false,
         }
     );
@@ -1174,6 +1184,7 @@ fn ignore_abi_v2_with_abi_v1() {
             .unwrap(),
         RestrictionStatus {
             ruleset: RulesetStatus::NotEnforced,
+            landlock: LandlockStatus::Available(ABI::V1, None),
             no_new_privs: true,
         }
     );
