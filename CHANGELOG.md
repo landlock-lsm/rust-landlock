@@ -1,8 +1,36 @@
 # Landlock changelog
 
+## [v0.4.0](https://github.com/landlock-lsm/rust-landlock/releases/tag/v0.4.0)
+
+### New API
+
+Add support for Landlock ABI 4: control TCP binding and connection according to specified network ports.
+This is now possible with the [`AccessNet`](https://landlock.io/rust-landlock/landlock/enum.AccessNet.html) rights and
+the [`NetPort`](https://landlock.io/rust-landlock/landlock/struct.NetPort.html) rule
+([PR #55](https://github.com/landlock-lsm/rust-landlock/pull/55)).
+
+### Breaking change
+
+The `from_read()` and `from_write()` methods moved from the `Access` trait to the `AccessFs` struct
+([commit 68f066eba571](https://github.com/landlock-lsm/rust-landlock/commit/68f066eba571c1f9212f5a07016aac9ffb0d1c27)).
+
+### Compatibility management
+
+Improve compatibility consistency and prioritize runtime errors against compatibility errors
+([PR #67](https://github.com/landlock-lsm/rust-landlock/pull/67)).
+
+Fixed a corner case where a ruleset was created on a kernel not supporting Landlock, while requesting to add a rule with an access right handled by the ruleset (`BestEffort`).
+When trying to enforce this ruleset, this led to a runtime error (i.e. wrong file descriptor) instead of a compatibility error.
+
+To simplify compatibility management, always call `prctl(PR_SET_NO_NEW_PRIVS, 1)` by default (see `set_no_new_privs()`).
+This was required to get a consistent compatibility management and it should not be an issue given that this feature is supported by all LTS kernels
+([commit d99f75155bec](https://github.com/landlock-lsm/rust-landlock/commit/d99f75155bec2040cf4ce1532007cd3b8a23e2fb)).
+
+
 ## [v0.3.1](https://github.com/landlock-lsm/rust-landlock/releases/tag/v0.3.1)
 
 Add [`RulesetCreated::try_clone()`](https://landlock.io/rust-landlock/landlock/struct.RulesetCreated.html#method.try_clone) ([PR #38](https://github.com/landlock-lsm/rust-landlock/pull/38)).
+
 
 ## [v0.3.0](https://github.com/landlock-lsm/rust-landlock/releases/tag/v0.3.0)
 
@@ -54,6 +82,7 @@ Linux 5.10, 5.15, 6.1, and 6.4
 
 Run each test in a dedicated thread to avoid inconsistent behavior
 ([PR #46](https://github.com/landlock-lsm/rust-landlock/pull/46)).
+
 
 ## [v0.2.0](https://github.com/landlock-lsm/rust-landlock/releases/tag/v0.2.0)
 
