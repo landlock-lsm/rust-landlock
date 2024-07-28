@@ -10,7 +10,7 @@ use std::mem::zeroed;
 /// Network access right.
 ///
 /// Each variant of `AccessNet` is an [access right](https://www.kernel.org/doc/html/latest/userspace-api/landlock.html#access-rights)
-/// for the file system.
+/// for the network.
 /// A set of access rights can be created with [`BitFlags<AccessNet>`](BitFlags).
 ///
 /// # Example
