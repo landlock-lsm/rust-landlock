@@ -1,7 +1,7 @@
 // This is an idiomatic Rust rewrite of a C example:
 // https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/samples/landlock/sandboxer.c
 
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use landlock::{
     Access, AccessFs, AccessNet, BitFlags, NetPort, PathBeneath, PathFd, Ruleset, RulesetAttr,
     RulesetCreatedAttr, RulesetStatus, ABI,
@@ -71,14 +71,14 @@ impl PortEnv {
             // Skips the first empty element of an empty string.
             .skip_while(move |_| is_empty)
             .map(OsStr::from_bytes)
-            .map(|port| port.to_str().ok_or(anyhow!("failed to convert string")))
-            .map(|ret| {
-                ret.and_then(|port| {
-                    port.parse::<u16>()
-                        .map_err(|_| anyhow!("failed to convert to 16-bit integer"))
-                })
+            .map(|port| {
+                let port = port
+                    .to_str()
+                    .context("failed to convert port string")?
+                    .parse::<u16>()
+                    .context("failed to convert port to 16-bit integer")?;
+                Ok(NetPort::new(port, self.access))
             })
-            .map(|ret| ret.and_then(|port| Ok(NetPort::new(port, self.access))))
     }
 }
 
@@ -86,41 +86,27 @@ fn main() -> anyhow::Result<()> {
     let mut args = env::args_os();
     let program_name = args
         .next()
-        .ok_or(anyhow!("Missing the sandboxer program name (i.e. argv[0])"))?;
+        .context("Missing the sandboxer program name (i.e. argv[0])")?;
 
     let cmd_name = args.next().ok_or_else(|| {
         let program_name = program_name.to_string_lossy();
         eprintln!(
-            "usage: {}=\"...\" {}=\"...\" {} <cmd> [args]...\n",
-            ENV_FS_RO_NAME, ENV_FS_RW_NAME, program_name
+            "usage: {ENV_FS_RO_NAME}=\"...\" {ENV_FS_RW_NAME}=\"...\" {program_name} <cmd> [args]...\n"
         );
         eprintln!("Launch a command in a restricted environment.\n");
         eprintln!("Environment variables containing paths and ports, each separated by a colon:");
-        eprintln!(
-            "* {}: list of paths allowed to be used in a read-only way.",
-            ENV_FS_RO_NAME
-        );
-        eprintln!(
-            "* {}: list of paths allowed to be used in a read-write way.",
-            ENV_FS_RW_NAME
-        );
+        eprintln!("* {ENV_FS_RO_NAME}: list of paths allowed to be used in a read-only way.");
+        eprintln!("* {ENV_FS_RW_NAME}: list of paths allowed to be used in a read-write way.");
         eprintln!("Environment variables containing ports are optional and could be skipped.");
-        eprintln!(
-            "* {}: list of ports allowed to bind (server).",
-            ENV_TCP_BIND_NAME
-        );
-        eprintln!(
-            "* {}: list of ports allowed to connect (client).",
-            ENV_TCP_CONNECT_NAME
-        );
+        eprintln!("* {ENV_TCP_BIND_NAME}: list of ports allowed to bind (server).");
+        eprintln!("* {ENV_TCP_CONNECT_NAME}: list of ports allowed to connect (client).");
         eprintln!(
             "\nexample:\n\
-                {}=\"/bin:/lib:/usr:/proc:/etc:/dev/urandom\" \
-                {}=\"/dev/null:/dev/full:/dev/zero:/dev/pts:/tmp\" \
-                {}=\"9418\" \
-                {}=\"80:443\" \
-                {} bash -i\n",
-            ENV_FS_RO_NAME, ENV_FS_RW_NAME, ENV_TCP_BIND_NAME, ENV_TCP_CONNECT_NAME, program_name
+                {ENV_FS_RO_NAME}=\"/bin:/lib:/usr:/proc:/etc:/dev/urandom\" \
+                {ENV_FS_RW_NAME}=\"/dev/null:/dev/full:/dev/zero:/dev/pts:/tmp\" \
+                {ENV_TCP_BIND_NAME}=\"9418\" \
+                {ENV_TCP_CONNECT_NAME}=\"80:443\" \
+                {program_name} bash -i\n"
         );
         anyhow!("Missing command")
     })?;
