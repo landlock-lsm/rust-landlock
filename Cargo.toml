@@ -19,7 +19,6 @@ thiserror = "1.0"
 
 [dev-dependencies]
 anyhow = "1.0"
-landlock = { path = "." }
 lazy_static = "1"
 strum = "0.26"
 strum_macros = "0.26"
