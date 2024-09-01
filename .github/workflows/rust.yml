@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
 
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         fetch-depth: 0
 
@@ -56,15 +56,14 @@ jobs:
       LANDLOCK_CRATE_TEST_ABI: 3
     steps:
 
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         ref: ${{ matrix.commit }}
 
     - name: Clone Landlock test tools
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         repository: landlock-lsm/landlock-test-tools
-        fetch-depth: 0
         ref: ${{ env.LANDLOCK_TEST_TOOLS_COMMIT }}
         path: landlock-test-tools
 
@@ -107,7 +106,7 @@ jobs:
         rustup component add rustfmt clippy
         rustup update
 
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         ref: ${{ matrix.commit }}
 
@@ -142,15 +141,14 @@ jobs:
       CARGO: rustup run stable cargo
     steps:
 
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         ref: ${{ matrix.commit }}
 
     - name: Clone Landlock test tools
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         repository: landlock-lsm/landlock-test-tools
-        fetch-depth: 0
         ref: ${{ env.LANDLOCK_TEST_TOOLS_COMMIT }}
         path: landlock-test-tools
 
