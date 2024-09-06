@@ -84,6 +84,8 @@ pub enum AccessFs {
     Refer = uapi::LANDLOCK_ACCESS_FS_REFER as u64,
     /// Truncate a file with `truncate(2)`, `ftruncate(2)`, `creat(2)`, or `open(2)` with `O_TRUNC`.
     Truncate = uapi::LANDLOCK_ACCESS_FS_TRUNCATE as u64,
+    /// Send IOCL commands to a device file.
+    IoctlDev = uapi::LANDLOCK_ACCESS_FS_IOCTL_DEV as u64,
 }
 
 impl Access for AccessFs {
@@ -104,7 +106,7 @@ impl AccessFs {
     pub fn from_read(abi: ABI) -> BitFlags<Self> {
         match abi {
             ABI::Unsupported => BitFlags::EMPTY,
-            ABI::V1 | ABI::V2 | ABI::V3 | ABI::V4 => make_bitflags!(AccessFs::{
+            ABI::V1 | ABI::V2 | ABI::V3 | ABI::V4 | ABI::V5 => make_bitflags!(AccessFs::{
                 Execute
                 | ReadFile
                 | ReadDir
@@ -132,6 +134,7 @@ impl AccessFs {
             }),
             ABI::V2 => Self::from_write(ABI::V1) | AccessFs::Refer,
             ABI::V3 | ABI::V4 => Self::from_write(ABI::V2) | AccessFs::Truncate,
+            ABI::V5 => Self::from_write(ABI::V4) | AccessFs::IoctlDev,
         }
     }
 
@@ -185,7 +188,7 @@ impl PrivateAccess for AccessFs {
 // TODO: Make ACCESS_FILE a property of AccessFs.
 // TODO: Add tests for ACCESS_FILE.
 const ACCESS_FILE: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
-    ReadFile | WriteFile | Execute | Truncate
+    ReadFile | WriteFile | Execute | Truncate | IoctlDev
 });
 
 // XXX: What should we do when a stat call failed?

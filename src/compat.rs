@@ -61,6 +61,9 @@ pub enum ABI {
     /// Fourth Landlock ABI, introduced with
     /// [Linux 6.7](https://git.kernel.org/stable/c/136cc1e1f5be75f57f1e0404b94ee1c8792cb07d).
     V4 = 4,
+    /// Fifth Landlock ABI, introduced with
+    /// [Linux 6.10](https://git.kernel.org/stable/c/2fc0e7892c10734c1b7c613ef04836d57d4676d5).
+    V5 = 5,
 }
 
 impl ABI {
@@ -87,8 +90,9 @@ impl ABI {
             1 => ABI::V1,
             2 => ABI::V2,
             3 => ABI::V3,
+            4 => ABI::V4,
             // Returns the greatest known ABI.
-            _ => ABI::V4,
+            _ => ABI::V5,
         }
     }
 
@@ -385,7 +389,7 @@ pub trait Compatible: Sized + private::OptionCompatLevelMut {
     ///         // However, this ruleset may also handle other (future) access rights
     ///         // if they are supported by the running kernel.
     ///         .set_compatibility(CompatLevel::BestEffort)
-    ///         .handle_access(AccessFs::from_all(ABI::V4))?
+    ///         .handle_access(AccessFs::from_all(ABI::V5))?
     ///         .create()?)
     /// }
     /// ```
@@ -414,7 +418,7 @@ pub trait Compatible: Sized + private::OptionCompatLevelMut {
     ///         // if they are supported by the running kernel,
     ///         // but without returning any error otherwise.
     ///         .set_compatibility(CompatLevel::BestEffort)
-    ///         .handle_access(AccessFs::from_all(ABI::V2))?
+    ///         .handle_access(AccessFs::from_all(ABI::V5))?
     ///         .create()?)
     /// }
     /// ```

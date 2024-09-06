@@ -385,4 +385,21 @@ mod tests {
             false,
         );
     }
+
+    #[test]
+    fn abi_v5_ioctl_dev() {
+        check_ruleset_support(
+            ABI::V4,
+            Some(ABI::V5),
+            move |ruleset: Ruleset| -> _ {
+                Ok(ruleset
+                    .handle_access(AccessNet::BindTcp)?
+                    .handle_access(AccessFs::IoctlDev)?
+                    .create()?
+                    .add_rule(PathBeneath::new(PathFd::new("/")?, AccessFs::IoctlDev))?
+                    .restrict_self()?)
+            },
+            false,
+        );
+    }
 }

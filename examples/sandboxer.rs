@@ -111,7 +111,7 @@ fn main() -> anyhow::Result<()> {
         anyhow!("Missing command")
     })?;
 
-    let abi = ABI::V4;
+    let abi = ABI::V5;
     let mut ruleset = Ruleset::default().handle_access(AccessFs::from_all(abi))?;
     let ruleset_ref = &mut ruleset;
 
