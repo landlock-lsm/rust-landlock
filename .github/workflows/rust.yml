@@ -12,7 +12,7 @@ env:
   CARGO_TERM_COLOR: always
   RUSTDOCFLAGS: -D warnings
   RUSTFLAGS: -D warnings
-  LANDLOCK_TEST_TOOLS_COMMIT: a7b4192147a84f4cd5207a83a574ddea6d76ffa0 # v1.1.0
+  LANDLOCK_TEST_TOOLS_COMMIT: 6a3feeab0bbab204f06a5cf82485f2dff3d5d3da
 
 # Ubuntu versions: https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners#supported-runners-and-hardware-resources
 
@@ -81,7 +81,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: linux-${{ fromJSON(matrix.kernel).version }}
-        key: linux-${{ fromJSON(matrix.kernel).commit }}
+        key: linux-${{ fromJSON(matrix.kernel).commit }}-${{ env.LANDLOCK_TEST_TOOLS_COMMIT }}
 
     - name: Clone Landlock test tools
       if: steps.cache_linux.outputs.cache-hit != 'true'
@@ -103,8 +103,7 @@ jobs:
       if: steps.cache_linux.outputs.cache-hit != 'true'
       working-directory: linux
       run: |
-        cp ../landlock-test-tools/kernels/config-${{ fromJSON(matrix.kernel).version}} .config
-        ../landlock-test-tools/kernels/make-uml.sh
+        O=. ../landlock-test-tools/check-linux.sh build_light
         mv linux ../linux-${{ fromJSON(matrix.kernel).version}}
 
   ubuntu_22_rust_msrv:
@@ -227,7 +226,7 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: linux-${{ fromJSON(matrix.kernel).version }}
-        key: linux-${{ fromJSON(matrix.kernel).commit }}
+        key: linux-${{ fromJSON(matrix.kernel).commit }}-${{ env.LANDLOCK_TEST_TOOLS_COMMIT }}
         fail-on-cache-miss: true
 
     - name: Run tests against Linux ${{ fromJSON(matrix.kernel).version }}.y
