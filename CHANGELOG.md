@@ -1,5 +1,16 @@
 # Landlock changelog
 
+## [v0.4.1](https://github.com/landlock-lsm/rust-landlock/releases/tag/v0.4.1)
+
+### New API
+
+Add support for Landlock ABI 5: control IOCTL commands on character and block devices with the new [`AccessFs::IoctlDev`](https://landlock.io/rust-landlock/landlock/enum.AccessFs.html#variant.IoctlDev) right ([PR #74](https://github.com/landlock-lsm/rust-landlock/pull/74)).
+
+### Testing
+
+Improved the CI to better test against different kernel versions ([PR #72](https://github.com/landlock-lsm/rust-landlock/pull/72)).
+
+
 ## [v0.4.0](https://github.com/landlock-lsm/rust-landlock/releases/tag/v0.4.0)
 
 ### New API
