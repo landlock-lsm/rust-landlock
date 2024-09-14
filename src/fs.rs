@@ -5,7 +5,6 @@ use crate::{
     PrivateAccess, PrivateRule, Rule, Ruleset, RulesetCreated, RulesetError, TailoredCompatLevel,
     TryCompat, ABI,
 };
-use enumflags2::{bitflags, make_bitflags, BitFlags};
 use std::fs::OpenOptions;
 use std::io::Error;
 use std::mem::zeroed;
@@ -18,79 +17,70 @@ use crate::{RulesetAttr, RulesetCreatedAttr};
 #[cfg(test)]
 use strum::IntoEnumIterator;
 
-/// File system access right.
-///
-/// Each variant of `AccessFs` is an [access right](https://www.kernel.org/doc/html/latest/userspace-api/landlock.html#access-rights)
-/// for the file system.
-/// A set of access rights can be created with [`BitFlags<AccessFs>`](BitFlags).
-///
-/// # Example
-///
-/// ```
-/// use landlock::{ABI, Access, AccessFs, BitFlags, make_bitflags};
-///
-/// let exec = AccessFs::Execute;
-///
-/// let exec_set: BitFlags<AccessFs> = exec.into();
-///
-/// let file_content = make_bitflags!(AccessFs::{Execute | WriteFile | ReadFile});
-///
-/// let fs_v1 = AccessFs::from_all(ABI::V1);
-///
-/// let without_exec = fs_v1 & !AccessFs::Execute;
-///
-/// assert_eq!(fs_v1 | AccessFs::Refer, AccessFs::from_all(ABI::V2));
-/// ```
-///
-/// # Warning
-///
-/// To avoid unknown restrictions **don't use `BitFlags::<AccessFs>::all()` nor `BitFlags::ALL`**,
-/// but use a version you tested and vetted instead,
-/// for instance [`AccessFs::from_all(ABI::V1)`](Access::from_all).
-/// Direct use of **the [`BitFlags`] API is deprecated**.
-/// See [`ABI`] for the rationale and help to test it.
-#[bitflags]
-#[repr(u64)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum AccessFs {
-    /// Execute a file.
-    Execute = uapi::LANDLOCK_ACCESS_FS_EXECUTE as u64,
-    /// Open a file with write access.
-    WriteFile = uapi::LANDLOCK_ACCESS_FS_WRITE_FILE as u64,
-    /// Open a file with read access.
-    ReadFile = uapi::LANDLOCK_ACCESS_FS_READ_FILE as u64,
-    /// Open a directory or list its content.
-    ReadDir = uapi::LANDLOCK_ACCESS_FS_READ_DIR as u64,
-    /// Remove an empty directory or rename one.
-    RemoveDir = uapi::LANDLOCK_ACCESS_FS_REMOVE_DIR as u64,
-    /// Unlink (or rename) a file.
-    RemoveFile = uapi::LANDLOCK_ACCESS_FS_REMOVE_FILE as u64,
-    /// Create (or rename or link) a character device.
-    MakeChar = uapi::LANDLOCK_ACCESS_FS_MAKE_CHAR as u64,
-    /// Create (or rename) a directory.
-    MakeDir = uapi::LANDLOCK_ACCESS_FS_MAKE_DIR as u64,
-    /// Create (or rename or link) a regular file.
-    MakeReg = uapi::LANDLOCK_ACCESS_FS_MAKE_REG as u64,
-    /// Create (or rename or link) a UNIX domain socket.
-    MakeSock = uapi::LANDLOCK_ACCESS_FS_MAKE_SOCK as u64,
-    /// Create (or rename or link) a named pipe.
-    MakeFifo = uapi::LANDLOCK_ACCESS_FS_MAKE_FIFO as u64,
-    /// Create (or rename or link) a block device.
-    MakeBlock = uapi::LANDLOCK_ACCESS_FS_MAKE_BLOCK as u64,
-    /// Create (or rename or link) a symbolic link.
-    MakeSym = uapi::LANDLOCK_ACCESS_FS_MAKE_SYM as u64,
-    /// Link or rename a file from or to a different directory.
-    Refer = uapi::LANDLOCK_ACCESS_FS_REFER as u64,
-    /// Truncate a file with `truncate(2)`, `ftruncate(2)`, `creat(2)`, or `open(2)` with `O_TRUNC`.
-    Truncate = uapi::LANDLOCK_ACCESS_FS_TRUNCATE as u64,
-    /// Send IOCL commands to a device file.
-    IoctlDev = uapi::LANDLOCK_ACCESS_FS_IOCTL_DEV as u64,
+crate::access::bitflags_type! {
+    /// File system access right.
+    ///
+    /// Each variant of `AccessFs` is an [access right](https://www.kernel.org/doc/html/latest/userspace-api/landlock.html#access-rights)
+    /// for the file system.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use landlock::{ABI, Access, AccessFs, make_bitflags};
+    ///
+    /// let exec = AccessFs::Execute;
+    ///
+    /// let exec_set: AccessFs = exec.into();
+    ///
+    /// let file_content = make_bitflags!(AccessFs::{Execute | WriteFile | ReadFile});
+    ///
+    /// let fs_v1 = AccessFs::from_all(ABI::V1);
+    ///
+    /// let without_exec = fs_v1 & !AccessFs::Execute;
+    ///
+    /// assert_eq!(fs_v1 | AccessFs::Refer, AccessFs::from_all(ABI::V2));
+    /// ```
+    pub struct AccessFs: u64 {
+        /// Execute a file.
+        const Execute = uapi::LANDLOCK_ACCESS_FS_EXECUTE as u64;
+        /// Open a file with write access.
+        const WriteFile = uapi::LANDLOCK_ACCESS_FS_WRITE_FILE as u64;
+        /// Open a file with read access.
+        const ReadFile = uapi::LANDLOCK_ACCESS_FS_READ_FILE as u64;
+        /// Open a directory or list its content.
+        const ReadDir = uapi::LANDLOCK_ACCESS_FS_READ_DIR as u64;
+        /// Remove an empty directory or rename one.
+        const RemoveDir = uapi::LANDLOCK_ACCESS_FS_REMOVE_DIR as u64;
+        /// Unlink (or rename) a file.
+        const RemoveFile = uapi::LANDLOCK_ACCESS_FS_REMOVE_FILE as u64;
+        /// Create (or rename or link) a character device.
+        const MakeChar = uapi::LANDLOCK_ACCESS_FS_MAKE_CHAR as u64;
+        /// Create (or rename) a directory.
+        const MakeDir = uapi::LANDLOCK_ACCESS_FS_MAKE_DIR as u64;
+        /// Create (or rename or link) a regular file.
+        const MakeReg = uapi::LANDLOCK_ACCESS_FS_MAKE_REG as u64;
+        /// Create (or rename or link) a UNIX domain socket.
+        const MakeSock = uapi::LANDLOCK_ACCESS_FS_MAKE_SOCK as u64;
+        /// Create (or rename or link) a named pipe.
+        const MakeFifo = uapi::LANDLOCK_ACCESS_FS_MAKE_FIFO as u64;
+        /// Create (or rename or link) a block device.
+        const MakeBlock = uapi::LANDLOCK_ACCESS_FS_MAKE_BLOCK as u64;
+        /// Create (or rename or link) a symbolic link.
+        const MakeSym = uapi::LANDLOCK_ACCESS_FS_MAKE_SYM as u64;
+        /// Link or rename a file from or to a different directory.
+        const Refer = uapi::LANDLOCK_ACCESS_FS_REFER as u64;
+        /// Truncate a file with `truncate(2)`, `ftruncate(2)`, `creat(2)`, or `open(2)` with `O_TRUNC`.
+        const Truncate = uapi::LANDLOCK_ACCESS_FS_TRUNCATE as u64;
+        /// Send IOCL commands to a device file.
+        const IoctlDev = uapi::LANDLOCK_ACCESS_FS_IOCTL_DEV as u64;
+    }
 }
+
+impl TailoredCompatLevel for AccessFs {}
 
 impl Access for AccessFs {
     /// Union of [`from_read()`](AccessFs::from_read) and [`from_write()`](AccessFs::from_write).
-    fn from_all(abi: ABI) -> BitFlags<Self> {
+    fn from_all(abi: ABI) -> Self {
         // An empty access-right would be an error if passed to the kernel, but because the kernel
         // doesn't support Landlock, no Landlock syscall should be called.  try_compat() should
         // also return RestrictionStatus::Unrestricted when called with unsupported/empty
@@ -103,9 +93,9 @@ impl AccessFs {
     // Roughly read (i.e. not all FS actions are handled).
     /// Gets the access rights identified as read-only according to a specific ABI.
     /// Exclusive with [`from_write()`](AccessFs::from_write).
-    pub fn from_read(abi: ABI) -> BitFlags<Self> {
+    pub fn from_read(abi: ABI) -> Self {
         match abi {
-            ABI::Unsupported => BitFlags::EMPTY,
+            ABI::Unsupported => AccessFs::EMPTY,
             ABI::V1 | ABI::V2 | ABI::V3 | ABI::V4 | ABI::V5 => make_bitflags!(AccessFs::{
                 Execute
                 | ReadFile
@@ -117,9 +107,9 @@ impl AccessFs {
     // Roughly write (i.e. not all FS actions are handled).
     /// Gets the access rights identified as write-only according to a specific ABI.
     /// Exclusive with [`from_read()`](AccessFs::from_read).
-    pub fn from_write(abi: ABI) -> BitFlags<Self> {
+    pub fn from_write(abi: ABI) -> Self {
         match abi {
-            ABI::Unsupported => BitFlags::EMPTY,
+            ABI::Unsupported => AccessFs::EMPTY,
             ABI::V1 => make_bitflags!(AccessFs::{
                 WriteFile
                 | RemoveDir
@@ -139,7 +129,7 @@ impl AccessFs {
     }
 
     /// Gets the access rights legitimate for non-directory files.
-    pub fn from_file(abi: ABI) -> BitFlags<Self> {
+    pub fn from_file(abi: ABI) -> Self {
         Self::from_all(abi) & ACCESS_FILE
     }
 }
@@ -156,9 +146,13 @@ fn consistent_access_fs_rw() {
 }
 
 impl PrivateAccess for AccessFs {
+    fn is_empty(self) -> bool {
+        AccessFs::is_empty(&self)
+    }
+
     fn ruleset_handle_access(
         ruleset: &mut Ruleset,
-        access: BitFlags<Self>,
+        access: Self,
     ) -> Result<(), HandleAccessesError> {
         // We need to record the requested accesses for PrivateRule::check_consistency().
         ruleset.requested_handled_fs |= access;
@@ -187,8 +181,8 @@ impl PrivateAccess for AccessFs {
 
 // TODO: Make ACCESS_FILE a property of AccessFs.
 // TODO: Add tests for ACCESS_FILE.
-const ACCESS_FILE: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
-    ReadFile | WriteFile | Execute | Truncate | IoctlDev
+const ACCESS_FILE: AccessFs = make_bitflags!(AccessFs::{
+    ReadFile | WriteFile | Execute | Truncate
 });
 
 // XXX: What should we do when a stat call failed?
@@ -221,7 +215,7 @@ pub struct PathBeneath<F> {
     attr: uapi::landlock_path_beneath_attr,
     // Ties the lifetime of a file descriptor to this object.
     parent_fd: F,
-    allowed_access: BitFlags<AccessFs>,
+    allowed_access: AccessFs,
     compat_level: Option<CompatLevel>,
 }
 
@@ -234,7 +228,7 @@ where
     /// The `parent` file descriptor will be automatically closed with the returned `PathBeneath`.
     pub fn new<A>(parent: F, access: A) -> Self
     where
-        A: Into<BitFlags<AccessFs>>,
+        A: Into<AccessFs>,
     {
         PathBeneath {
             // Invalid access rights until as_ptr() is called.
@@ -353,7 +347,7 @@ fn path_beneath_try_compat() {
 
         let mut compat_state = CompatState::Init;
         assert!(matches!(
-            PathBeneath::new(PathFd::new(file).unwrap(), BitFlags::EMPTY)
+            PathBeneath::new(PathFd::new(file).unwrap(), AccessFs::EMPTY)
                 .try_compat(abi, CompatLevel::BestEffort, &mut compat_state)
                 .unwrap_err(),
             CompatError::Access(AccessError::Empty)
@@ -571,16 +565,14 @@ fn path_fd() {
 ///     Ok(())
 /// }
 /// ```
-pub fn path_beneath_rules<I, P, A>(
+pub fn path_beneath_rules<I, P>(
     paths: I,
-    access: A,
+    access: AccessFs,
 ) -> impl Iterator<Item = Result<PathBeneath<PathFd>, RulesetError>>
 where
     I: IntoIterator<Item = P>,
     P: AsRef<Path>,
-    A: Into<BitFlags<AccessFs>>,
 {
-    let access = access.into();
     paths.into_iter().filter_map(move |p| match PathFd::new(p) {
         Ok(f) => {
             let valid_access = match is_file(&f) {

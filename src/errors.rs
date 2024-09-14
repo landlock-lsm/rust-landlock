@@ -1,4 +1,4 @@
-use crate::{Access, AccessFs, AccessNet, BitFlags};
+use crate::{Access, AccessFs, AccessNet};
 use std::io;
 use std::path::PathBuf;
 use thiserror::Error;
@@ -84,10 +84,7 @@ where
     AddRuleCall { source: io::Error },
     /// The rule's access-rights are not all handled by the (requested) ruleset access-rights.
     #[error("access-rights not handled by the ruleset: {incompatible:?}")]
-    UnhandledAccess {
-        access: BitFlags<T>,
-        incompatible: BitFlags<T>,
-    },
+    UnhandledAccess { access: T, incompatible: T },
     #[error(transparent)]
     Compat(#[from] CompatError<T>),
 }
@@ -142,8 +139,8 @@ pub enum PathBeneathError {
     /// whereas the file descriptor doesn't point to a directory.
     #[error("incompatible directory-only access-rights: {incompatible:?}")]
     DirectoryAccess {
-        access: BitFlags<AccessFs>,
-        incompatible: BitFlags<AccessFs>,
+        access: AccessFs,
+        incompatible: AccessFs,
     },
 }
 
@@ -157,24 +154,14 @@ where
     /// kernel.
     #[error("empty access-right")]
     Empty,
-    /// The access-rights set was forged with the unsafe `BitFlags::from_bits_unchecked()` and it
-    /// contains unknown bits.
-    #[error("unknown access-rights (at build time): {unknown:?}")]
-    Unknown {
-        access: BitFlags<T>,
-        unknown: BitFlags<T>,
-    },
     /// The best-effort approach was (deliberately) disabled and the requested access-rights are
     /// fully incompatible with the running kernel.
     #[error("fully incompatible access-rights: {access:?}")]
-    Incompatible { access: BitFlags<T> },
+    Incompatible { access: T },
     /// The best-effort approach was (deliberately) disabled and the requested access-rights are
     /// partially incompatible with the running kernel.
     #[error("partially incompatible access-rights: {incompatible:?}")]
-    PartiallyCompatible {
-        access: BitFlags<T>,
-        incompatible: BitFlags<T>,
-    },
+    PartiallyCompatible { access: T, incompatible: T },
 }
 
 #[derive(Debug, Error)]
