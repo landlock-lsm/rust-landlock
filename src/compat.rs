@@ -15,7 +15,6 @@ use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 /// gets all the file system access rights defined by the first version.
 ///
 /// Without `ABI`, it would be hazardous to rely on the the full set of access flags
-/// (e.g., `BitFlags::<AccessFs>::all()` or `BitFlags::ALL`),
 /// a moving target that would change the semantics of your Landlock rule
 /// when migrating to a newer version of this crate.
 /// Indeed, a simple `cargo update` or `cargo install` run by any developer

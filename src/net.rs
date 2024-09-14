@@ -4,66 +4,60 @@ use crate::{
     Compatible, HandleAccessError, HandleAccessesError, PrivateAccess, PrivateRule, Rule, Ruleset,
     RulesetCreated, TailoredCompatLevel, TryCompat, ABI,
 };
-use enumflags2::{bitflags, BitFlags};
 use std::mem::zeroed;
 
-/// Network access right.
-///
-/// Each variant of `AccessNet` is an [access right](https://www.kernel.org/doc/html/latest/userspace-api/landlock.html#access-rights)
-/// for the network.
-/// A set of access rights can be created with [`BitFlags<AccessNet>`](BitFlags).
-///
-/// # Example
-///
-/// ```
-/// use landlock::{ABI, Access, AccessNet, BitFlags, make_bitflags};
-///
-/// let bind = AccessNet::BindTcp;
-///
-/// let bind_set: BitFlags<AccessNet> = bind.into();
-///
-/// let bind_connect = make_bitflags!(AccessNet::{BindTcp | ConnectTcp});
-///
-/// let net_v4 = AccessNet::from_all(ABI::V4);
-///
-/// assert_eq!(bind_connect, net_v4);
-/// ```
-///
-/// # Warning
-///
-/// To avoid unknown restrictions **don't use `BitFlags::<AccessNet>::all()` nor `BitFlags::ALL`**,
-/// but use a version you tested and vetted instead,
-/// for instance [`AccessNet::from_all(ABI::V4)`](Access::from_all).
-/// Direct use of **the [`BitFlags`] API is deprecated**.
-/// See [`ABI`] for the rationale and help to test it.
-#[bitflags]
-#[repr(u64)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum AccessNet {
-    /// Bind to a TCP port.
-    BindTcp = uapi::LANDLOCK_ACCESS_NET_BIND_TCP as u64,
-    /// Connect to a TCP port.
-    ConnectTcp = uapi::LANDLOCK_ACCESS_NET_CONNECT_TCP as u64,
+crate::access::bitflags_type! {
+    /// Network access right.
+    ///
+    /// Each variant of `AccessNet` is an [access right](https://www.kernel.org/doc/html/latest/userspace-api/landlock.html#access-rights)
+    /// for the network.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use landlock::{ABI, Access, AccessNet, make_bitflags};
+    ///
+    /// let bind = AccessNet::BindTcp;
+    ///
+    /// let bind_set: AccessNet = bind.into();
+    ///
+    /// let bind_connect = make_bitflags!(AccessNet::{BindTcp | ConnectTcp});
+    ///
+    /// let net_v4 = AccessNet::from_all(ABI::V4);
+    ///
+    /// assert_eq!(bind_connect, net_v4);
+    /// ```
+    pub struct AccessNet: u64 {
+        /// Bind to a TCP port.
+        const BindTcp = uapi::LANDLOCK_ACCESS_NET_BIND_TCP as u64;
+        /// Connect to a TCP port.
+        const ConnectTcp = uapi::LANDLOCK_ACCESS_NET_CONNECT_TCP as u64;
+    }
 }
+
+impl TailoredCompatLevel for AccessNet {}
 
 /// # Warning
 ///
-/// If `ABI <= ABI::V3`, `AccessNet::from_all()` returns an empty `BitFlags<AccessNet>`, which
+/// If `ABI <= ABI::V3`, `AccessNet::from_all()` returns an empty `AccessNet`, which
 /// makes `Ruleset::handle_access(AccessNet::from_all(ABI::V3))` return an error.
 impl Access for AccessNet {
-    fn from_all(abi: ABI) -> BitFlags<Self> {
+    fn from_all(abi: ABI) -> Self {
         match abi {
-            ABI::Unsupported | ABI::V1 | ABI::V2 | ABI::V3 => BitFlags::EMPTY,
+            ABI::Unsupported | ABI::V1 | ABI::V2 | ABI::V3 => AccessNet::EMPTY,
             ABI::V4 | ABI::V5 => AccessNet::BindTcp | AccessNet::ConnectTcp,
         }
     }
 }
 
 impl PrivateAccess for AccessNet {
+    fn is_empty(self) -> bool {
+        AccessNet::is_empty(&self)
+    }
+
     fn ruleset_handle_access(
         ruleset: &mut Ruleset,
-        access: BitFlags<Self>,
+        access: Self,
     ) -> Result<(), HandleAccessesError> {
         // We need to record the requested accesses for PrivateRule::check_consistency().
         ruleset.requested_handled_net |= access;
@@ -106,7 +100,7 @@ pub struct NetPort {
     attr: uapi::landlock_net_port_attr,
     // Only 16-bit port make sense for now.
     port: u16,
-    allowed_access: BitFlags<AccessNet>,
+    allowed_access: AccessNet,
     compat_level: Option<CompatLevel>,
 }
 
@@ -119,7 +113,7 @@ impl NetPort {
     /// allowed for a port range defined by `/proc/sys/net/ipv4/ip_local_port_range`.
     pub fn new<A>(port: u16, access: A) -> Self
     where
-        A: Into<BitFlags<AccessNet>>,
+        A: Into<AccessNet>,
     {
         NetPort {
             // Invalid access-rights until as_ptr() is called.

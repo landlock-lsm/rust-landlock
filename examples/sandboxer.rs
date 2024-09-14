@@ -3,7 +3,7 @@
 
 use anyhow::{anyhow, bail, Context};
 use landlock::{
-    Access, AccessFs, AccessNet, BitFlags, NetPort, PathBeneath, PathFd, Ruleset, RulesetAttr,
+    Access, AccessFs, AccessNet, NetPort, PathBeneath, PathFd, Ruleset, RulesetAttr,
     RulesetCreatedAttr, RulesetStatus, ABI,
 };
 use std::env;
@@ -19,7 +19,7 @@ const ENV_TCP_CONNECT_NAME: &str = "LL_TCP_CONNECT";
 
 struct PathEnv {
     paths: Vec<u8>,
-    access: BitFlags<AccessFs>,
+    access: AccessFs,
 }
 
 impl PathEnv {
@@ -31,7 +31,7 @@ impl PathEnv {
     ///   allowed. Paths are separated with ":", e.g. "/bin:/lib:/usr:/proc". In case an empty
     ///   string is provided, NO restrictions are applied.
     /// * `access`: Set of access-rights allowed for each of the parsed paths.
-    fn new<'a>(name: &'a str, access: BitFlags<AccessFs>) -> anyhow::Result<Self> {
+    fn new<'a>(name: &'a str, access: AccessFs) -> anyhow::Result<Self> {
         Ok(Self {
             paths: env::var_os(name)
                 .ok_or(anyhow!("missing environment variable {name}"))?
