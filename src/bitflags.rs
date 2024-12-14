@@ -16,7 +16,7 @@ macro_rules! bitflags_type {
         }
     ) => {
         $(#[$bitflags_attr])*
-        #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+        #[derive(Copy, Clone, PartialEq, Eq, Default)]
         $vis struct $bitflags_name($bitflags_type);
 
         impl $bitflags_name {
@@ -98,6 +98,49 @@ macro_rules! bitflags_type {
                 Self(!self.0) & Self::all()
             }
         }
+
+        impl core::fmt::Debug for $bitflags_name {
+            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+                const VARIANTS: &[($bitflags_name, &str)] = &[
+                    $(($bitflags_name::$flag_name, stringify!($flag_name)),)*
+                ];
+
+                write!(f, concat!(stringify!($bitflags_name), "("))?;
+                let mut first = true;
+                for &(val, name) in VARIANTS {
+                    if self.contains(val) {
+                        if !first {
+                            write!(f, " | ")?;
+                        }
+                        first = false;
+                        write!(f, "{name}")?;
+                    }
+                }
+                write!(f, ")")
+            }
+        }
     };
 }
 pub(crate) use bitflags_type;
+
+#[cfg(test)]
+#[allow(dead_code)]
+mod tests {
+    super::bitflags_type! {
+        pub struct AccessFs: u64 {
+            const Execute = 1;
+            const WriteFile = 2;
+            const ReadFile = 4;
+        }
+    }
+
+    #[test]
+    fn debug_format() {
+        assert_eq!(format!("{:?}", AccessFs::EMPTY), "AccessFs()");
+        assert_eq!(
+            format!("{:?}", AccessFs::all()),
+            "AccessFs(Execute | WriteFile | ReadFile)"
+        );
+        assert_eq!(format!("{:?}", AccessFs::WriteFile), "AccessFs(WriteFile)");
+    }
+}
