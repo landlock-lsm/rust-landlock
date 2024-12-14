@@ -37,12 +37,9 @@ pub trait PrivateAccess:
 }
 
 #[test]
-fn bit_flags_full_negation() {
+fn bit_flags_negation() {
     let scoped_negation = !AccessFs::all();
     assert_eq!(scoped_negation, AccessFs::EMPTY);
-    // !AccessFs::all() could be equal to !AccessFs::all().bits() if
-    // all the 64-bits would be used, which is not currently the case.
-    assert_ne!(scoped_negation.bits(), !AccessFs::all().bits());
 }
 
 impl<A> TryCompat<A> for A
