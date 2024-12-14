@@ -104,6 +104,8 @@ use errors::TestRulesetError;
 use strum::IntoEnumIterator;
 
 #[macro_use]
+mod bitflags;
+
 mod access;
 mod compat;
 mod errors;

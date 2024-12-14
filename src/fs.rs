@@ -17,7 +17,7 @@ use crate::{RulesetAttr, RulesetCreatedAttr};
 #[cfg(test)]
 use strum::IntoEnumIterator;
 
-crate::access::bitflags_type! {
+crate::bitflags::bitflags_type! {
     /// File system access right.
     ///
     /// Each variant of `AccessFs` is an [access right](https://www.kernel.org/doc/html/latest/userspace-api/landlock.html#access-rights)

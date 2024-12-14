@@ -6,7 +6,7 @@ use crate::{
 };
 use std::mem::zeroed;
 
-crate::access::bitflags_type! {
+crate::bitflags::bitflags_type! {
     /// Network access right.
     ///
     /// Each variant of `AccessNet` is an [access right](https://www.kernel.org/doc/html/latest/userspace-api/landlock.html#access-rights)
