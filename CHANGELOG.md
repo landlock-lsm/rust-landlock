@@ -1,5 +1,11 @@
 # Landlock changelog
 
+## Unreleased
+
+### Breaking change
+
+[`AccessFs`](https://landlock.io/rust-landlock/landlock/enum.AccessFs.html) and [`AccessNet`](https://landlock.io/rust-landlock/landlock/enum.AccessNet.html) are no longer wrapped in the `BitFlags` type. All occurences of `BitFlags<AccessFs>` and `BitFlags<AccessNet>` have to be replaced with `AccessFs` and `AccessNet` respectively. There are also some changes to the methods of these types. Construction of an empty bitflag now has to be done through `AccessFs::EMPTY`/`AccessNet::EMPTY` instead of `BitFlags::EMPTY`, but construction using [`make_bitflags`](https://landlock.io/rust-landlock/landlock/macro.make_bitflags.html) is unchanged. ([PR #23](https://github.com/landlock-lsm/rust-landlock/pull/23))
+
 ## [v0.4.1](https://github.com/landlock-lsm/rust-landlock/releases/tag/v0.4.1)
 
 ### New API

@@ -81,7 +81,6 @@ extern crate lazy_static;
 
 pub use access::Access;
 pub use compat::{CompatLevel, Compatible, ABI};
-pub use enumflags2::{make_bitflags, BitFlags};
 pub use errors::{
     AccessError, AddRuleError, AddRulesError, CompatError, CreateRulesetError, HandleAccessError,
     HandleAccessesError, PathBeneathError, PathFdError, RestrictSelfError, RulesetError,
@@ -103,6 +102,9 @@ use compat::{can_emulate, get_errno_from_landlock_status};
 use errors::TestRulesetError;
 #[cfg(test)]
 use strum::IntoEnumIterator;
+
+#[macro_use]
+mod bitflags;
 
 mod access;
 mod compat;
