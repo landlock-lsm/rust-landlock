@@ -146,7 +146,7 @@ lazy_static! {
                 panic!("Unknown ABI: {n}");
             }
         }
-        Err(std::env::VarError::NotPresent) => ABI::iter().last().unwrap(),
+        Err(std::env::VarError::NotPresent) => ABI::new_current(),
         Err(e) => panic!("Failed to read LANDLOCK_CRATE_TEST_ABI: {e}"),
     };
 }
