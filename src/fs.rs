@@ -57,6 +57,10 @@ pub enum AccessFs {
     /// Execute a file.
     Execute = uapi::LANDLOCK_ACCESS_FS_EXECUTE as u64,
     /// Open a file with write access.
+    ///
+    /// # Note
+    ///
+    /// Certain operations (such as [`std::fs::write`]) may also require [`AccessFs::Truncate`] since [`ABI::V3`].
     WriteFile = uapi::LANDLOCK_ACCESS_FS_WRITE_FILE as u64,
     /// Open a file with read access.
     ReadFile = uapi::LANDLOCK_ACCESS_FS_READ_FILE as u64,
@@ -540,8 +544,11 @@ fn path_fd() {
 
 /// Helper to quickly create an iterator of PathBeneath rules.
 ///
-/// Silently ignores paths that cannot be opened, and automatically adjust access rights according
-/// to file types when possible.
+/// # Note
+///
+/// Landlock rules operate on file descriptors, not paths. This is a helper to create rules based on paths. **It
+/// silently ignores paths that cannot be opened**, and automatically adjusts access rights according to file types when
+/// possible.
 ///
 /// # Example
 ///
