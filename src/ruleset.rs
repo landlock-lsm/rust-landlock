@@ -278,6 +278,7 @@ impl Ruleset {
                     let attr = uapi::landlock_ruleset_attr {
                         handled_access_fs: self.actual_handled_fs.bits(),
                         handled_access_net: self.actual_handled_net.bits(),
+                        scoped: 0,
                     };
                     match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) } {
                         fd if fd >= 0 => Ok(RulesetCreated::new(self, fd)),
