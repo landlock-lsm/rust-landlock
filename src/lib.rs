@@ -85,7 +85,7 @@ pub use enumflags2::{make_bitflags, BitFlags};
 pub use errors::{
     AccessError, AddRuleError, AddRulesError, CompatError, CreateRulesetError, Errno,
     HandleAccessError, HandleAccessesError, PathBeneathError, PathFdError, RestrictSelfError,
-    RulesetError,
+    RulesetError, ScopeError,
 };
 pub use fs::{path_beneath_rules, AccessFs, PathBeneath, PathFd};
 pub use net::{AccessNet, NetPort};
@@ -93,6 +93,7 @@ pub use ruleset::{
     RestrictionStatus, Rule, Ruleset, RulesetAttr, RulesetCreated, RulesetCreatedAttr,
     RulesetStatus,
 };
+pub use scope::Scope;
 
 use access::HandledAccess;
 use compat::{CompatResult, CompatState, Compatibility, TailoredCompatLevel, TryCompat};
@@ -111,6 +112,7 @@ mod errors;
 mod fs;
 mod net;
 mod ruleset;
+mod scope;
 mod uapi;
 
 // Makes sure private traits cannot be implemented outside of this crate.
@@ -119,6 +121,7 @@ mod private {
 
     impl Sealed for crate::AccessFs {}
     impl Sealed for crate::AccessNet {}
+    impl Sealed for crate::Scope {}
 }
 
 #[cfg(test)]
@@ -411,6 +414,37 @@ mod tests {
                     .handle_access(AccessFs::IoctlDev)?
                     .create()?
                     .add_rule(PathBeneath::new(PathFd::new("/")?, AccessFs::IoctlDev))?
+                    .restrict_self()?)
+            },
+            false,
+        );
+    }
+
+    #[test]
+    fn abi_v6_scope_mix() {
+        check_ruleset_support(
+            ABI::V5,
+            Some(ABI::V6),
+            move |ruleset: Ruleset| -> _ {
+                Ok(ruleset
+                    .handle_access(AccessFs::IoctlDev)?
+                    .scope(Scope::AbstractUnixSocket | Scope::Signal)?
+                    .create()?
+                    .restrict_self()?)
+            },
+            false,
+        );
+    }
+
+    #[test]
+    fn abi_v6_scope_only() {
+        check_ruleset_support(
+            ABI::V6,
+            Some(ABI::V6),
+            move |ruleset: Ruleset| -> _ {
+                Ok(ruleset
+                    .scope(Scope::AbstractUnixSocket | Scope::Signal)?
+                    .create()?
                     .restrict_self()?)
             },
             false,

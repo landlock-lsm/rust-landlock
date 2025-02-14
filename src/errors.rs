@@ -1,4 +1,4 @@
-use crate::{Access, AccessFs, AccessNet, BitFlags, HandledAccess};
+use crate::{Access, AccessFs, AccessNet, BitFlags, HandledAccess, Scope};
 use std::io;
 use std::path::PathBuf;
 use thiserror::Error;
@@ -15,6 +15,8 @@ pub enum RulesetError {
     AddRules(#[from] AddRulesError),
     #[error(transparent)]
     RestrictSelf(#[from] RestrictSelfError),
+    #[error(transparent)]
+    Scope(#[from] ScopeError),
 }
 
 #[test]
@@ -36,6 +38,14 @@ where
 {
     #[error(transparent)]
     Compat(#[from] CompatError<T>),
+}
+
+/// Identifies errors when updating the ruleset's scopes.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum ScopeError {
+    #[error(transparent)]
+    Compat(#[from] CompatError<Scope>),
 }
 
 #[derive(Debug, Error)]
@@ -66,8 +76,9 @@ pub enum CreateRulesetError {
     #[error("failed to create a ruleset: {source}")]
     #[non_exhaustive]
     CreateRulesetCall { source: io::Error },
-    /// Missing call to [`RulesetAttr::handle_access()`](crate::RulesetAttr::handle_access).
-    #[error("missing handled access")]
+    /// Missing call to [`RulesetAttr::handle_access()`](crate::RulesetAttr::handle_access)
+    /// or [`RulesetAttr::scope()`](crate::RulesetAttr::scope).
+    #[error("missing access")]
     MissingHandledAccess,
 }
 

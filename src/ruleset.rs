@@ -2,7 +2,7 @@ use crate::compat::private::OptionCompatLevelMut;
 use crate::{
     uapi, AccessFs, AccessNet, AddRuleError, AddRulesError, BitFlags, CompatLevel, CompatState,
     Compatibility, Compatible, CreateRulesetError, HandledAccess, RestrictSelfError, RulesetError,
-    TryCompat,
+    Scope, ScopeError, TryCompat,
 };
 use libc::close;
 use std::io::Error;
@@ -173,8 +173,10 @@ fn support_no_new_privs() -> bool {
 pub struct Ruleset {
     pub(crate) requested_handled_fs: BitFlags<AccessFs>,
     pub(crate) requested_handled_net: BitFlags<AccessNet>,
+    pub(crate) requested_scoped: BitFlags<Scope>,
     pub(crate) actual_handled_fs: BitFlags<AccessFs>,
     pub(crate) actual_handled_net: BitFlags<AccessNet>,
+    pub(crate) actual_scoped: BitFlags<Scope>,
     pub(crate) compat: Compatibility,
 }
 
@@ -184,8 +186,10 @@ impl From<Compatibility> for Ruleset {
             // Non-working default handled FS accesses to force users to set them explicitely.
             requested_handled_fs: Default::default(),
             requested_handled_net: Default::default(),
+            requested_scoped: Default::default(),
             actual_handled_fs: Default::default(),
             actual_handled_net: Default::default(),
+            actual_scoped: Default::default(),
             compat,
         }
     }
@@ -256,6 +260,7 @@ impl Ruleset {
                     assert!(
                         !self.requested_handled_fs.is_empty()
                             || !self.requested_handled_net.is_empty()
+                            || !self.requested_scoped.is_empty()
                     );
 
                     // CompatState::No should be handled as CompatState::Dummy because it is not
@@ -272,13 +277,15 @@ impl Ruleset {
                     // There is at least one actual handled access.
                     #[cfg(test)]
                     assert!(
-                        !self.actual_handled_fs.is_empty() || !self.actual_handled_net.is_empty()
+                        !self.actual_handled_fs.is_empty()
+                            || !self.actual_handled_net.is_empty()
+                            || !self.actual_scoped.is_empty()
                     );
 
                     let attr = uapi::landlock_ruleset_attr {
                         handled_access_fs: self.actual_handled_fs.bits(),
                         handled_access_net: self.actual_handled_net.bits(),
-                        scoped: 0,
+                        scoped: self.actual_scoped.bits(),
                     };
                     match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) } {
                         fd if fd >= 0 => Ok(RulesetCreated::new(self, fd)),
@@ -345,6 +352,32 @@ pub trait RulesetAttr: Sized + AsMut<Ruleset> + Compatible {
         U::ruleset_handle_access(self.as_mut(), access.into())?;
         Ok(self)
     }
+
+    /// Attempts to add a set of scopes that will be supported by this ruleset.
+    /// Consecutive calls to `scope()` will be interpreted as logical ORs
+    /// with the previous scopes.
+    ///
+    /// On error, returns a wrapped [`ScopeError`](crate::ScopeError).
+    /// E.g., `RulesetError::Scope(ScopeError)`
+    fn scope<T>(mut self, scope: T) -> Result<Self, RulesetError>
+    where
+        T: Into<BitFlags<Scope>>,
+    {
+        let scope = scope.into();
+        let ruleset = self.as_mut();
+        ruleset.requested_scoped |= scope;
+        if let Some(a) = scope
+            .try_compat(
+                ruleset.compat.abi(),
+                ruleset.compat.level,
+                &mut ruleset.compat.state,
+            )
+            .map_err(ScopeError::Compat)?
+        {
+            ruleset.actual_scoped |= a;
+        }
+        Ok(self)
+    }
 }
 
 impl RulesetAttr for Ruleset {}
@@ -377,13 +410,21 @@ fn ruleset_attr() {
 
 #[test]
 fn ruleset_created_handle_access_fs() {
+    let access = make_bitflags!(AccessFs::{Execute | ReadDir});
+
     // Tests AccessFs::ruleset_handle_access()
+    let ruleset = Ruleset::from(ABI::V1).handle_access(access).unwrap();
+    assert_eq!(ruleset.requested_handled_fs, access);
+    assert_eq!(ruleset.actual_handled_fs, access);
+
+    // Tests composition (binary OR) of handled accesses.
     let ruleset = Ruleset::from(ABI::V1)
         .handle_access(AccessFs::Execute)
         .unwrap()
         .handle_access(AccessFs::ReadDir)
+        .unwrap()
+        .handle_access(AccessFs::Execute)
         .unwrap();
-    let access = make_bitflags!(AccessFs::{Execute | ReadDir});
     assert_eq!(ruleset.requested_handled_fs, access);
     assert_eq!(ruleset.actual_handled_fs, access);
 
@@ -415,6 +456,17 @@ fn ruleset_created_handle_access_net_tcp() {
     assert_eq!(ruleset.requested_handled_net, access);
     assert_eq!(ruleset.actual_handled_net, access);
 
+    // Tests composition (binary OR) of handled accesses.
+    let ruleset = Ruleset::from(ABI::V4)
+        .handle_access(AccessNet::BindTcp)
+        .unwrap()
+        .handle_access(AccessNet::ConnectTcp)
+        .unwrap()
+        .handle_access(AccessNet::BindTcp)
+        .unwrap();
+    assert_eq!(ruleset.requested_handled_net, access);
+    assert_eq!(ruleset.actual_handled_net, access);
+
     // Tests that only the required handled accesses are reported as incompatible:
     // access should not contains AccessNet::BindTcp.
     assert!(matches!(Ruleset::from(ABI::Unsupported)
@@ -427,6 +479,82 @@ fn ruleset_created_handle_access_net_tcp() {
             CompatError::Access(AccessError::Incompatible { access })
         ))) if access == AccessNet::ConnectTcp
     ));
+}
+
+#[test]
+fn ruleset_created_scope() {
+    let scopes = make_bitflags!(Scope::{AbstractUnixSocket | Signal});
+
+    // Tests Ruleset::scope() with ABI that doesn't support scopes.
+    let ruleset = Ruleset::from(ABI::V5).scope(scopes).unwrap();
+    assert_eq!(ruleset.requested_scoped, scopes);
+    assert_eq!(ruleset.actual_scoped, BitFlags::<Scope>::EMPTY);
+
+    // Tests Ruleset::scope() with ABI that supports scopes.
+    let ruleset = Ruleset::from(ABI::V6).scope(scopes).unwrap();
+    assert_eq!(ruleset.requested_scoped, scopes);
+    assert_eq!(ruleset.actual_scoped, scopes);
+
+    // Tests composition (binary OR) of scopes.
+    let ruleset = Ruleset::from(ABI::V6)
+        .scope(Scope::AbstractUnixSocket)
+        .unwrap()
+        .scope(Scope::Signal)
+        .unwrap()
+        .scope(Scope::AbstractUnixSocket)
+        .unwrap();
+    assert_eq!(ruleset.requested_scoped, scopes);
+    assert_eq!(ruleset.actual_scoped, scopes);
+
+    // Tests that only the required scopes are reported as incompatible:
+    // scope should not contain Scope::AbstractUnixSocket.
+    assert!(matches!(Ruleset::from(ABI::Unsupported)
+        .scope(Scope::AbstractUnixSocket)
+        .unwrap()
+        .set_compatibility(CompatLevel::HardRequirement)
+        .scope(Scope::Signal)
+        .unwrap_err(),
+        RulesetError::Scope(ScopeError::Compat(
+            CompatError::Access(AccessError::Incompatible { access })
+        )) if access == Scope::Signal
+    ));
+}
+
+#[test]
+fn ruleset_created_fs_net_scope() {
+    let access_fs = make_bitflags!(AccessFs::{Execute | ReadDir});
+    let access_net = make_bitflags!(AccessNet::{BindTcp | ConnectTcp});
+    let scopes = make_bitflags!(Scope::{AbstractUnixSocket | Signal});
+
+    // Tests composition (binary OR) of handled accesses.
+    let ruleset = Ruleset::from(ABI::V5)
+        .handle_access(access_fs)
+        .unwrap()
+        .scope(scopes)
+        .unwrap()
+        .handle_access(access_net)
+        .unwrap();
+    assert_eq!(ruleset.requested_handled_fs, access_fs);
+    assert_eq!(ruleset.actual_handled_fs, access_fs);
+    assert_eq!(ruleset.requested_handled_net, access_net);
+    assert_eq!(ruleset.actual_handled_net, access_net);
+    assert_eq!(ruleset.requested_scoped, scopes);
+    assert_eq!(ruleset.actual_scoped, BitFlags::<Scope>::EMPTY);
+
+    // Tests composition (binary OR) of handled accesses and scopes.
+    let ruleset = Ruleset::from(ABI::V6)
+        .handle_access(access_fs)
+        .unwrap()
+        .scope(scopes)
+        .unwrap()
+        .handle_access(access_net)
+        .unwrap();
+    assert_eq!(ruleset.requested_handled_fs, access_fs);
+    assert_eq!(ruleset.actual_handled_fs, access_fs);
+    assert_eq!(ruleset.requested_handled_net, access_net);
+    assert_eq!(ruleset.actual_handled_net, access_net);
+    assert_eq!(ruleset.requested_scoped, scopes);
+    assert_eq!(ruleset.actual_scoped, scopes);
 }
 
 impl OptionCompatLevelMut for RulesetCreated {
@@ -865,11 +993,22 @@ fn ruleset_unsupported() {
         }
     );
 
+    // Missing handled access because of the compatibility level.
     matches!(
         Ruleset::from(ABI::Unsupported)
             // HardRequirement for Ruleset.
             .set_compatibility(CompatLevel::HardRequirement)
             .handle_access(AccessFs::Execute)
+            .unwrap_err(),
+        RulesetError::CreateRuleset(CreateRulesetError::MissingHandledAccess)
+    );
+
+    // Missing scope access because of the compatibility level.
+    matches!(
+        Ruleset::from(ABI::Unsupported)
+            // HardRequirement for Ruleset.
+            .set_compatibility(CompatLevel::HardRequirement)
+            .scope(Scope::Signal)
             .unwrap_err(),
         RulesetError::CreateRuleset(CreateRulesetError::MissingHandledAccess)
     );
@@ -929,6 +1068,7 @@ fn ruleset_unsupported() {
         }
     );
 
+    // Checks empty handled access with moot ruleset.
     assert!(matches!(
         Ruleset::from(ABI::Unsupported)
             // Empty access-rights
@@ -941,12 +1081,13 @@ fn ruleset_unsupported() {
 
     assert!(matches!(
         Ruleset::from(ABI::Unsupported)
-            // No handle_access() call.
+            // No handle_access() nor scope() call.
             .create()
             .unwrap_err(),
         RulesetError::CreateRuleset(CreateRulesetError::MissingHandledAccess)
     ));
 
+    // Checks empty handled access with minimal ruleset.
     assert!(matches!(
         Ruleset::from(ABI::V1)
             // Empty access-rights
@@ -955,6 +1096,22 @@ fn ruleset_unsupported() {
         RulesetError::HandleAccesses(HandleAccessesError::Fs(HandleAccessError::Compat(
             CompatError::Access(AccessError::Empty)
         )))
+    ));
+
+    // Checks empty scope with moot ruleset.
+    assert!(matches!(
+        Ruleset::from(ABI::Unsupported)
+            .scope(Scope::from_all(ABI::Unsupported))
+            .unwrap_err(),
+        RulesetError::Scope(ScopeError::Compat(CompatError::Access(AccessError::Empty)))
+    ));
+
+    // Checks empty scope with minimal ruleset.
+    assert!(matches!(
+        Ruleset::from(ABI::V1)
+            .scope(Scope::from_all(ABI::Unsupported))
+            .unwrap_err(),
+        RulesetError::Scope(ScopeError::Compat(CompatError::Access(AccessError::Empty)))
     ));
 
     // Tests inconsistency between the ruleset handled access-rights and the rule access-rights.

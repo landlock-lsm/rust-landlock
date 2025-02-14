@@ -56,7 +56,7 @@ jobs:
       run: |
         echo "List of tested kernels:" > $GITHUB_STEP_SUMMARY
         abi=0
-        for version in 5.10 5.15 6.1 6.4 6.7 6.10; do
+        for version in 5.10 5.15 6.1 6.4 6.7 6.10 6.12; do
           commit="$(git ls-remote https://github.com/landlock-lsm/linux refs/heads/linux-${version}.y | awk 'NR == 1 { print $1 }')"
           if [[ -z "${commit}" ]]; then
             echo "ERROR: Failed to fetch Linux ${version}" >&2
