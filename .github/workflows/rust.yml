@@ -134,6 +134,7 @@ jobs:
     - name: Install Rust MSRV
       run: |
         rm ~/.cargo/bin/{cargo-fmt,rustfmt} || :
+        rustup self update
         rustup default ${{ env.RUST_TOOLCHAIN }}
         rustup update ${{ env.RUST_TOOLCHAIN }}
 
@@ -163,6 +164,7 @@ jobs:
     - name: Install Rust stable
       run: |
         rm ~/.cargo/bin/{cargo-fmt,rustfmt} || :
+        rustup self update
         rustup default stable
         rustup component add rustfmt clippy
         rustup update
@@ -206,6 +208,7 @@ jobs:
     - name: Install Rust stable
       run: |
         rm ~/.cargo/bin/{cargo-fmt,rustfmt} || :
+        rustup self update
         rustup default stable
         rustup update
 
