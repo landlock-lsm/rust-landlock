@@ -7,7 +7,7 @@ use crate::{
 use libc::close;
 use std::io::Error;
 use std::mem::size_of_val;
-use std::os::unix::io::RawFd;
+use std::os::unix::io::{IntoRawFd, RawFd};
 
 #[cfg(test)]
 use crate::*;
@@ -707,6 +707,14 @@ impl Drop for RulesetCreated {
         if self.fd >= 0 {
             unsafe { close(self.fd) };
         }
+    }
+}
+
+impl IntoRawFd for RulesetCreated {
+    fn into_raw_fd(self) -> RawFd {
+        let fd = self.fd;
+        std::mem::forget(self);
+        fd
     }
 }
 
