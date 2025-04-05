@@ -114,7 +114,7 @@ jobs:
       matrix:
         commit: ${{ fromJSON(needs.commit_list.outputs.commits) }}
     env:
-      LANDLOCK_CRATE_TEST_ABI: 3
+      LANDLOCK_CRATE_TEST_ABI: 4
     steps:
 
     - uses: actions/checkout@v4
@@ -200,7 +200,7 @@ jobs:
         commit: ${{ fromJSON(needs.commit_list.outputs.commits) }}
         kernel: ${{ fromJSON(needs.kernel_list.outputs.kernels) }}
     env:
-      LANDLOCK_CRATE_TEST_ABI: 3
+      LANDLOCK_CRATE_TEST_ABI: 4
       # $CARGO is used by landlock-test-tools/test-rust.sh
       CARGO: rustup run stable cargo
     steps:
