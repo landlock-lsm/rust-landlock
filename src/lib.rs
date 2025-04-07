@@ -83,8 +83,9 @@ pub use access::Access;
 pub use compat::{CompatLevel, Compatible, ABI};
 pub use enumflags2::{make_bitflags, BitFlags};
 pub use errors::{
-    AccessError, AddRuleError, AddRulesError, CompatError, CreateRulesetError, HandleAccessError,
-    HandleAccessesError, PathBeneathError, PathFdError, RestrictSelfError, RulesetError,
+    AccessError, AddRuleError, AddRulesError, CompatError, CreateRulesetError, Errno,
+    HandleAccessError, HandleAccessesError, PathBeneathError, PathFdError, RestrictSelfError,
+    RulesetError,
 };
 pub use fs::{path_beneath_rules, AccessFs, PathBeneath, PathFd};
 pub use net::{AccessNet, NetPort};
@@ -168,13 +169,18 @@ mod tests {
                 let errno = get_errno_from_landlock_status();
                 println!("Expecting error {errno:?}");
                 match ret {
-                    Err(TestRulesetError::Ruleset(RulesetError::CreateRuleset(
-                        CreateRulesetError::CreateRulesetCall { source },
-                    ))) => match (source.raw_os_error(), errno) {
-                        (Some(e1), Some(e2)) => assert_eq!(e1, e2),
-                        (Some(e1), None) => assert!(matches!(e1, libc::EINVAL | libc::E2BIG)),
-                        _ => unreachable!(),
-                    },
+                    Err(
+                        ref error @ TestRulesetError::Ruleset(RulesetError::CreateRuleset(
+                            CreateRulesetError::CreateRulesetCall { ref source },
+                        )),
+                    ) => {
+                        assert_eq!(source.raw_os_error(), Some(*Errno::from(error).as_ref()));
+                        match (source.raw_os_error(), errno) {
+                            (Some(e1), Some(e2)) => assert_eq!(e1, e2),
+                            (Some(e1), None) => assert!(matches!(e1, libc::EINVAL | libc::E2BIG)),
+                            _ => unreachable!(),
+                        }
+                    }
                     _ => unreachable!(),
                 }
             }

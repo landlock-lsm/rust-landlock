@@ -1024,3 +1024,15 @@ fn unsupported_handled_access() {
         )))
     );
 }
+
+#[test]
+fn unsupported_handled_access_errno() {
+    assert_eq!(
+        Errno::from(
+            Ruleset::from(ABI::V3)
+                .handle_access(AccessNet::from_all(ABI::V3))
+                .unwrap_err()
+        ),
+        Errno::new(libc::EINVAL)
+    );
+}

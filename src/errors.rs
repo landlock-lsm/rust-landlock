@@ -209,3 +209,89 @@ pub(crate) enum TestRulesetError {
     #[error(transparent)]
     File(#[from] std::io::Error),
 }
+
+/// Get the underlying errno value.
+///
+/// This helper is useful for FFI to easily translate a Landlock error into an
+/// errno value.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Errno(libc::c_int);
+
+impl Errno {
+    pub fn new(value: libc::c_int) -> Self {
+        Self(value)
+    }
+}
+
+impl<T> From<T> for Errno
+where
+    T: std::error::Error,
+{
+    fn from(error: T) -> Self {
+        let default = libc::EINVAL;
+        if let Some(e) = error.source() {
+            if let Some(e) = e.downcast_ref::<std::io::Error>() {
+                return Errno(e.raw_os_error().unwrap_or(default));
+            }
+        }
+        Errno(default)
+    }
+}
+
+impl AsRef<libc::c_int> for Errno {
+    fn as_ref(&self) -> &libc::c_int {
+        &self.0
+    }
+}
+
+#[cfg(test)]
+fn _test_ruleset_errno(expected_errno: libc::c_int) {
+    use std::io::Error;
+
+    let handle_access_err = RulesetError::HandleAccesses(HandleAccessesError::Fs(
+        HandleAccessError::Compat(CompatError::Access(AccessError::Empty)),
+    ));
+    assert_eq!(Errno::from(handle_access_err).0, libc::EINVAL);
+
+    let create_ruleset_err = RulesetError::CreateRuleset(CreateRulesetError::CreateRulesetCall {
+        source: Error::from_raw_os_error(expected_errno),
+    });
+    assert_eq!(Errno::from(create_ruleset_err).0, expected_errno);
+
+    let add_rules_fs_err = RulesetError::AddRules(AddRulesError::Fs(AddRuleError::AddRuleCall {
+        source: Error::from_raw_os_error(expected_errno),
+    }));
+    assert_eq!(Errno::from(add_rules_fs_err).0, expected_errno);
+
+    let add_rules_net_err = RulesetError::AddRules(AddRulesError::Net(AddRuleError::AddRuleCall {
+        source: Error::from_raw_os_error(expected_errno),
+    }));
+    assert_eq!(Errno::from(add_rules_net_err).0, expected_errno);
+
+    let add_rules_other_err =
+        RulesetError::AddRules(AddRulesError::Fs(AddRuleError::UnhandledAccess {
+            access: AccessFs::Execute.into(),
+            incompatible: BitFlags::<AccessFs>::EMPTY,
+        }));
+    assert_eq!(Errno::from(add_rules_other_err).0, libc::EINVAL);
+
+    let restrict_self_err = RulesetError::RestrictSelf(RestrictSelfError::RestrictSelfCall {
+        source: Error::from_raw_os_error(expected_errno),
+    });
+    assert_eq!(Errno::from(restrict_self_err).0, expected_errno);
+
+    let set_no_new_privs_err = RulesetError::RestrictSelf(RestrictSelfError::SetNoNewPrivsCall {
+        source: Error::from_raw_os_error(expected_errno),
+    });
+    assert_eq!(Errno::from(set_no_new_privs_err).0, expected_errno);
+
+    let create_ruleset_missing_err =
+        RulesetError::CreateRuleset(CreateRulesetError::MissingHandledAccess);
+    assert_eq!(Errno::from(create_ruleset_missing_err).0, libc::EINVAL);
+}
+
+#[test]
+fn test_ruleset_errno() {
+    _test_ruleset_errno(libc::EACCES);
+    _test_ruleset_errno(libc::EIO);
+}
