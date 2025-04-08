@@ -18,7 +18,7 @@ env:
 
 jobs:
   commit_list:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
 
     - uses: actions/checkout@v4
@@ -46,7 +46,7 @@ jobs:
       commits: ${{ toJSON(steps.*.outputs.*) }}
 
   kernel_list:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     outputs:
       kernels: ${{ toJSON(steps.id.outputs.*) }}
     steps:
@@ -68,7 +68,7 @@ jobs:
         done
 
   get_kernels:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     needs: kernel_list
     strategy:
       fail-fast: false
@@ -106,8 +106,8 @@ jobs:
         O=. ../landlock-test-tools/check-linux.sh build_light
         mv linux ../linux-${{ fromJSON(matrix.kernel).version}}
 
-  ubuntu_22_rust_msrv:
-    runs-on: ubuntu-22.04
+  ubuntu_24_rust_msrv:
+    runs-on: ubuntu-24.04
     needs: commit_list
     strategy:
       fail-fast: false
@@ -150,15 +150,15 @@ jobs:
     - name: Run tests against Linux 6.1
       run: CARGO="rustup run ${{ env.RUST_TOOLCHAIN }} cargo" ./landlock-test-tools/test-rust.sh linux-6.1 2
 
-  ubuntu_20_rust_stable:
-    runs-on: ubuntu-20.04
+  ubuntu_22_rust_stable:
+    runs-on: ubuntu-22.04
     needs: commit_list
     strategy:
       fail-fast: false
       matrix:
         commit: ${{ fromJSON(needs.commit_list.outputs.commits) }}
     env:
-      LANDLOCK_CRATE_TEST_ABI: 1
+      LANDLOCK_CRATE_TEST_ABI: 4
     steps:
 
     - name: Install Rust stable
@@ -191,8 +191,8 @@ jobs:
     - name: Check documentation
       run: rustup run stable cargo doc --no-deps
 
-  ubuntu_22_rust_stable:
-    runs-on: ubuntu-22.04
+  ubuntu_24_rust_stable:
+    runs-on: ubuntu-24.04
     needs: [commit_list, kernel_list, get_kernels]
     strategy:
       fail-fast: false
