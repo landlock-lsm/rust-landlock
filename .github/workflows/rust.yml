@@ -12,7 +12,7 @@ env:
   CARGO_TERM_COLOR: always
   RUSTDOCFLAGS: -D warnings
   RUSTFLAGS: -D warnings
-  LANDLOCK_TEST_TOOLS_COMMIT: 6a3feeab0bbab204f06a5cf82485f2dff3d5d3da
+  LANDLOCK_TEST_TOOLS_COMMIT: fad769c39b42183fb2a2e1263fe00dfa5b9f2bda
 
 # Ubuntu versions: https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners#supported-runners-and-hardware-resources
 
