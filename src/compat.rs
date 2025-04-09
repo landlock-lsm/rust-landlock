@@ -80,8 +80,16 @@ impl ABI {
         })
     }
 
-    // There is no way to not publicly expose an implementation of an external trait such as
-    // From<i32>.  See RFC https://github.com/rust-lang/rfcs/pull/2529
+    #[cfg(test)]
+    fn is_known(value: i32) -> bool {
+        value > 0 && value < ABI::COUNT as i32
+    }
+}
+
+/// Converting from an integer to an ABI should only be used for testing.
+/// Indeed, manually setting the ABI can lead to inconsistent and unexpected behaviors.
+/// Instead, just use the appropriate access rights, this library will handle the rest.
+impl From<i32> for ABI {
     fn from(value: i32) -> ABI {
         match value {
             // The only possible error values should be EOPNOTSUPP and ENOSYS, but let's interpret
@@ -94,11 +102,6 @@ impl ABI {
             // Returns the greatest known ABI.
             _ => ABI::V5,
         }
-    }
-
-    #[cfg(test)]
-    fn is_known(value: i32) -> bool {
-        value > 0 && value < ABI::COUNT as i32
     }
 }
 
