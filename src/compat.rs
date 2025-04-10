@@ -169,19 +169,15 @@ pub(crate) fn can_emulate(mock: ABI, partial_support: ABI, full_support: Option<
 pub(crate) fn get_errno_from_landlock_status() -> Option<i32> {
     use std::io::Error;
 
-    if unsafe {
-        uapi::landlock_create_ruleset(std::ptr::null(), 0, uapi::LANDLOCK_CREATE_RULESET_VERSION)
-    } < 0
-    {
-        match Error::last_os_error().raw_os_error() {
+    match ABI::new_current() {
+        ABI::Unsupported => match Error::last_os_error().raw_os_error() {
             // Returns ENOSYS when the kernel is not built with Landlock support,
             // or EOPNOTSUPP when Landlock is supported but disabled at boot time.
             ret @ Some(libc::ENOSYS | libc::EOPNOTSUPP) => ret,
             // Other values can only come from bogus seccomp filters or debug tampering.
             _ => unreachable!(),
-        }
-    } else {
-        None
+        },
+        _ => None,
     }
 }
 
