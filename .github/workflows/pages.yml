@@ -1,22 +1,27 @@
 name: GitHub Pages
 
-permissions:
-  contents: write
-
 on:
   push:
     branches: [ main ]
 
-env:
-  CARGO_TERM_COLOR: always
+  workflow_dispatch:
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
 
 jobs:
-  rustdoc:
+  build:
     if: github.repository == 'landlock-lsm/rust-landlock'
-    runs-on: ubuntu-22.04
-    concurrency:
-      group: ${{ github.workflow }}-${{ github.ref }}
-      cancel-in-progress: true
+    runs-on: ubuntu-24.04
+
+    env:
+      CARGO_TERM_COLOR: always
+
+    permissions:
+      contents: read
+      id-token: write
+
     steps:
     - uses: actions/checkout@v3
 
@@ -33,11 +38,22 @@ jobs:
       run: |
         echo '<meta http-equiv="refresh" content="0; url=landlock">' > target/doc/index.html
 
-    - name: Push documentation
-      uses: peaceiris/actions-gh-pages@068dc23d9710f1ba62e86896f84735d869951305 # v3.8.0
+    - name: Upload artifact
+      uses: actions/upload-pages-artifact@v3
       with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: target/doc
-        force_orphan: true
-        user_name: 'github-actions[bot]'
-        user_email: 'github-actions[bot]@users.noreply.github.com'
+        path: target/doc
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    permissions:
+      pages: write
+      id-token: write
+
+    steps:
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
