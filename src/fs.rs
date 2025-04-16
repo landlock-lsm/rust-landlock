@@ -156,8 +156,10 @@ fn consistent_access_fs_rw() {
         let access_all = AccessFs::from_all(abi);
         let access_read = AccessFs::from_read(abi);
         let access_write = AccessFs::from_write(abi);
+        let access_file = AccessFs::from_file(abi);
         assert_eq!(access_read, !access_write & access_all);
         assert_eq!(access_read | access_write, access_all);
+        assert_eq!(access_file, access_all & ACCESS_FILE);
     }
 }
 
