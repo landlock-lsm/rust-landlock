@@ -4,18 +4,31 @@ Thanks for your interest in contributing to rust-landlock!
 
 ## Testing vs kernel ABI
 
-The Landlock functionality exposed differs between kernel versions.  In order
-to test all possible variations, the rust-landlock tests will run different
-subsets of tests based on the landlock support in the current kernel.
+The Landlock functionality exposed differs between kernel versions. Based on
+the Landlock ABI version of the running system, rust-landlock runs different
+subsets of tests. For local development, running `cargo test` will test against
+your currently running kernel version (and the Landlock ABI that it ships).
+However, this may result in some tests being skipped.
 
-In order to fully test a change, it should be verified against a range of
-kernel versions.  This is done by the github actions CI, but is currently
-challenging to do locally.  For local development, running `cargo test` will
-test against your currently running kernel version, which may result in some
-tests being skipped.
+To fully test a change, it should be verified against a range of ABI versions.
+This is done by the Github Actions CI, but doing so locally is challenging.
 
-The kernel to test against can be overridden using the LANDLOCK_CRATE_TEST_ABI
-environmental variable.  For more details see the comment in
-`compat.rs:current_kernel_abi()`.
+Using the `LANDLOCK_CRATE_TEST_ABI` variable, the tested ABI version can be
+overridden. For more details, take a look at the comment in
+[`compat.rs:current_kernel_abi()`][current-kernel-abi].
 
-For more information about Landlock ABIs see https://landlock.io/rust-landlock/landlock/enum.ABI.html
+For more information about Landlock ABIs, see: [enum ABI][enum-abi]
+
+[current-kernel-abi]: https://github.com/landlock-lsm/rust-landlock/blob/main/src/compat.rs
+[enum-abi]: https://landlock.io/rust-landlock/landlock/enum.ABI.html
+
+## Licensing & DCO
+
+rust-landlock is double-licensed under the terms of [Apache 2.0][apache-2.0]
+and [MIT][mit].
+
+All changes submitted to rust-landlock must be [signed off][dco].
+
+[apache-2.0]: https://spdx.org/licenses/Apache-2.0.html
+[mit]: https://spdx.org/licenses/MIT.html
+[dco]: https://github.com/apps/dco
