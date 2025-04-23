@@ -114,7 +114,7 @@ jobs:
       matrix:
         commit: ${{ fromJSON(needs.commit_list.outputs.commits) }}
     env:
-      LANDLOCK_CRATE_TEST_ABI: 4
+      LANDLOCK_CRATE_TEST_ABI: 5
     steps:
 
     - uses: actions/checkout@v4
