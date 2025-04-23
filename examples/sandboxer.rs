@@ -5,8 +5,8 @@
 
 use anyhow::{anyhow, bail, Context};
 use landlock::{
-    Access, AccessFs, AccessNet, BitFlags, NetPort, PathBeneath, PathFd, Ruleset, RulesetAttr,
-    RulesetCreatedAttr, RulesetStatus, Scope, ABI,
+    path_beneath_rules, Access, AccessFs, AccessNet, BitFlags, NetPort, PathBeneath, PathFd,
+    Ruleset, RulesetAttr, RulesetCreatedAttr, RulesetStatus, Scope, ABI,
 };
 use std::env;
 use std::ffi::OsStr;
@@ -45,12 +45,15 @@ impl PathEnv {
 
     fn iter(&self) -> impl Iterator<Item = anyhow::Result<PathBeneath<PathFd>>> + '_ {
         let is_empty = self.paths.is_empty();
-        self.paths
-            .split(|b| *b == b':')
-            // Skips the first empty element from of an empty string.
-            .skip_while(move |_| is_empty)
-            .map(OsStr::from_bytes)
-            .map(move |path| Ok(PathBeneath::new(PathFd::new(path)?, self.access)))
+        path_beneath_rules(
+            self.paths
+                .split(|b| *b == b':')
+                // Skips the first empty element of an empty string.
+                .skip_while(move |_| is_empty)
+                .map(OsStr::from_bytes),
+            self.access,
+        )
+        .map(|r| Ok(r?))
     }
 }
 
