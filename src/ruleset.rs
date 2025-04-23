@@ -1,7 +1,7 @@
 use crate::compat::private::OptionCompatLevelMut;
 use crate::{
-    uapi, Access, AccessFs, AccessNet, AddRuleError, AddRulesError, BitFlags, CompatLevel,
-    CompatState, Compatibility, Compatible, CreateRulesetError, RestrictSelfError, RulesetError,
+    uapi, AccessFs, AccessNet, AddRuleError, AddRulesError, BitFlags, CompatLevel, CompatState,
+    Compatibility, Compatible, CreateRulesetError, HandledAccess, RestrictSelfError, RulesetError,
     TryCompat,
 };
 use libc::close;
@@ -15,7 +15,7 @@ use crate::*;
 // Public interface without methods and which is impossible to implement outside this crate.
 pub trait Rule<T>: PrivateRule<T>
 where
-    T: Access,
+    T: HandledAccess,
 {
 }
 
@@ -23,7 +23,7 @@ where
 pub trait PrivateRule<T>
 where
     Self: TryCompat<T> + Compatible,
-    T: Access,
+    T: HandledAccess,
 {
     const TYPE_ID: uapi::landlock_rule_type;
 
@@ -340,7 +340,7 @@ pub trait RulesetAttr: Sized + AsMut<Ruleset> + Compatible {
     fn handle_access<T, U>(mut self, access: T) -> Result<Self, RulesetError>
     where
         T: Into<BitFlags<U>>,
-        U: Access,
+        U: HandledAccess,
     {
         U::ruleset_handle_access(self.as_mut(), access.into())?;
         Ok(self)
@@ -452,7 +452,7 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> + Compatible {
     fn add_rule<T, U>(mut self, rule: T) -> Result<Self, RulesetError>
     where
         T: Rule<U>,
-        U: Access,
+        U: HandledAccess,
     {
         let body = || -> Result<Self, AddRulesError> {
             let self_ref = self.as_mut();
@@ -562,7 +562,7 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> + Compatible {
     where
         I: IntoIterator<Item = Result<T, E>>,
         T: Rule<U>,
-        U: Access,
+        U: HandledAccess,
         E: From<RulesetError>,
     {
         for rule in rules {

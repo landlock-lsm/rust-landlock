@@ -94,7 +94,7 @@ pub use ruleset::{
     RulesetStatus,
 };
 
-use access::PrivateAccess;
+use access::HandledAccess;
 use compat::{CompatResult, CompatState, Compatibility, TailoredCompatLevel, TryCompat};
 use ruleset::PrivateRule;
 
@@ -112,6 +112,14 @@ mod fs;
 mod net;
 mod ruleset;
 mod uapi;
+
+// Makes sure private traits cannot be implemented outside of this crate.
+mod private {
+    pub trait Sealed {}
+
+    impl Sealed for crate::AccessFs {}
+    impl Sealed for crate::AccessNet {}
+}
 
 #[cfg(test)]
 mod tests {

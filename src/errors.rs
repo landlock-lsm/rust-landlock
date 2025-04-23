@@ -1,4 +1,4 @@
-use crate::{Access, AccessFs, AccessNet, BitFlags};
+use crate::{Access, AccessFs, AccessNet, BitFlags, HandledAccess};
 use std::io;
 use std::path::PathBuf;
 use thiserror::Error;
@@ -32,7 +32,7 @@ fn ruleset_error_breaking_change() {
 #[non_exhaustive]
 pub enum HandleAccessError<T>
 where
-    T: Access,
+    T: HandledAccess,
 {
     #[error(transparent)]
     Compat(#[from] CompatError<T>),
@@ -47,11 +47,11 @@ pub enum HandleAccessesError {
     Net(HandleAccessError<AccessNet>),
 }
 
-// Generically implement for all the access implementations rather than for the cases listed in
-// HandleAccessesError (with #[from]).
+// Generically implement for all the handled access implementations rather than for the cases
+// listed in HandleAccessesError (with #[from]).
 impl<A> From<HandleAccessError<A>> for HandleAccessesError
 where
-    A: Access,
+    A: HandledAccess,
 {
     fn from(error: HandleAccessError<A>) -> Self {
         A::into_handle_accesses_error(error)
@@ -92,11 +92,11 @@ where
     Compat(#[from] CompatError<T>),
 }
 
-// Generically implement for all the access implementations rather than for the cases listed in
-// AddRulesError (with #[from]).
+// Generically implement for all the handled access implementations rather than for the cases listed
+// in AddRulesError (with #[from]).
 impl<A> From<AddRuleError<A>> for AddRulesError
 where
-    A: Access,
+    A: HandledAccess,
 {
     fn from(error: AddRuleError<A>) -> Self {
         A::into_add_rules_error(error)

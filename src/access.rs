@@ -1,5 +1,5 @@
 use crate::{
-    AccessError, AddRuleError, AddRulesError, BitFlags, CompatError, CompatResult,
+    private, AccessError, AddRuleError, AddRulesError, BitFlags, CompatError, CompatResult,
     HandleAccessError, HandleAccessesError, Ruleset, TailoredCompatLevel, TryCompat, ABI,
 };
 use enumflags2::BitFlag;
@@ -7,12 +7,12 @@ use enumflags2::BitFlag;
 #[cfg(test)]
 use crate::{make_bitflags, AccessFs, CompatLevel, CompatState, Compatibility};
 
-pub trait Access: PrivateAccess {
+pub trait Access: private::Sealed + BitFlag {
     /// Gets the access rights defined by a specific [`ABI`].
     fn from_all(abi: ABI) -> BitFlags<Self>;
 }
 
-pub trait PrivateAccess: BitFlag {
+pub trait HandledAccess: Access {
     fn ruleset_handle_access(
         ruleset: &mut Ruleset,
         access: BitFlags<Self>,
