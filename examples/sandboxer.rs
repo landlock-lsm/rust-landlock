@@ -97,21 +97,22 @@ fn main() -> anyhow::Result<()> {
     let cmd_name = args.next().ok_or_else(|| {
         let program_name = program_name.to_string_lossy();
         eprintln!(
-            "usage: {ENV_FS_RO_NAME}=\"...\" {ENV_FS_RW_NAME}=\"...\" {program_name} <cmd> [args]...\n"
+            "usage: {ENV_FS_RO_NAME}=\"...\" {ENV_FS_RW_NAME}=\"...\" [other environment variables] {program_name} <cmd> [args]...\n"
         );
-        eprintln!("Launch a command in a restricted environment.\n");
-        eprintln!("Environment variables containing paths and ports, each separated by a colon:");
-        eprintln!("* {ENV_FS_RO_NAME}: list of paths allowed to be used in a read-only way.");
-        eprintln!("* {ENV_FS_RW_NAME}: list of paths allowed to be used in a read-write way.");
-        eprintln!("Environment variables containing ports are optional and could be skipped.");
-        eprintln!("* {ENV_TCP_BIND_NAME}: list of ports allowed to bind (server).");
-        eprintln!("* {ENV_TCP_CONNECT_NAME}: list of ports allowed to connect (client).");
+        eprintln!("Execute the given command in a restricted environment.");
+        eprintln!("Multi-valued settings (lists of ports, paths, scopes) are colon-delimited.\n");
+        eprintln!("Mandatory settings:");
+        eprintln!("* {ENV_FS_RO_NAME}: paths allowed to be used in a read-only way");
+        eprintln!("* {ENV_FS_RW_NAME}: paths allowed to be used in a read-write way\n");
+        eprintln!("Optional settings (when not set, their associated access check is always allowed, which is different from an empty string which means an empty list):");
+        eprintln!("* {ENV_TCP_BIND_NAME}: ports allowed to bind (server)");
+        eprintln!("* {ENV_TCP_CONNECT_NAME}: ports allowed to connect (client)");
         eprintln!("* {ENV_SCOPED_NAME}: actions denied on the outside of the Landlock domain:");
-        eprintln!("  - \"a\" to restrict opening abstract UNIX sockets");
+        eprintln!("  - \"a\" to restrict opening abstract unix sockets");
         eprintln!("  - \"s\" to restrict sending signals");
         eprintln!(
-            "\nexample:\n\
-                {ENV_FS_RO_NAME}=\"/bin:/lib:/usr:/proc:/etc:/dev/urandom\" \
+            "\nExample:\n\
+                {ENV_FS_RO_NAME}=\"${{PATH}}:/lib:/usr:/proc:/etc:/dev/urandom\" \
                 {ENV_FS_RW_NAME}=\"/dev/null:/dev/full:/dev/zero:/dev/pts:/tmp\" \
                 {ENV_TCP_BIND_NAME}=\"9418\" \
                 {ENV_TCP_CONNECT_NAME}=\"80:443\" \
@@ -171,6 +172,7 @@ fn main() -> anyhow::Result<()> {
         bail!("Landlock is not supported by the running kernel.");
     }
 
+    eprintln!("Executing the sandboxed command...");
     Err(Command::new(cmd_name)
         .env_remove(ENV_FS_RO_NAME)
         .env_remove(ENV_FS_RW_NAME)
