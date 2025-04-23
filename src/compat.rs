@@ -188,7 +188,16 @@ fn current_kernel_abi() {
     // to the Landlock ABI version supported by your kernel.  With a missing variable, the latest
     // Landlock ABI version known by this crate is automatically set.
     // From Linux 5.13 to 5.18, you need to run: LANDLOCK_CRATE_TEST_ABI=1 cargo test
-    assert_eq!(*TEST_ABI, ABI::new_current());
+    let test_abi = *TEST_ABI;
+    let current_abi = ABI::new_current();
+    println!(
+        "Current kernel version: {}",
+        std::fs::read_to_string("/proc/version")
+            .unwrap_or_else(|_| "unknown".into())
+            .trim()
+    );
+    println!("Expected Landlock ABI {test_abi:?} whereas the current ABI is {current_abi:#?}");
+    assert_eq!(test_abi, current_abi);
 }
 
 // CompatState is not public outside this crate.
