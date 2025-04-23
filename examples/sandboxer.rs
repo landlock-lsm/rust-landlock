@@ -4,7 +4,7 @@
 use anyhow::{anyhow, bail, Context};
 use landlock::{
     Access, AccessFs, AccessNet, BitFlags, NetPort, PathBeneath, PathFd, Ruleset, RulesetAttr,
-    RulesetCreatedAttr, RulesetStatus, ABI,
+    RulesetCreatedAttr, RulesetStatus, Scope, ABI,
 };
 use std::env;
 use std::ffi::OsStr;
@@ -16,6 +16,7 @@ const ENV_FS_RO_NAME: &str = "LL_FS_RO";
 const ENV_FS_RW_NAME: &str = "LL_FS_RW";
 const ENV_TCP_BIND_NAME: &str = "LL_TCP_BIND";
 const ENV_TCP_CONNECT_NAME: &str = "LL_TCP_CONNECT";
+const ENV_SCOPED_NAME: &str = "LL_SCOPED";
 
 struct PathEnv {
     paths: Vec<u8>,
@@ -100,18 +101,22 @@ fn main() -> anyhow::Result<()> {
         eprintln!("Environment variables containing ports are optional and could be skipped.");
         eprintln!("* {ENV_TCP_BIND_NAME}: list of ports allowed to bind (server).");
         eprintln!("* {ENV_TCP_CONNECT_NAME}: list of ports allowed to connect (client).");
+        eprintln!("* {ENV_SCOPED_NAME}: actions denied on the outside of the Landlock domain:");
+        eprintln!("  - \"a\" to restrict opening abstract UNIX sockets");
+        eprintln!("  - \"s\" to restrict sending signals");
         eprintln!(
             "\nexample:\n\
                 {ENV_FS_RO_NAME}=\"/bin:/lib:/usr:/proc:/etc:/dev/urandom\" \
                 {ENV_FS_RW_NAME}=\"/dev/null:/dev/full:/dev/zero:/dev/pts:/tmp\" \
                 {ENV_TCP_BIND_NAME}=\"9418\" \
                 {ENV_TCP_CONNECT_NAME}=\"80:443\" \
+                {ENV_SCOPED_NAME}=\"a:s\" \
                 {program_name} bash -i\n"
         );
         anyhow!("Missing command")
     })?;
 
-    let abi = ABI::V5;
+    let abi = ABI::V6;
     let mut ruleset = Ruleset::default().handle_access(AccessFs::from_all(abi))?;
     let ruleset_ref = &mut ruleset;
 
@@ -121,6 +126,33 @@ fn main() -> anyhow::Result<()> {
     if env::var_os(ENV_TCP_CONNECT_NAME).is_some() {
         ruleset_ref.handle_access(AccessNet::ConnectTcp)?;
     }
+
+    if let Some(scoped) = env::var_os(ENV_SCOPED_NAME) {
+        let mut abstract_scoping = false;
+        let mut signal_scoping = false;
+        let scopes = scoped.to_string_lossy();
+        let is_empty = scopes.is_empty();
+        for scope in scopes.split(':').skip_while(move |_| is_empty) {
+            match scope {
+                "a" => {
+                    if abstract_scoping {
+                        bail!("Duplicate scope 'a'");
+                    }
+                    ruleset_ref.scope(Scope::AbstractUnixSocket)?;
+                    abstract_scoping = true;
+                }
+                "s" => {
+                    if signal_scoping {
+                        bail!("Duplicate scope 's'");
+                    }
+                    ruleset_ref.scope(Scope::Signal)?;
+                    signal_scoping = true;
+                }
+                _ => bail!("Unknown scope \"{scope}\""),
+            }
+        }
+    }
+
     let status = ruleset
         .create()?
         .add_rules(PathEnv::new(ENV_FS_RO_NAME, AccessFs::from_read(abi))?.iter())?
