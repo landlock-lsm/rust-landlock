@@ -1,8 +1,8 @@
 use crate::compat::private::OptionCompatLevelMut;
 use crate::{
     uapi, Access, AddRuleError, AddRulesError, CompatError, CompatLevel, CompatResult, CompatState,
-    Compatible, HandleAccessError, HandleAccessesError, PrivateHandledAccess, PrivateRule, Rule,
-    Ruleset, RulesetCreated, TailoredCompatLevel, TryCompat, ABI,
+    Compatible, HandleAccessError, HandleAccessesError, HandledAccess, PrivateHandledAccess,
+    PrivateRule, Rule, Ruleset, RulesetCreated, TailoredCompatLevel, TryCompat, ABI,
 };
 use enumflags2::{bitflags, BitFlags};
 use std::mem::zeroed;
@@ -59,6 +59,8 @@ impl Access for AccessNet {
         }
     }
 }
+
+impl HandledAccess for AccessNet {}
 
 impl PrivateHandledAccess for AccessNet {
     fn ruleset_handle_access(

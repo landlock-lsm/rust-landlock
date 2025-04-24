@@ -15,8 +15,6 @@ pub trait Access: BitFlag + private::Sealed {
 // This HandledAccess trait is useful to document the API.
 pub trait HandledAccess: Access {}
 
-impl<A> HandledAccess for A where A: PrivateHandledAccess {}
-
 pub trait PrivateHandledAccess: HandledAccess {
     fn ruleset_handle_access(
         ruleset: &mut Ruleset,
