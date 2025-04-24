@@ -187,7 +187,7 @@ mod tests {
                             CreateRulesetError::CreateRulesetCall { ref source },
                         )),
                     ) => {
-                        assert_eq!(source.raw_os_error(), Some(*Errno::from(error).as_ref()));
+                        assert_eq!(source.raw_os_error(), Some(*Errno::from(error)));
                         match (source.raw_os_error(), errno) {
                             (Some(e1), Some(e2)) => assert_eq!(e1, e2),
                             (Some(e1), None) => assert!(matches!(e1, libc::EINVAL | libc::E2BIG)),

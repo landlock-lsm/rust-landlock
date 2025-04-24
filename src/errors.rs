@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::{Access, AccessFs, AccessNet, BitFlags, HandledAccess, PrivateHandledAccess, Scope};
+use libc::c_int;
 use std::io;
 use std::path::PathBuf;
 use thiserror::Error;
@@ -228,10 +229,10 @@ pub(crate) enum TestRulesetError {
 /// This helper is useful for FFI to easily translate a Landlock error into an
 /// errno value.
 #[derive(Debug, PartialEq, Eq)]
-pub struct Errno(libc::c_int);
+pub struct Errno(c_int);
 
 impl Errno {
-    pub fn new(value: libc::c_int) -> Self {
+    pub fn new(value: c_int) -> Self {
         Self(value)
     }
 }
@@ -251,56 +252,58 @@ where
     }
 }
 
-impl AsRef<libc::c_int> for Errno {
-    fn as_ref(&self) -> &libc::c_int {
+impl std::ops::Deref for Errno {
+    type Target = c_int;
+
+    fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
 #[cfg(test)]
-fn _test_ruleset_errno(expected_errno: libc::c_int) {
+fn _test_ruleset_errno(expected_errno: c_int) {
     use std::io::Error;
 
     let handle_access_err = RulesetError::HandleAccesses(HandleAccessesError::Fs(
         HandleAccessError::Compat(CompatError::Access(AccessError::Empty)),
     ));
-    assert_eq!(Errno::from(handle_access_err).0, libc::EINVAL);
+    assert_eq!(*Errno::from(handle_access_err), libc::EINVAL);
 
     let create_ruleset_err = RulesetError::CreateRuleset(CreateRulesetError::CreateRulesetCall {
         source: Error::from_raw_os_error(expected_errno),
     });
-    assert_eq!(Errno::from(create_ruleset_err).0, expected_errno);
+    assert_eq!(*Errno::from(create_ruleset_err), expected_errno);
 
     let add_rules_fs_err = RulesetError::AddRules(AddRulesError::Fs(AddRuleError::AddRuleCall {
         source: Error::from_raw_os_error(expected_errno),
     }));
-    assert_eq!(Errno::from(add_rules_fs_err).0, expected_errno);
+    assert_eq!(*Errno::from(add_rules_fs_err), expected_errno);
 
     let add_rules_net_err = RulesetError::AddRules(AddRulesError::Net(AddRuleError::AddRuleCall {
         source: Error::from_raw_os_error(expected_errno),
     }));
-    assert_eq!(Errno::from(add_rules_net_err).0, expected_errno);
+    assert_eq!(*Errno::from(add_rules_net_err), expected_errno);
 
     let add_rules_other_err =
         RulesetError::AddRules(AddRulesError::Fs(AddRuleError::UnhandledAccess {
             access: AccessFs::Execute.into(),
             incompatible: BitFlags::<AccessFs>::EMPTY,
         }));
-    assert_eq!(Errno::from(add_rules_other_err).0, libc::EINVAL);
+    assert_eq!(*Errno::from(add_rules_other_err), libc::EINVAL);
 
     let restrict_self_err = RulesetError::RestrictSelf(RestrictSelfError::RestrictSelfCall {
         source: Error::from_raw_os_error(expected_errno),
     });
-    assert_eq!(Errno::from(restrict_self_err).0, expected_errno);
+    assert_eq!(*Errno::from(restrict_self_err), expected_errno);
 
     let set_no_new_privs_err = RulesetError::RestrictSelf(RestrictSelfError::SetNoNewPrivsCall {
         source: Error::from_raw_os_error(expected_errno),
     });
-    assert_eq!(Errno::from(set_no_new_privs_err).0, expected_errno);
+    assert_eq!(*Errno::from(set_no_new_privs_err), expected_errno);
 
     let create_ruleset_missing_err =
         RulesetError::CreateRuleset(CreateRulesetError::MissingHandledAccess);
-    assert_eq!(Errno::from(create_ruleset_missing_err).0, libc::EINVAL);
+    assert_eq!(*Errno::from(create_ruleset_missing_err), libc::EINVAL);
 }
 
 #[test]
