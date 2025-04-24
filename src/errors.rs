@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use crate::{Access, AccessFs, AccessNet, BitFlags, HandledAccess, PrivateHandledAccess, Scope};
 use std::io;
 use std::path::PathBuf;

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use crate::{
     private, AccessError, AddRuleError, AddRulesError, BitFlags, CompatError, CompatResult,
     HandleAccessError, HandleAccessesError, Ruleset, TailoredCompatLevel, TryCompat, ABI,

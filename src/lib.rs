@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! Landlock is a security feature available since Linux 5.13.
 //! The goal is to enable to restrict ambient rights
 //! (e.g., global filesystem access)
