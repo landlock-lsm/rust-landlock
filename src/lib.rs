@@ -79,7 +79,7 @@
 #[macro_use]
 extern crate lazy_static;
 
-pub use access::Access;
+pub use access::{Access, HandledAccess};
 pub use compat::{CompatLevel, Compatible, ABI};
 pub use enumflags2::{make_bitflags, BitFlags};
 pub use errors::{
@@ -95,7 +95,7 @@ pub use ruleset::{
 };
 pub use scope::Scope;
 
-use access::HandledAccess;
+use access::PrivateHandledAccess;
 use compat::{CompatResult, CompatState, Compatibility, TailoredCompatLevel, TryCompat};
 use ruleset::PrivateRule;
 

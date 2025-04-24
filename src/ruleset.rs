@@ -1,8 +1,8 @@
 use crate::compat::private::OptionCompatLevelMut;
 use crate::{
     uapi, AccessFs, AccessNet, AddRuleError, AddRulesError, BitFlags, CompatLevel, CompatState,
-    Compatibility, Compatible, CreateRulesetError, HandledAccess, RestrictSelfError, RulesetError,
-    Scope, ScopeError, TryCompat,
+    Compatibility, Compatible, CreateRulesetError, HandledAccess, PrivateHandledAccess,
+    RestrictSelfError, RulesetError, Scope, ScopeError, TryCompat,
 };
 use libc::close;
 use std::io::Error;
@@ -347,7 +347,7 @@ pub trait RulesetAttr: Sized + AsMut<Ruleset> + Compatible {
     fn handle_access<T, U>(mut self, access: T) -> Result<Self, RulesetError>
     where
         T: Into<BitFlags<U>>,
-        U: HandledAccess,
+        U: HandledAccess + PrivateHandledAccess,
     {
         U::ruleset_handle_access(self.as_mut(), access.into())?;
         Ok(self)
@@ -580,7 +580,7 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> + Compatible {
     fn add_rule<T, U>(mut self, rule: T) -> Result<Self, RulesetError>
     where
         T: Rule<U>,
-        U: HandledAccess,
+        U: HandledAccess + PrivateHandledAccess,
     {
         let body = || -> Result<Self, AddRulesError> {
             let self_ref = self.as_mut();
@@ -690,7 +690,7 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> + Compatible {
     where
         I: IntoIterator<Item = Result<T, E>>,
         T: Rule<U>,
-        U: HandledAccess,
+        U: HandledAccess + PrivateHandledAccess,
         E: From<RulesetError>,
     {
         for rule in rules {

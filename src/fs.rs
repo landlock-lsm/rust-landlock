@@ -1,9 +1,9 @@
 use crate::compat::private::OptionCompatLevelMut;
 use crate::{
     uapi, Access, AddRuleError, AddRulesError, CompatError, CompatLevel, CompatResult, CompatState,
-    Compatible, HandleAccessError, HandleAccessesError, HandledAccess, PathBeneathError,
-    PathFdError, PrivateRule, Rule, Ruleset, RulesetCreated, RulesetError, TailoredCompatLevel,
-    TryCompat, ABI,
+    Compatible, HandleAccessError, HandleAccessesError, PathBeneathError, PathFdError,
+    PrivateHandledAccess, PrivateRule, Rule, Ruleset, RulesetCreated, RulesetError,
+    TailoredCompatLevel, TryCompat, ABI,
 };
 use enumflags2::{bitflags, make_bitflags, BitFlags};
 use std::fs::OpenOptions;
@@ -159,7 +159,7 @@ fn consistent_access_fs_rw() {
     }
 }
 
-impl HandledAccess for AccessFs {
+impl PrivateHandledAccess for AccessFs {
     fn ruleset_handle_access(
         ruleset: &mut Ruleset,
         access: BitFlags<Self>,

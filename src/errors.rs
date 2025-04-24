@@ -1,4 +1,4 @@
-use crate::{Access, AccessFs, AccessNet, BitFlags, HandledAccess, Scope};
+use crate::{Access, AccessFs, AccessNet, BitFlags, HandledAccess, PrivateHandledAccess, Scope};
 use std::io;
 use std::path::PathBuf;
 use thiserror::Error;
@@ -61,7 +61,7 @@ pub enum HandleAccessesError {
 // listed in HandleAccessesError (with #[from]).
 impl<A> From<HandleAccessError<A>> for HandleAccessesError
 where
-    A: HandledAccess,
+    A: PrivateHandledAccess,
 {
     fn from(error: HandleAccessError<A>) -> Self {
         A::into_handle_accesses_error(error)
@@ -87,7 +87,7 @@ pub enum CreateRulesetError {
 #[non_exhaustive]
 pub enum AddRuleError<T>
 where
-    T: Access,
+    T: HandledAccess,
 {
     /// The `landlock_add_rule()` system call failed.
     #[error("failed to add a rule: {source}")]
@@ -107,7 +107,7 @@ where
 // in AddRulesError (with #[from]).
 impl<A> From<AddRuleError<A>> for AddRulesError
 where
-    A: HandledAccess,
+    A: PrivateHandledAccess,
 {
     fn from(error: AddRuleError<A>) -> Self {
         A::into_add_rules_error(error)

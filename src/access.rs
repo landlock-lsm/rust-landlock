@@ -7,12 +7,17 @@ use enumflags2::BitFlag;
 #[cfg(test)]
 use crate::{make_bitflags, AccessFs, CompatLevel, CompatState, Compatibility};
 
-pub trait Access: private::Sealed + BitFlag {
+pub trait Access: BitFlag + private::Sealed {
     /// Gets the access rights defined by a specific [`ABI`].
     fn from_all(abi: ABI) -> BitFlags<Self>;
 }
 
-pub trait HandledAccess: Access {
+// This HandledAccess trait is useful to document the API.
+pub trait HandledAccess: Access {}
+
+impl<A> HandledAccess for A where A: PrivateHandledAccess {}
+
+pub trait PrivateHandledAccess: HandledAccess {
     fn ruleset_handle_access(
         ruleset: &mut Ruleset,
         access: BitFlags<Self>,
