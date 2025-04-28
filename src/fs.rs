@@ -552,9 +552,16 @@ fn path_fd() {
 ///
 /// # Note
 ///
-/// Landlock rules operate on file descriptors, not paths. This is a helper to create rules based on paths. **It
-/// silently ignores paths that cannot be opened**, and automatically adjusts access rights according to file types when
-/// possible.
+/// From the kernel's perspective, Landlock rules operate on file descriptors, not paths.
+/// This is a helper to create rules based on paths. Here, `path_beneath_rules()` silently ignores
+/// paths that cannot be opened, hence making the obtainment of a file descriptor impossible. When
+/// possible and for a given path, `path_beneath_rules()` automatically adjusts [access rights](`AccessFs`),
+/// depending on whether a directory or a file is present at that said path.
+///
+/// This behavior is the result of [`CompatLevel::BestEffort`], which is the default compatibility level of
+/// all created rulesets. Thus, it applies to the example below. However, if [`CompatLevel::HardRequirement`]
+/// is set using [`Compatible::set_compatibility`], attempting to create an incompatible rule at runtime will cause
+/// this crate to raise an error instead.
 ///
 /// # Example
 ///
