@@ -1,5 +1,30 @@
 # Landlock changelog
 
+## [v0.4.2](https://github.com/landlock-lsm/rust-landlock/releases/tag/v0.4.2)
+
+### New API
+
+- Added support for Landlock ABI 6: control abstract UNIX sockets and signal scoping with the new [`Ruleset::scope()`](https://landlock.io/rust-landlock/landlock/struct.Ruleset.html#method.scope) method taking a [`Scope`](https://landlock.io/rust-landlock/landlock/enum.Scope.html) enum ([PR #96](https://github.com/landlock-lsm/rust-landlock/pull/96) and [PR #98](https://github.com/landlock-lsm/rust-landlock/pull/98)).
+- Added `From<RulesetCreated>` implementation for `Option<OwnedFd>` ([PR #104](https://github.com/landlock-lsm/rust-landlock/pull/104))
+- Introduced a new [`HandledAccess`](https://landlock.io/rust-landlock/landlock/trait.HandledAccess.html) trait specific to `AccessFs` and `AccessNet` (commit [554217dda0b7](https://github.com/landlock-lsm/rust-landlock/commit/554217dda0b775756e38db71f471dd414b199234)).
+- Added a new [`Errno`](https://landlock.io/rust-landlock/landlock/struct.Errno.html) type to improve FFI support ([PR #86](https://github.com/landlock-lsm/rust-landlock/pull/86) and [PR #102](https://github.com/landlock-lsm/rust-landlock/pull/102)).
+- Exposed `From<i32>` implementation for [`ABI`](https://landlock.io/rust-landlock/landlock/enum.ABI.html) ([PR #88](https://github.com/landlock-lsm/rust-landlock/pull/88)).
+
+### Documentation
+
+- Added clarifying notes about `AccessFs::WriteFile` behavior and `path_beneath_rules` usage ([PR #80](https://github.com/landlock-lsm/rust-landlock/pull/80)).
+- Introduced [CONTRIBUTING.md](CONTRIBUTING.md) with testing workflow explanations ([PR #76](https://github.com/landlock-lsm/rust-landlock/pull/76)).
+
+### Testing
+
+- Enhanced test coverage for new API and added testing against Linux 6.12 ([PR #96](https://github.com/landlock-lsm/rust-landlock/pull/96)).
+- Updated CI configuration to use the latest Ubuntu versions ([PR #87](https://github.com/landlock-lsm/rust-landlock/pull/87) and [PR #97](https://github.com/landlock-lsm/rust-landlock/pull/97)).
+- Modified default `LANDLOCK_CRATE_TEST_ABI` to match the current kernel for more convenient local testing ([PR #76](https://github.com/landlock-lsm/rust-landlock/pull/76)).
+
+### Example
+
+- Synchronized the sandboxer example with the C version ([PR #101](https://github.com/landlock-lsm/rust-landlock/pull/101)): improved error handling for inaccessible file paths and enhanced help documentation.
+
 ## [v0.4.1](https://github.com/landlock-lsm/rust-landlock/releases/tag/v0.4.1)
 
 ### New API
@@ -39,6 +64,8 @@ This was required to get a consistent compatibility management and it should not
 
 
 ## [v0.3.1](https://github.com/landlock-lsm/rust-landlock/releases/tag/v0.3.1)
+
+### New API
 
 Add [`RulesetCreated::try_clone()`](https://landlock.io/rust-landlock/landlock/struct.RulesetCreated.html#method.try_clone) ([PR #38](https://github.com/landlock-lsm/rust-landlock/pull/38)).
 
