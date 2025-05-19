@@ -5,8 +5,8 @@
 
 use anyhow::{anyhow, bail, Context};
 use landlock::{
-    path_beneath_rules, Access, AccessFs, AccessNet, BitFlags, NetPort, PathBeneath, PathFd,
-    Ruleset, RulesetAttr, RulesetCreatedAttr, RulesetStatus, Scope, ABI,
+    path_beneath_rules, Access, AccessFs, AccessNet, BitFlags, LandlockStatus, NetPort,
+    PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, RulesetStatus, Scope, ABI,
 };
 use std::env;
 use std::ffi::OsStr;
@@ -168,8 +168,22 @@ fn main() -> anyhow::Result<()> {
         .restrict_self()
         .expect("Failed to enforce ruleset");
 
+    match status.landlock {
+        // This should never happen because of the previous check:
+        LandlockStatus::NotEnabled => eprintln!("Landlock is not enabled in the running kernel"),
+        LandlockStatus::NotImplemented => {
+            eprintln!("Landlock is not implemented in the running kernel")
+        }
+        LandlockStatus::Available(current_abi) => {
+            if current_abi > abi {
+                eprintln!("Hint: You should update this sandboxer to leverage Landlock features provided by ABI version {current_abi} (instead of {abi})");
+            } else if current_abi < abi {
+                eprintln!("Hint: You should update the running kernel to leverage Landlock features provided by ABI version {abi} (instead of {current_abi})");
+            }
+        }
+    }
     if status.ruleset == RulesetStatus::NotEnforced {
-        bail!("Landlock is not supported by the running kernel.");
+        bail!("The ruleset cannot be enforced at all");
     }
 
     eprintln!("Executing the sandboxed command...");
