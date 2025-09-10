@@ -41,11 +41,10 @@ use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 ///
 /// In a nutshell, test the access rights you request on a kernel that support them and
 /// on a kernel that doesn't support them.
-#[cfg_attr(
-    test,
-    derive(Debug, PartialEq, Eq, PartialOrd, EnumIter, EnumCountMacro)
-)]
-#[derive(Copy, Clone)]
+///
+/// Derived `Debug` formats are [not stable](https://doc.rust-lang.org/stable/std/fmt/trait.Debug.html#stability).
+#[cfg_attr(test, derive(EnumIter, EnumCountMacro))]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum ABI {
     /// Kernel not supporting Landlock, either because it is not built with Landlock
@@ -208,8 +207,7 @@ fn current_kernel_abi() {
 
 // CompatState is not public outside this crate.
 /// Returned by ruleset builder.
-#[cfg_attr(test, derive(Debug))]
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum CompatState {
     /// Initial undefined state.
     Init,
@@ -276,8 +274,8 @@ fn compat_state_update_2() {
     assert_eq!(state, CompatState::Partial);
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
-#[derive(Copy, Clone)]
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Copy, Clone, Debug)]
 pub(crate) struct Compatibility {
     abi: ABI,
     pub(crate) level: Option<CompatLevel>,

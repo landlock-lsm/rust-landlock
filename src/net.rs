@@ -105,7 +105,7 @@ impl PrivateHandledAccess for AccessNet {
 ///     NetPort::new(80, AccessNet::BindTcp)
 /// }
 /// ```
-#[cfg_attr(test, derive(Debug))]
+#[derive(Debug)]
 pub struct NetPort {
     attr: uapi::landlock_net_port_attr,
     // Only 16-bit port make sense for now.

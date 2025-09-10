@@ -226,7 +226,7 @@ where
 ///     Ok(PathBeneath::new(PathFd::new("/home")?, AccessFs::ReadDir))
 /// }
 /// ```
-#[cfg_attr(test, derive(Debug))]
+#[derive(Debug)]
 pub struct PathBeneath<F> {
     attr: uapi::landlock_path_beneath_attr,
     // Ties the lifetime of a file descriptor to this object.
@@ -502,7 +502,7 @@ fn path_beneath_check_consistency() {
 ///     Ok(PathBeneath::new(fd, access))
 /// }
 /// ```
-#[cfg_attr(test, derive(Debug))]
+#[derive(Debug)]
 pub struct PathFd {
     fd: OwnedFd,
 }

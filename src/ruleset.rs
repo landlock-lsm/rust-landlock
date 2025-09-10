@@ -170,7 +170,7 @@ fn support_no_new_privs() -> bool {
 ///
 /// let status = restrict_paths(&["/usr", "/home"]).expect("failed to build the ruleset");
 /// ```
-#[cfg_attr(test, derive(Debug))]
+#[derive(Debug)]
 pub struct Ruleset {
     pub(crate) requested_handled_fs: BitFlags<AccessFs>,
     pub(crate) requested_handled_net: BitFlags<AccessNet>,
@@ -720,7 +720,7 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> + Compatible {
 }
 
 /// Ruleset created with [`Ruleset::create()`].
-#[cfg_attr(test, derive(Debug))]
+#[derive(Debug)]
 pub struct RulesetCreated {
     fd: Option<OwnedFd>,
     no_new_privs: bool,
