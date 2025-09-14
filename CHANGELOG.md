@@ -1,5 +1,20 @@
 # Landlock changelog
 
+## [v0.4.3](https://github.com/landlock-lsm/rust-landlock/releases/tag/v0.4.3)
+
+### New API
+
+- Implemented common traits (e.g., `Debug`) for public types ([PR #108](https://github.com/landlock-lsm/rust-landlock/pull/108)).
+
+### Documentation
+
+- Extended [CONTRIBUTING.md](CONTRIBUTING.md) documentation with additional testing and development guidelines ([PR #95](https://github.com/landlock-lsm/rust-landlock/pull/95)).
+- Added more background information to [`path_beneath_rules()`](https://landlock.io/rust-landlock/landlock/fn.path_beneath_rules.html) documentation ([PR #94](https://github.com/landlock-lsm/rust-landlock/pull/94)).
+
+### Testing
+
+- Added test case for `AccessFs::from_file()` method ([PR #92](https://github.com/landlock-lsm/rust-landlock/pull/92)).
+
 ## [v0.4.2](https://github.com/landlock-lsm/rust-landlock/releases/tag/v0.4.2)
 
 ### New API
