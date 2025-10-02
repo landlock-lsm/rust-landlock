@@ -4,6 +4,16 @@
 #[allow(non_camel_case_types)]
 #[allow(non_snake_case)]
 #[allow(non_upper_case_globals)]
+#[cfg(target_arch = "x86_64")]
+#[path = "landlock_x86_64.rs"]
+mod landlock;
+
+#[allow(dead_code)]
+#[allow(non_camel_case_types)]
+#[allow(non_snake_case)]
+#[allow(non_upper_case_globals)]
+#[cfg(target_arch = "x86")]
+#[path = "landlock_i686.rs"]
 mod landlock;
 
 #[rustfmt::skip]
