@@ -131,21 +131,31 @@ jobs:
     - name: Get MSRV
       run: sed -n 's/^rust-version = "\([0-9.]\+\)"$/RUST_TOOLCHAIN=\1/p' Cargo.toml >> $GITHUB_ENV
 
+    - name: Install 32-bit development libraries
+      run: |
+        sudo apt update
+        sudo apt install gcc-multilib libc6-dev-i386
+
     - name: Install Rust MSRV
       run: |
         rm ~/.cargo/bin/{cargo-fmt,rustfmt} || :
         rustup self update
         rustup default ${{ env.RUST_TOOLCHAIN }}
         rustup update ${{ env.RUST_TOOLCHAIN }}
+        rustup target add i686-unknown-linux-gnu
+        rustup target add x86_64-unknown-linux-gnu
 
-    - name: Build
-      run: rustup run ${{ env.RUST_TOOLCHAIN }} cargo build --verbose
+    - name: Build (x86_64)
+      run: rustup run ${{ env.RUST_TOOLCHAIN }} cargo build --target x86_64-unknown-linux-gnu --verbose
 
-    - name: Build tests
-      run: rustup run ${{ env.RUST_TOOLCHAIN }} cargo build --tests --verbose
+    - name: Build (x86)
+      run: rustup run ${{ env.RUST_TOOLCHAIN }} cargo build --target i686-unknown-linux-gnu --verbose
 
-    - name: Run tests against the local kernel (Landlock ABI ${{ env.LANDLOCK_CRATE_TEST_ABI }})
-      run: rustup run ${{ env.RUST_TOOLCHAIN }} cargo test --verbose
+    - name: Run tests against the local kernel (Landlock ABI ${{ env.LANDLOCK_CRATE_TEST_ABI }} on x86_64)
+      run: rustup run ${{ env.RUST_TOOLCHAIN }} cargo test --target x86_64-unknown-linux-gnu --verbose
+
+    - name: Run tests against the local kernel (Landlock ABI ${{ env.LANDLOCK_CRATE_TEST_ABI }} on x86)
+      run: rustup run ${{ env.RUST_TOOLCHAIN }} cargo test --target i686-unknown-linux-gnu --verbose
 
     - name: Run tests against Linux 6.1
       run: CARGO="rustup run ${{ env.RUST_TOOLCHAIN }} cargo" ./landlock-test-tools/test-rust.sh linux-6.1 2
