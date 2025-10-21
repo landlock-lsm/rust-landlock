@@ -12,7 +12,7 @@
 //!
 //! This crate provides a safe abstraction for the Landlock system calls, along with some helpers.
 //!
-//! Minimum Supported Rust Version (MSRV): 1.63
+//! Minimum Supported Rust Version (MSRV): 1.68
 //!
 //! # Use cases
 //!
