@@ -158,11 +158,24 @@ pub enum LandlockStatus {
     NotEnabled,
     /// Landlock is not implemented (i.e. not built into the running kernel: `ENOSYS`).
     NotImplemented,
-    /// Landlock is available and supported up to the given ABI.
+    /// Landlock is available and working on the running system.
     ///
-    /// `Option<i32>` contains the raw ABI value if it's greater than the greatest known ABI,
-    /// which would mean that the running kernel is newer than the Landlock crate.
-    Available(ABI, Option<i32>),
+    /// This indicates that the kernel supports Landlock and it's properly enabled.
+    /// The crate uses the `effective_abi` for all operations, which represents
+    /// the highest ABI version that both the kernel and this crate understand.
+    Available {
+        /// The effective ABI version that this crate will use for Landlock operations.
+        /// This is the intersection of what the kernel supports and what this crate knows about.
+        effective_abi: ABI,
+        /// The actual kernel ABI version when it's newer than any ABI supported by this crate.
+        ///
+        /// If `Some(version)`, it means the running kernel supports Landlock ABI `version`
+        /// which is higher than the latest ABI known by this crate.
+        ///
+        /// This field is purely informational and is never used for Landlock operations.
+        /// The crate always and only uses `effective_abi` for all functionality.
+        kernel_abi: Option<i32>,
+    },
 }
 
 impl LandlockStatus {
@@ -188,7 +201,10 @@ impl LandlockStatus {
             }
         } else {
             let abi = ABI::from(v);
-            Self::Available(abi, (v != abi as i32).then_some(v))
+            Self::Available {
+                effective_abi: abi,
+                kernel_abi: (v != abi as i32).then_some(v),
+            }
         }
     }
 }
@@ -200,10 +216,18 @@ fn test_current_landlock_status() {
     if *TEST_ABI == ABI::Unsupported {
         assert_eq!(status, LandlockStatus::NotImplemented);
     } else {
-        assert!(matches!(status, LandlockStatus::Available(abi, _) if abi == *TEST_ABI));
+        assert!(
+            matches!(status, LandlockStatus::Available { effective_abi, .. } if effective_abi == *TEST_ABI)
+        );
         if std::env::var(TEST_ABI_ENV_NAME).is_ok() {
             // We cannot reliably check for unknown kernel.
-            assert!(matches!(status, LandlockStatus::Available(_, None)));
+            assert!(matches!(
+                status,
+                LandlockStatus::Available {
+                    kernel_abi: None,
+                    ..
+                }
+            ));
         }
     }
 }
@@ -214,7 +238,7 @@ impl From<LandlockStatus> for ABI {
             // The only possible error values should be EOPNOTSUPP and ENOSYS,
             // but let's convert all kind of errors as unsupported.
             LandlockStatus::NotEnabled | LandlockStatus::NotImplemented => ABI::Unsupported,
-            LandlockStatus::Available(abi, _) => abi,
+            LandlockStatus::Available { effective_abi, .. } => effective_abi,
         }
     }
 }
@@ -227,7 +251,10 @@ impl From<ABI> for LandlockStatus {
         match abi {
             // Convert to ENOSYS because of check_ruleset_support() and ruleset_unsupported() tests.
             ABI::Unsupported => Self::NotImplemented,
-            _ => Self::Available(abi, None),
+            _ => Self::Available {
+                effective_abi: abi,
+                kernel_abi: None,
+            },
         }
     }
 }
@@ -278,7 +305,7 @@ pub(crate) fn get_errno_from_landlock_status() -> Option<i32> {
                 }
             }
         }
-        LandlockStatus::Available(_, _) => None,
+        LandlockStatus::Available { .. } => None,
     }
 }
 

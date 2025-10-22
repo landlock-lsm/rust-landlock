@@ -1062,7 +1062,10 @@ fn ruleset_unsupported() {
                 .unwrap(),
             RestrictionStatus {
                 ruleset: RulesetStatus::NotEnforced,
-                landlock: LandlockStatus::Available(ABI::V1, None),
+                landlock: LandlockStatus::Available {
+                    effective_abi: ABI::V1,
+                    kernel_abi: None,
+                },
                 // With SoftRequirement, no_new_privs is still enabled, even if there is an error
                 // (e.g. unsupported access right).
                 no_new_privs: true,
@@ -1184,7 +1187,10 @@ fn ignore_abi_v2_with_abi_v1() {
             .unwrap(),
         RestrictionStatus {
             ruleset: RulesetStatus::NotEnforced,
-            landlock: LandlockStatus::Available(ABI::V1, None),
+            landlock: LandlockStatus::Available {
+                effective_abi: ABI::V1,
+                kernel_abi: None,
+            },
             no_new_privs: true,
         }
     );

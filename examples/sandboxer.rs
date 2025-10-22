@@ -185,27 +185,33 @@ fn main() -> anyhow::Result<()> {
                 prepend \"landlock,\" to the content of CONFIG_LSM."
             );
         }
-        LandlockStatus::Available(_, Some(raw_abi)) => {
+        LandlockStatus::Available {
+            kernel_abi: Some(raw_abi),
+            ..
+        } => {
             eprintln!(
                 "Hint: This sandboxer only supports Landlock ABI version up to {abi} \
                 whereas the current kernel supports Landlock ABI version {raw_abi}. \
                 To leverage all Landlock features, update this sandboxer."
             );
         }
-        LandlockStatus::Available(current_abi, None) => {
-            if current_abi < abi {
+        LandlockStatus::Available {
+            kernel_abi: None,
+            effective_abi,
+        } => {
+            if effective_abi < abi {
                 eprintln!(
                     "Hint: This sandboxer supports Landlock ABI version up to {abi} \
-                    but the current kernel only supports Landlock ABI version {current_abi}. \
+                    but the current kernel only supports Landlock ABI version {effective_abi}. \
                     To leverage all Landlock features, update the kernel."
                 );
-            } else if current_abi > abi {
+            } else if effective_abi > abi {
                 // This should not happen because the ABI used by the sandboxer
                 // should be the latest supported by the Landlock crate, and
                 // they should be updated at the same time.
                 eprintln!(
                     "Warning: This sandboxer only supports Landlock ABI version up to {abi} \
-                    but the current kernel supports Landlock ABI version {current_abi}. \
+                    but the current kernel supports Landlock ABI version {effective_abi}. \
                     To leverage all Landlock features, update this sandboxer."
                 );
             }
