@@ -1,5 +1,24 @@
 # Landlock changelog
 
+## [v0.4.4](https://github.com/landlock-lsm/rust-landlock/releases/tag/v0.4.4)
+
+### New API
+
+- Added support for all architectures ([PR #111](https://github.com/landlock-lsm/rust-landlock/pull/111)).
+- Added `LandlockStatus` type to query the running kernel and display information about available Landlock features ([PR #103](https://github.com/landlock-lsm/rust-landlock/pull/103) and [PR #113](https://github.com/landlock-lsm/rust-landlock/pull/113)).
+
+### Dependencies
+
+- Bumped MSRV to Rust 1.68 ([PR #112](https://github.com/landlock-lsm/rust-landlock/pull/112)).
+
+### Testing
+
+- Extended CI to build and test on i686 architecture ([PR #111](https://github.com/landlock-lsm/rust-landlock/pull/111)).
+
+### Example
+
+- Enhanced sandboxer example to print helpful hints about Landlock status ([PR #103](https://github.com/landlock-lsm/rust-landlock/pull/103)).
+
 ## [v0.4.3](https://github.com/landlock-lsm/rust-landlock/releases/tag/v0.4.3)
 
 ### New API

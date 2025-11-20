@@ -27,6 +27,7 @@ and the [sandboxer example](examples/sandboxer.rs).
 
 ## Changelog
 
+* [v0.4.4](CHANGELOG.md#v044)
 * [v0.4.3](CHANGELOG.md#v043)
 * [v0.4.2](CHANGELOG.md#v042)
 * [v0.4.1](CHANGELOG.md#v041)
