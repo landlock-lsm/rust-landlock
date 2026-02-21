@@ -154,17 +154,10 @@ mod tests {
                     // TODO: Check exact error type; this may require better error types.
                     assert!(matches!(ret, Err(TestRulesetError::Ruleset(_))));
                 } else {
-                    let full_support = if let Some(full_inner) = full {
-                        abi >= full_inner
-                    } else {
-                        false
-                    };
-                    let ruleset_status = if full_support {
-                        RulesetStatus::FullyEnforced
-                    } else if abi >= partial {
-                        RulesetStatus::PartiallyEnforced
-                    } else {
-                        RulesetStatus::NotEnforced
+                    let ruleset_status = match (full.map(|inner| abi >= inner), abi >= partial) {
+                        (Some(true), _partial) => RulesetStatus::FullyEnforced,
+                        (_full, false) => RulesetStatus::NotEnforced,
+                        (_full, true) => RulesetStatus::PartiallyEnforced,
                     };
                     let landlock_status = abi.into();
                     println!("Expecting ruleset status {ruleset_status:?}");
