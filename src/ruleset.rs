@@ -2,10 +2,11 @@
 
 use crate::compat::private::OptionCompatLevelMut;
 use crate::{
-    uapi, AccessFs, AccessNet, AddRuleError, AddRulesError, BitFlags, CompatLevel, CompatState,
-    Compatibility, Compatible, CreateRulesetError, HandledAccess, LandlockStatus,
-    PrivateHandledAccess, RestrictSelfError, RulesetError, Scope, ScopeError, TryCompat,
+    uapi, Access, AccessFs, AccessNet, AddRuleError, AddRulesError, BitFlags, CompatLevel,
+    CompatState, Compatibility, Compatible, CreateRulesetError, HandledAccess, LandlockStatus,
+    PrivateHandledAccess, RestrictSelfError, RulesetError, Scope, ScopeError, TryCompat, ABI,
 };
+use enumflags2::bitflags;
 use std::io::Error;
 use std::mem::size_of_val;
 use std::os::unix::io::{AsRawFd, FromRawFd, OwnedFd};
@@ -48,6 +49,65 @@ pub enum RulesetStatus {
     /// The running system doesn't support Landlock
     /// or a subset of the requested Landlock features.
     NotEnforced,
+}
+
+/// Flags to use when applying ruleset restrictions
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[bitflags]
+#[repr(u32)]
+#[non_exhaustive]
+pub enum RestrictSelfFlag {
+    /// Disables logging of denied accesses originating
+    /// from the thread creating the Landlock domain, as
+    /// well as its children, as long as they continue
+    /// running the same executable code (i.e., without
+    /// an intervening execve(2) call). This is intended
+    /// for programs that execute unknown code without
+    /// invoking execve(2), such as script interpreters.
+    /// Programs that only sandbox themselves should not
+    /// set this flag, so users can be notified of
+    /// unauthorized access attempts via system logs.
+    LogSameExecOff = uapi::LANDLOCK_RESTRICT_SELF_LOG_SAME_EXEC_OFF,
+    /// Enables logging of denied accesses after an
+    /// execve(2) call, providing visibility into
+    /// unauthorized access attempts by newly executed
+    /// programs within the created Landlock domain.
+    /// This flag is recommended only when all potential
+    /// executables in the domain are expected to comply
+    /// with the access restrictions, as excessive audit
+    /// log entries could make it more difficult to
+    /// identify critical events.
+    LogNewExecOn = uapi::LANDLOCK_RESTRICT_SELF_LOG_NEW_EXEC_ON,
+    /// Disables logging of denied accesses originating
+    /// from nested Landlock domains created by the caller
+    /// or its descendants. This flag should be set
+    /// according to runtime configuration, not hardcoded,
+    /// to avoid suppressing important security events.
+    /// It is useful for container runtimes or sandboxing
+    /// tools that may launch programs which themselves
+    /// create Landlock domains and could otherwise
+    /// generate excessive logs. Unlike
+    /// LANDLOCK_RESTRICT_SELF_LOG_SAME_EXEC_OFF, this flag
+    /// only affects future nested domains, not the one
+    /// being created. It can also be used with a ruleset_fd
+    /// value of -1 to mute subdomain logs without creating
+    /// a domain.
+    LogSubdomainsOff = uapi::LANDLOCK_RESTRICT_SELF_LOG_SUBDOMAINS_OFF,
+}
+
+impl Access for RestrictSelfFlag {
+    fn from_all(abi: ABI) -> BitFlags<Self> {
+        match abi {
+            ABI::Unsupported | ABI::V1 | ABI::V2 | ABI::V3 | ABI::V4 | ABI::V5 | ABI::V6 => {
+                BitFlags::EMPTY
+            }
+            ABI::V7 => {
+                RestrictSelfFlag::LogSameExecOff
+                    | RestrictSelfFlag::LogNewExecOn
+                    | RestrictSelfFlag::LogSubdomainsOff
+            }
+        }
+    }
 }
 
 impl From<CompatState> for RulesetStatus {
@@ -746,14 +806,17 @@ impl RulesetCreated {
         }
     }
 
-    /// Attempts to restrict the calling thread with the ruleset
+    /// Attempts to restrict the calling thread with the ruleset and flags
     /// according to the best-effort configuration
     /// (see [`RulesetCreated::set_compatibility()`] and [`CompatLevel::BestEffort`]).
     /// Call `prctl(2)` with the `PR_SET_NO_NEW_PRIVS`
     /// according to the ruleset configuration.
     ///
     /// On error, returns a wrapped [`RestrictSelfError`].
-    pub fn restrict_self(mut self) -> Result<RestrictionStatus, RulesetError> {
+    pub fn restrict_self_with_flags(
+        mut self,
+        flags: BitFlags<RestrictSelfFlag>,
+    ) -> Result<RestrictionStatus, RulesetError> {
         let mut body = || -> Result<RestrictionStatus, RestrictSelfError> {
             // Enforce no_new_privs even if something failed with SoftRequirement. The rationale is
             // that no_new_privs should not be an issue on its own if it is not explicitly
@@ -807,7 +870,7 @@ impl RulesetCreated {
                     assert!(self.fd.is_some());
                     // Does not consume ruleset FD, which will be automatically closed after this block.
                     let fd = self.fd.as_ref().map(|f| f.as_raw_fd()).unwrap_or(-1);
-                    match unsafe { uapi::landlock_restrict_self(fd, 0) } {
+                    match unsafe { uapi::landlock_restrict_self(fd, flags.bits()) } {
                         0 => {
                             self.compat.update(CompatState::Full);
                             Ok(RestrictionStatus {
@@ -825,6 +888,17 @@ impl RulesetCreated {
             }
         };
         Ok(body()?)
+    }
+
+    /// Attempts to restrict the calling thread with the ruleset
+    /// according to the best-effort configuration
+    /// (see [`RulesetCreated::set_compatibility()`] and [`CompatLevel::BestEffort`]).
+    /// Call `prctl(2)` with the `PR_SET_NO_NEW_PRIVS`
+    /// according to the ruleset configuration.
+    ///
+    /// On error, returns a wrapped [`RestrictSelfError`].
+    pub fn restrict_self(self) -> Result<RestrictionStatus, RulesetError> {
+        return self.restrict_self_with_flags(BitFlags::<RestrictSelfFlag>::empty());
     }
 
     /// Creates a new `RulesetCreated` instance by duplicating the underlying file descriptor.

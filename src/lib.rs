@@ -92,8 +92,8 @@ pub use errors::{
 pub use fs::{path_beneath_rules, AccessFs, PathBeneath, PathFd};
 pub use net::{AccessNet, NetPort};
 pub use ruleset::{
-    RestrictionStatus, Rule, Ruleset, RulesetAttr, RulesetCreated, RulesetCreatedAttr,
-    RulesetStatus,
+    RestrictSelfFlag, RestrictionStatus, Rule, Ruleset, RulesetAttr, RulesetCreated,
+    RulesetCreatedAttr, RulesetStatus,
 };
 pub use scope::Scope;
 
@@ -123,6 +123,7 @@ mod private {
 
     impl Sealed for crate::AccessFs {}
     impl Sealed for crate::AccessNet {}
+    impl Sealed for crate::RestrictSelfFlag {}
     impl Sealed for crate::Scope {}
 }
 
