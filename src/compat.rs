@@ -260,11 +260,11 @@ impl From<ABI> for LandlockStatus {
 }
 
 #[cfg(test)]
-static TEST_ABI_ENV_NAME: &str = "LANDLOCK_CRATE_TEST_ABI";
+pub(crate) static TEST_ABI_ENV_NAME: &str = "LANDLOCK_CRATE_TEST_ABI";
 
 #[cfg(test)]
 lazy_static! {
-    static ref TEST_ABI: ABI = match std::env::var("LANDLOCK_CRATE_TEST_ABI") {
+    pub(crate) static ref TEST_ABI: ABI = match std::env::var("LANDLOCK_CRATE_TEST_ABI") {
         Ok(s) => {
             let n = s.parse::<i32>().unwrap();
             if ABI::is_known(n) || n == 0 {
