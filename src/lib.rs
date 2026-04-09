@@ -84,6 +84,7 @@ extern crate lazy_static;
 pub use access::{Access, HandledAccess};
 pub use compat::{CompatLevel, Compatible, LandlockStatus, ABI};
 pub use enumflags2::{make_bitflags, BitFlags};
+pub use errata::Erratum;
 pub use errors::{
     AccessError, AddRuleError, AddRulesError, CompatError, CreateRulesetError, Errno,
     HandleAccessError, HandleAccessesError, PathBeneathError, PathFdError, RestrictSelfError,
@@ -110,6 +111,7 @@ use strum::IntoEnumIterator;
 
 mod access;
 mod compat;
+mod errata;
 mod errors;
 mod fs;
 mod net;
