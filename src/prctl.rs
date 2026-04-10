@@ -2,8 +2,9 @@
 
 //! `prctl(2)` wrappers used by Landlock enforcement.
 //!
-//! These helpers are pub(crate) and called from
-//! [`RulesetCreated::restrict_self()`](crate::RulesetCreated::restrict_self).
+//! These helpers are pub(crate) and shared between
+//! [`RulesetCreated::restrict_self()`](crate::RulesetCreated::restrict_self)
+//! and [`RestrictSelf::apply()`](crate::RestrictSelf::apply).
 
 use crate::compat::Compatibility;
 use crate::{CompatLevel, CompatState, RestrictSelfError};
