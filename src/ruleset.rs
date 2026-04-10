@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::compat::private::OptionCompatLevelMut;
+use crate::flags::{RestrictSelfFlag, SyscallFlagExt};
 use crate::prctl::try_set_no_new_privs;
+use crate::restrict_self::private::RestrictSelfFlagsState;
 use crate::{
     uapi, AccessFs, AccessNet, AddRuleError, AddRulesError, BitFlags, CompatLevel, CompatState,
     Compatibility, Compatible, CreateRulesetError, HandledAccess, LandlockStatus,
-    PrivateHandledAccess, RestrictSelfError, RulesetError, Scope, ScopeError, TryCompat,
+    PrivateHandledAccess, RestrictSelfAttr, RestrictSelfError, RulesetError, Scope, ScopeError,
+    TryCompat,
 };
 use std::io::Error;
 use std::mem::size_of_val;
@@ -74,6 +77,12 @@ pub struct RestrictionStatus {
     pub no_new_privs: bool,
     /// Status of Landlock for the running kernel.
     pub landlock: LandlockStatus,
+    /// Same-exec logging is enabled (default: true).
+    pub log_same_exec: bool,
+    /// New-exec logging is enabled (default: false).
+    pub log_new_exec: bool,
+    /// Subdomain logging is enabled (default: true).
+    pub log_subdomains: bool,
 }
 
 /// Landlock ruleset builder.
@@ -549,6 +558,88 @@ fn ruleset_created_fs_net_scope() {
     assert_eq!(ruleset.actual_scoped, scopes);
 }
 
+#[test]
+fn ruleset_created_log_flags() {
+    let all_raw = uapi::LANDLOCK_RESTRICT_SELF_LOG_SAME_EXEC_OFF
+        | uapi::LANDLOCK_RESTRICT_SELF_LOG_NEW_EXEC_ON
+        | uapi::LANDLOCK_RESTRICT_SELF_LOG_SUBDOMAINS_OFF;
+
+    // Tests log flags with BestEffort on unsupported ABI: flags are requested but not applied.
+    let ruleset_created = Ruleset::from(ABI::Unsupported)
+        .handle_access(AccessFs::Execute)
+        .unwrap()
+        .create()
+        .unwrap()
+        .log_same_exec(false)
+        .unwrap()
+        .log_new_exec(true)
+        .unwrap()
+        .log_subdomains(false)
+        .unwrap();
+    assert_eq!(ruleset_created.requested_restrict_self_flags, all_raw);
+    assert_eq!(ruleset_created.actual_restrict_self_flags, 0);
+
+    // Tests that calling with default values is a no-op.
+    let ruleset_created = Ruleset::from(ABI::Unsupported)
+        .handle_access(AccessFs::Execute)
+        .unwrap()
+        .create()
+        .unwrap()
+        .log_same_exec(true)
+        .unwrap()
+        .log_new_exec(false)
+        .unwrap()
+        .log_subdomains(true)
+        .unwrap();
+    assert_eq!(ruleset_created.requested_restrict_self_flags, 0);
+    assert_eq!(ruleset_created.actual_restrict_self_flags, 0);
+
+    // Tests SoftRequirement on unsupported ABI: flag silently dropped, state becomes Dummy.
+    let ruleset_created = Ruleset::from(ABI::Unsupported)
+        .handle_access(AccessFs::Execute)
+        .unwrap()
+        .create()
+        .unwrap()
+        .set_compatibility(CompatLevel::SoftRequirement)
+        .log_same_exec(false)
+        .unwrap();
+    assert_eq!(
+        ruleset_created.requested_restrict_self_flags,
+        uapi::LANDLOCK_RESTRICT_SELF_LOG_SAME_EXEC_OFF
+    );
+    assert_eq!(ruleset_created.actual_restrict_self_flags, 0);
+
+    // Default values with HardRequirement on unsupported ABI: no-ops bypass compat entirely.
+    Ruleset::from(ABI::Unsupported)
+        .handle_access(AccessFs::Execute)
+        .unwrap()
+        .create()
+        .unwrap()
+        .set_compatibility(CompatLevel::HardRequirement)
+        .log_same_exec(true)
+        .unwrap()
+        .log_new_exec(false)
+        .unwrap()
+        .log_subdomains(true)
+        .unwrap();
+
+    // Tests HardRequirement error for unsupported log flags.
+    assert!(matches!(
+        Ruleset::from(ABI::Unsupported)
+            .handle_access(AccessFs::Execute)
+            .unwrap()
+            .create()
+            .unwrap()
+            .set_compatibility(CompatLevel::HardRequirement)
+            .log_same_exec(false)
+            .unwrap_err(),
+        RulesetError::RestrictSelfFlags(SyscallFlagError::NotSupported {
+            flag: RestrictSelfFlag::LogSameExec,
+            set: false,
+        })
+    ));
+}
+
 impl OptionCompatLevelMut for RulesetCreated {
     fn as_option_compat_level_mut(&mut self) -> &mut Option<CompatLevel> {
         &mut self.compat.level
@@ -565,7 +656,44 @@ impl Compatible for RulesetCreated {}
 
 impl Compatible for &mut RulesetCreated {}
 
-pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> + Compatible {
+impl RestrictSelfFlagsState for RulesetCreated {
+    fn try_set_flag(&mut self, flag: RestrictSelfFlag, set: bool) -> Result<(), RulesetError> {
+        let raw_bit = flag.raw_bit();
+        // Last-call-wins: requested tracks non-default user intent, actual
+        // tracks the bit that will be passed to the kernel.
+        //
+        // requested_restrict_self_flags is updated unconditionally; the
+        // actual bitmask is updated only if try_compat succeeds.  On
+        // HardRequirement + unsupported, try_compat returns Err and
+        // requested_restrict_self_flags is left in a "user requested this"
+        // state; the builder is consumed by `?` on error so this
+        // inconsistency is not observable.
+        if set == flag.default_value() {
+            self.requested_restrict_self_flags &= !raw_bit;
+        } else {
+            self.requested_restrict_self_flags |= raw_bit;
+        }
+        if flag.try_compat(set, &mut self.compat)? {
+            self.actual_restrict_self_flags |= raw_bit;
+        } else {
+            self.actual_restrict_self_flags &= !raw_bit;
+        }
+        Ok(())
+    }
+}
+
+impl RestrictSelfFlagsState for &mut RulesetCreated {
+    fn try_set_flag(&mut self, flag: RestrictSelfFlag, set: bool) -> Result<(), RulesetError> {
+        (**self).try_set_flag(flag, set)
+    }
+}
+
+impl RestrictSelfAttr for RulesetCreated {}
+impl RestrictSelfAttr for &mut RulesetCreated {}
+
+pub trait RulesetCreatedAttr:
+    Sized + AsMut<RulesetCreated> + Compatible + RestrictSelfAttr
+{
     /// Attempts to add a new rule to the ruleset.
     ///
     /// On error, returns a wrapped [`AddRulesError`].
@@ -711,6 +839,43 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> + Compatible {
     fn set_no_new_privs(self, yes: bool) -> Self {
         self.no_new_privs(yes)
     }
+
+    /// Controls logging of denied accesses for the creating thread and its children
+    /// running the same executable (before `execve(2)`).
+    /// Logging is **enabled** by default.
+    ///
+    /// Calling with `false` sets the `LANDLOCK_RESTRICT_SELF_LOG_SAME_EXEC_OFF` flag.
+    /// Calling with `true` is a no-op (the default behavior).
+    ///
+    /// This setter only applies when restricting with a domain.
+    ///
+    /// On error, returns a wrapped
+    /// [`SyscallFlagError<RestrictSelfFlag>`](crate::SyscallFlagError).
+    ///
+    /// See [`RestrictSelfAttr::log_subdomains()`](crate::RestrictSelfAttr::log_subdomains)
+    /// for compat-state behavior when toggling this setter on unsupported kernels.
+    fn log_same_exec(mut self, set: bool) -> Result<Self, RulesetError> {
+        self.try_set_flag(RestrictSelfFlag::LogSameExec, set)?;
+        Ok(self)
+    }
+
+    /// Controls logging of denied accesses after an `execve(2)` call.
+    /// Logging is **disabled** by default.
+    ///
+    /// Calling with `true` sets the `LANDLOCK_RESTRICT_SELF_LOG_NEW_EXEC_ON` flag.
+    /// Calling with `false` is a no-op (the default behavior).
+    ///
+    /// This setter only applies when restricting with a domain.
+    ///
+    /// On error, returns a wrapped
+    /// [`SyscallFlagError<RestrictSelfFlag>`](crate::SyscallFlagError).
+    ///
+    /// See [`RestrictSelfAttr::log_subdomains()`](crate::RestrictSelfAttr::log_subdomains)
+    /// for compat-state behavior when toggling this setter on unsupported kernels.
+    fn log_new_exec(mut self, set: bool) -> Result<Self, RulesetError> {
+        self.try_set_flag(RestrictSelfFlag::LogNewExec, set)?;
+        Ok(self)
+    }
 }
 
 /// Ruleset created with [`Ruleset::create()`].
@@ -720,6 +885,8 @@ pub struct RulesetCreated {
     no_new_privs: bool,
     pub(crate) requested_handled_fs: BitFlags<AccessFs>,
     pub(crate) requested_handled_net: BitFlags<AccessNet>,
+    requested_restrict_self_flags: u32,
+    actual_restrict_self_flags: u32,
     compat: Compatibility,
 }
 
@@ -734,6 +901,8 @@ impl RulesetCreated {
             no_new_privs: true,
             requested_handled_fs: ruleset.requested_handled_fs,
             requested_handled_net: ruleset.requested_handled_net,
+            requested_restrict_self_flags: 0,
+            actual_restrict_self_flags: 0,
             compat: ruleset.compat,
         }
     }
@@ -756,24 +925,37 @@ impl RulesetCreated {
                 false
             };
 
+            let raw = self.actual_restrict_self_flags;
+            let log_same_exec = RestrictSelfFlag::LogSameExec.is_set(raw);
+            let log_new_exec = RestrictSelfFlag::LogNewExec.is_set(raw);
+            let log_subdomains = RestrictSelfFlag::LogSubdomains.is_set(raw);
+
             match self.compat.state {
                 CompatState::Init | CompatState::No | CompatState::Dummy => Ok(RestrictionStatus {
                     ruleset: self.compat.state.into(),
                     landlock: self.compat.status(),
                     no_new_privs: enforced_nnp,
+                    log_same_exec,
+                    log_new_exec,
+                    log_subdomains,
                 }),
                 CompatState::Full | CompatState::Partial => {
                     #[cfg(test)]
                     assert!(self.fd.is_some());
                     // Does not consume ruleset FD, which will be automatically closed after this block.
                     let fd = self.fd.as_ref().map(|f| f.as_raw_fd()).unwrap_or(-1);
-                    match unsafe { uapi::landlock_restrict_self(fd, 0) } {
+                    match unsafe {
+                        uapi::landlock_restrict_self(fd, self.actual_restrict_self_flags)
+                    } {
                         0 => {
                             self.compat.update(CompatState::Full);
                             Ok(RestrictionStatus {
                                 ruleset: self.compat.state.into(),
                                 landlock: self.compat.status(),
                                 no_new_privs: enforced_nnp,
+                                log_same_exec,
+                                log_new_exec,
+                                log_subdomains,
                             })
                         }
                         // TODO: match specific Landlock restrict self errors
@@ -797,6 +979,8 @@ impl RulesetCreated {
             no_new_privs: self.no_new_privs,
             requested_handled_fs: self.requested_handled_fs,
             requested_handled_net: self.requested_handled_net,
+            requested_restrict_self_flags: self.requested_restrict_self_flags,
+            actual_restrict_self_flags: self.actual_restrict_self_flags,
             compat: self.compat,
         })
     }
@@ -872,6 +1056,9 @@ fn ruleset_created_attr() {
             ruleset: RulesetStatus::NotEnforced,
             landlock: LandlockStatus::NotImplemented,
             no_new_privs: true,
+            log_same_exec: true,
+            log_new_exec: false,
+            log_subdomains: true,
         }
     );
 }
@@ -947,6 +1134,9 @@ fn ruleset_unsupported() {
             landlock: LandlockStatus::NotImplemented,
             // With BestEffort, no_new_privs is still enabled.
             no_new_privs: true,
+            log_same_exec: true,
+            log_new_exec: false,
+            log_subdomains: true,
         }
     );
 
@@ -965,6 +1155,9 @@ fn ruleset_unsupported() {
             landlock: LandlockStatus::NotImplemented,
             // With SoftRequirement, no_new_privs is still enabled.
             no_new_privs: true,
+            log_same_exec: true,
+            log_new_exec: false,
+            log_subdomains: true,
         }
     );
 
@@ -1007,6 +1200,9 @@ fn ruleset_unsupported() {
             landlock: LandlockStatus::NotImplemented,
             // With SoftRequirement, no_new_privs is untouched if there is no error (e.g. no rule).
             no_new_privs: true,
+            log_same_exec: true,
+            log_new_exec: false,
+            log_subdomains: true,
         }
     );
 
@@ -1033,6 +1229,9 @@ fn ruleset_unsupported() {
                 // With SoftRequirement, no_new_privs is still enabled, even if there is an error
                 // (e.g. unsupported access right).
                 no_new_privs: true,
+                log_same_exec: true,
+                log_new_exec: false,
+                log_subdomains: true,
             }
         );
     }
@@ -1050,6 +1249,9 @@ fn ruleset_unsupported() {
             ruleset: RulesetStatus::NotEnforced,
             landlock: LandlockStatus::NotImplemented,
             no_new_privs: false,
+            log_same_exec: true,
+            log_new_exec: false,
+            log_subdomains: true,
         }
     );
 
@@ -1109,6 +1311,43 @@ fn ruleset_unsupported() {
     assert_eq!(ruleset.requested_scoped, BitFlags::from(Scope::Signal));
     assert_eq!(ruleset.actual_scoped, BitFlags::<Scope>::EMPTY);
 
+    // Log flags with BestEffort on unsupported ABI are silently ignored.
+    assert_eq!(
+        Ruleset::from(ABI::Unsupported)
+            .handle_access(AccessFs::Execute)
+            .unwrap()
+            .create()
+            .unwrap()
+            .log_same_exec(false)
+            .unwrap()
+            .restrict_self()
+            .unwrap(),
+        RestrictionStatus {
+            ruleset: RulesetStatus::NotEnforced,
+            landlock: LandlockStatus::NotImplemented,
+            no_new_privs: true,
+            log_same_exec: true,
+            log_new_exec: false,
+            log_subdomains: true,
+        }
+    );
+
+    // Log flags with HardRequirement on unsupported ABI return an error.
+    assert!(matches!(
+        Ruleset::from(ABI::Unsupported)
+            .handle_access(AccessFs::Execute)
+            .unwrap()
+            .create()
+            .unwrap()
+            .set_compatibility(CompatLevel::HardRequirement)
+            .log_new_exec(true)
+            .unwrap_err(),
+        RulesetError::RestrictSelfFlags(SyscallFlagError::NotSupported {
+            flag: RestrictSelfFlag::LogNewExec,
+            set: true,
+        })
+    ));
+
     // Tests inconsistency between the ruleset handled access-rights and the rule access-rights.
     for handled_access in &[
         make_bitflags!(AccessFs::{Execute | WriteFile}),
@@ -1166,6 +1405,9 @@ fn ignore_abi_v2_with_abi_v1() {
                 kernel_abi: None,
             },
             no_new_privs: true,
+            log_same_exec: true,
+            log_new_exec: false,
+            log_subdomains: true,
         }
     );
 }

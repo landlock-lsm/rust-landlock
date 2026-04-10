@@ -70,6 +70,9 @@ pub enum ABI {
     /// Sixth Landlock ABI, introduced with
     /// [Linux 6.12](https://git.kernel.org/stable/c/e1b061b444fb01c237838f0d8238653afe6a8094).
     V6 = 6,
+    /// Seventh Landlock ABI, introduced with
+    /// [Linux 6.15](https://git.kernel.org/stable/c/72885116069abdd05c245707c3989fc605632970).
+    V7 = 7,
 }
 
 // ABI should not be dynamically created (in other crates) according to the running kernel
@@ -94,8 +97,9 @@ impl From<i32> for ABI {
             3 => ABI::V3,
             4 => ABI::V4,
             5 => ABI::V5,
+            6 => ABI::V6,
             // Returns the greatest known ABI.
-            _ => ABI::V6,
+            _ => ABI::V7,
         }
     }
 }
@@ -397,6 +401,30 @@ fn compat_state_update_2() {
     assert_eq!(state, CompatState::Partial);
 }
 
+#[test]
+fn try_compat_binary_states() {
+    // Supported: state -> Full.
+    let mut compat: Compatibility = ABI::Unsupported.into();
+    assert_eq!(compat.state, CompatState::Init);
+    assert_eq!(compat.try_compat_binary(true, || "err"), Ok(true));
+    assert_eq!(compat.state, CompatState::Full);
+
+    // Unsupported + BestEffort: state -> Partial (Full + No).
+    assert_eq!(compat.try_compat_binary(false, || "err"), Ok(false));
+    assert_eq!(compat.state, CompatState::Partial);
+
+    // Unsupported + SoftRequirement: state -> Dummy.
+    let mut compat: Compatibility = ABI::Unsupported.into();
+    compat.level = Some(CompatLevel::SoftRequirement);
+    assert_eq!(compat.try_compat_binary(false, || "err"), Ok(false));
+    assert_eq!(compat.state, CompatState::Dummy);
+
+    // Unsupported + HardRequirement: returns error.
+    let mut compat: Compatibility = ABI::Unsupported.into();
+    compat.level = Some(CompatLevel::HardRequirement);
+    assert_eq!(compat.try_compat_binary(false, || "err"), Err("err"));
+}
+
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Copy, Clone, Debug)]
 pub(crate) struct Compatibility {
@@ -439,6 +467,44 @@ impl Compatibility {
 
     pub(crate) fn status(&self) -> LandlockStatus {
         self.status
+    }
+
+    /// Handles the compat dispatch for a binary supported/not-supported check.
+    ///
+    /// This is factored out from the No branch of
+    /// [`TryCompat::try_compat()`](crate::TryCompat::try_compat) for use by
+    /// [`SyscallFlagExt::try_compat()`](crate::flags::SyscallFlagExt::try_compat),
+    /// where a single flag is either fully supported or not (no Partial case).
+    ///
+    /// Returns `Ok(true)` if supported (caller should apply the flag),
+    /// `Ok(false)` if unsupported but acceptable
+    /// ([`BestEffort`](crate::CompatLevel::BestEffort) /
+    /// [`SoftRequirement`](crate::CompatLevel::SoftRequirement)), or `Err` if
+    /// unsupported with [`HardRequirement`](crate::CompatLevel::HardRequirement).
+    pub(crate) fn try_compat_binary<E, F>(
+        &mut self,
+        supported: bool,
+        make_error: F,
+    ) -> Result<bool, E>
+    where
+        F: FnOnce() -> E,
+    {
+        if supported {
+            self.state.update(CompatState::Full);
+            Ok(true)
+        } else {
+            match self.level.into() {
+                CompatLevel::BestEffort => {
+                    self.state.update(CompatState::No);
+                    Ok(false)
+                }
+                CompatLevel::SoftRequirement => {
+                    self.state.update(CompatState::Dummy);
+                    Ok(false)
+                }
+                CompatLevel::HardRequirement => Err(make_error()),
+            }
+        }
     }
 }
 
@@ -535,7 +601,7 @@ pub trait Compatible: Sized + private::OptionCompatLevelMut {
     ///         // However, this ruleset may also handle other (future) access rights
     ///         // if they are supported by the running kernel.
     ///         .set_compatibility(CompatLevel::BestEffort)
-    ///         .handle_access(AccessFs::from_all(ABI::V6))?
+    ///         .handle_access(AccessFs::from_all(ABI::V7))?
     ///         .create()?)
     /// }
     /// ```
@@ -564,7 +630,7 @@ pub trait Compatible: Sized + private::OptionCompatLevelMut {
     ///         // if they are supported by the running kernel,
     ///         // but without returning any error otherwise.
     ///         .set_compatibility(CompatLevel::BestEffort)
-    ///         .handle_access(AccessFs::from_all(ABI::V6))?
+    ///         .handle_access(AccessFs::from_all(ABI::V7))?
     ///         .create()?)
     /// }
     /// ```
