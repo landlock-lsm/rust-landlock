@@ -1135,6 +1135,16 @@ fn ruleset_unsupported() {
         RulesetError::Scope(ScopeError::Compat(CompatError::Access(AccessError::Empty)))
     ));
 
+    // Scope with SoftRequirement on unsupported ABI: silently dropped, state becomes Dummy.
+    let ruleset = Ruleset::from(ABI::V1)
+        .handle_access(AccessFs::Execute)
+        .unwrap()
+        .set_compatibility(CompatLevel::SoftRequirement)
+        .scope(Scope::Signal)
+        .unwrap();
+    assert_eq!(ruleset.requested_scoped, BitFlags::from(Scope::Signal));
+    assert_eq!(ruleset.actual_scoped, BitFlags::<Scope>::EMPTY);
+
     // Tests inconsistency between the ruleset handled access-rights and the rule access-rights.
     for handled_access in &[
         make_bitflags!(AccessFs::{Execute | WriteFile}),
