@@ -93,7 +93,7 @@ pub use errors::{
 pub use flags::{RestrictSelfFlag, SyscallFlag};
 pub use fs::{path_beneath_rules, AccessFs, PathBeneath, PathFd};
 pub use net::{AccessNet, NetPort};
-pub use restrict_self::RestrictSelfAttr;
+pub use restrict_self::{RestrictSelf, RestrictSelfAttr, RestrictSelfStatus};
 pub use ruleset::{
     RestrictionStatus, Rule, Ruleset, RulesetAttr, RulesetCreated, RulesetCreatedAttr,
     RulesetStatus,
@@ -145,7 +145,41 @@ mod tests {
     // Ruleset::from(ABI) to exercise the builder logic and compatibility
     // engine without kernel interaction.
 
-    // Emulate old kernel supports.
+    // Emulate old kernel supports.  Iterates each ABI variant, mocks the
+    // builder via B::from(abi), runs the closure on a dedicated thread, and
+    // dispatches to the caller's assertion closures based on whether the
+    // mocked ABI is emulatable on the running kernel.
+    fn check_support<B, S, F, OkFn, ErrFn>(
+        partial: ABI,
+        full: Option<ABI>,
+        check: F,
+        assert_ok: OkFn,
+        assert_err: ErrFn,
+    ) where
+        B: From<ABI> + Send + 'static,
+        F: Fn(B) -> Result<S, TestRulesetError> + Send + Copy + 'static,
+        S: std::fmt::Debug + Send + 'static,
+        OkFn: Fn(ABI, Result<S, TestRulesetError>),
+        ErrFn: Fn(Result<S, TestRulesetError>),
+    {
+        // If there is no partial support, it means that `full == partial`.
+        assert!(partial <= full.unwrap_or(partial));
+        for abi in ABI::iter() {
+            // Ensures restrict_self() is called on a dedicated thread to avoid inconsistent tests.
+            let ret = std::thread::spawn(move || check(B::from(abi)))
+                .join()
+                .unwrap();
+
+            // Useful for failed tests and with cargo test -- --show-output
+            println!("Checking ABI {abi:?}: received {ret:#?}");
+            if can_emulate(abi, partial, full) {
+                assert_ok(abi, ret);
+            } else {
+                assert_err(ret);
+            }
+        }
+    }
+
     fn check_ruleset_support<F>(
         partial: ABI,
         full: Option<ABI>,
@@ -154,17 +188,11 @@ mod tests {
     ) where
         F: Fn(Ruleset) -> Result<RestrictionStatus, TestRulesetError> + Send + Copy + 'static,
     {
-        // If there is no partial support, it means that `full == partial`.
-        assert!(partial <= full.unwrap_or(partial));
-        for abi in ABI::iter() {
-            // Ensures restrict_self() is called on a dedicated thread to avoid inconsistent tests.
-            let ret = std::thread::spawn(move || check(Ruleset::from(abi)))
-                .join()
-                .unwrap();
-
-            // Useful for failed tests and with cargo test -- --show-output
-            println!("Checking ABI {abi:?}: received {ret:#?}");
-            if can_emulate(abi, partial, full) {
+        check_support(
+            partial,
+            full,
+            check,
+            |abi, ret| {
                 if abi < partial && error_if_abi_lt_partial {
                     // TODO: Check exact error type; this may require better error types.
                     assert!(matches!(ret, Err(TestRulesetError::Ruleset(_))));
@@ -194,7 +222,8 @@ mod tests {
                         }) if ruleset == ruleset_status && landlock == landlock_status
                     ))
                 }
-            } else {
+            },
+            |ret| {
                 // The errno value should be ENOSYS, EOPNOTSUPP, EINVAL (e.g. when an unknown
                 // access right is provided), or E2BIG (e.g. when there is an unknown field in a
                 // Landlock syscall attribute).
@@ -222,8 +251,55 @@ mod tests {
                     }
                     _ => unreachable!(),
                 }
-            }
-        }
+            },
+        );
+    }
+
+    // Emulate old kernel supports for the domain-less RestrictSelf builder.
+    //
+    // Unlike check_ruleset_support, RestrictSelf does not create a Landlock domain, so there is no
+    // ruleset enforcement status to assert.  We verify the kernel probe (status.landlock) and
+    // propagate any syscall error.  RestrictSelf::apply() enforces PR_SET_NO_NEW_PRIVS by default.
+    fn check_restrict_self_support<F>(partial: ABI, full: Option<ABI>, check: F)
+    where
+        F: Fn(RestrictSelf) -> Result<RestrictSelfStatus, TestRulesetError> + Send + Copy + 'static,
+    {
+        check_support(
+            partial,
+            full,
+            check,
+            |abi, ret| {
+                let landlock_status: LandlockStatus = abi.into();
+                println!("Expecting Landlock status {landlock_status:?}");
+                assert!(matches!(
+                    ret,
+                    Ok(RestrictSelfStatus { landlock, .. }) if landlock == landlock_status
+                ));
+            },
+            |ret| {
+                // The errno value should be ENOSYS, EOPNOTSUPP, or EINVAL (e.g. when actual_flags
+                // carries bits unknown to the running kernel).  Unlike check_ruleset_support,
+                // landlock_restrict_self() is the first syscall here, so ENOSYS is possible when
+                // Landlock is unavailable.
+                let errno = get_errno_from_landlock_status();
+                println!("Expecting error {errno:?}");
+                match ret {
+                    Err(
+                        ref error @ TestRulesetError::Ruleset(RulesetError::RestrictSelf(
+                            RestrictSelfError::RestrictSelfCall { ref source },
+                        )),
+                    ) => {
+                        assert_eq!(source.raw_os_error(), Some(*Errno::from(error)));
+                        match (source.raw_os_error(), errno) {
+                            (Some(e1), Some(e2)) => assert_eq!(e1, e2),
+                            (Some(e1), None) => assert!(matches!(e1, libc::EINVAL | libc::E2BIG)),
+                            _ => unreachable!(),
+                        }
+                    }
+                    _ => unreachable!(),
+                }
+            },
+        );
     }
 
     #[test]
@@ -538,5 +614,12 @@ mod tests {
             },
             false,
         );
+    }
+
+    #[test]
+    fn restrict_self_log_subdomains() {
+        check_restrict_self_support(ABI::V7, Some(ABI::V7), move |rs: RestrictSelf| -> _ {
+            Ok(rs.log_subdomains(false)?.apply()?)
+        });
     }
 }
