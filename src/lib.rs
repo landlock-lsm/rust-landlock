@@ -29,7 +29,7 @@
 //!
 //! # Current limitations
 //!
-//! This crate exposes the Landlock features available as of Linux 5.19
+//! This crate exposes the Landlock features available as of Linux 6.15 (Landlock [ABI v7](ABI::V7))
 //! and then inherits some [kernel limitations](https://www.kernel.org/doc/html/latest/userspace-api/landlock.html#current-limitations)
 //! that will be addressed with future kernel releases
 //! (e.g., arbitrary mounts are always denied).
@@ -88,10 +88,12 @@ pub use errata::Erratum;
 pub use errors::{
     AccessError, AddRuleError, AddRulesError, CompatError, CreateRulesetError, Errno,
     HandleAccessError, HandleAccessesError, PathBeneathError, PathFdError, RestrictSelfError,
-    RulesetError, ScopeError,
+    RulesetError, ScopeError, SyscallFlagError,
 };
+pub use flags::{RestrictSelfFlag, SyscallFlag};
 pub use fs::{path_beneath_rules, AccessFs, PathBeneath, PathFd};
 pub use net::{AccessNet, NetPort};
+pub use restrict_self::RestrictSelfAttr;
 pub use ruleset::{
     RestrictionStatus, Rule, Ruleset, RulesetAttr, RulesetCreated, RulesetCreatedAttr,
     RulesetStatus,
@@ -113,9 +115,11 @@ mod access;
 mod compat;
 mod errata;
 mod errors;
+mod flags;
 mod fs;
 mod net;
 mod prctl;
+mod restrict_self;
 mod ruleset;
 mod scope;
 mod uapi;
@@ -127,11 +131,19 @@ mod private {
     impl Sealed for crate::AccessFs {}
     impl Sealed for crate::AccessNet {}
     impl Sealed for crate::Scope {}
+    impl Sealed for crate::RestrictSelfFlag {}
 }
 
 #[cfg(test)]
 mod tests {
     use crate::*;
+
+    // These integration tests exercise the full builder-to-syscall path via
+    // check_ruleset_support().  Other tests in compat.rs and errata.rs make
+    // read-only kernel queries (LandlockStatus::current(), Erratum::current())
+    // but do not create rulesets or restrict threads.  All remaining tests use
+    // Ruleset::from(ABI) to exercise the builder logic and compatibility
+    // engine without kernel interaction.
 
     // Emulate old kernel supports.
     fn check_ruleset_support<F>(
@@ -178,6 +190,7 @@ mod tests {
                             ruleset,
                             landlock,
                             no_new_privs: true,
+                            ..
                         }) if ruleset == ruleset_status && landlock == landlock_status
                     ))
                 }
@@ -199,6 +212,13 @@ mod tests {
                             (Some(e1), None) => assert!(matches!(e1, libc::EINVAL | libc::E2BIG)),
                             _ => unreachable!(),
                         }
+                    }
+                    // restrict_self flags may be rejected by the kernel with EINVAL
+                    // when the mock ABI is higher than the running kernel's ABI.
+                    Err(TestRulesetError::Ruleset(RulesetError::RestrictSelf(
+                        RestrictSelfError::RestrictSelfCall { ref source },
+                    ))) => {
+                        assert_eq!(source.raw_os_error(), Some(libc::EINVAL));
                     }
                     _ => unreachable!(),
                 }
@@ -454,6 +474,38 @@ mod tests {
                     .scope(Scope::AbstractUnixSocket | Scope::Signal)?
                     .create()?
                     .restrict_self()?)
+            },
+            false,
+        );
+    }
+
+    #[test]
+    fn abi_v7_log_flags() {
+        // Uses Scope::Signal to get partial enforcement at V6 (scopes supported
+        // but log flags not).
+        check_ruleset_support(
+            ABI::V6,
+            Some(ABI::V7),
+            move |ruleset: Ruleset| -> _ {
+                let status = ruleset
+                    .scope(Scope::Signal)?
+                    .create()?
+                    .log_same_exec(false)?
+                    .log_new_exec(true)?
+                    .log_subdomains(false)?
+                    .restrict_self()?;
+
+                if status.ruleset == RulesetStatus::FullyEnforced {
+                    assert!(!status.log_same_exec);
+                    assert!(status.log_new_exec);
+                    assert!(!status.log_subdomains);
+                } else {
+                    assert!(status.log_same_exec);
+                    assert!(!status.log_new_exec);
+                    assert!(status.log_subdomains);
+                }
+
+                Ok(status)
             },
             false,
         );

@@ -51,7 +51,7 @@ impl Access for Scope {
     fn from_all(abi: ABI) -> BitFlags<Self> {
         match abi {
             ABI::Unsupported | ABI::V1 | ABI::V2 | ABI::V3 | ABI::V4 | ABI::V5 => BitFlags::EMPTY,
-            ABI::V6 => Scope::AbstractUnixSocket | Scope::Signal,
+            ABI::V6 | ABI::V7 => Scope::AbstractUnixSocket | Scope::Signal,
         }
     }
 }

@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::{Access, AccessFs, AccessNet, BitFlags, HandledAccess, PrivateHandledAccess, Scope};
+use crate::{
+    Access, AccessFs, AccessNet, BitFlags, HandledAccess, PrivateHandledAccess, RestrictSelfFlag,
+    Scope, SyscallFlag,
+};
 use libc::c_int;
 use std::io;
 use std::path::PathBuf;
@@ -20,6 +23,11 @@ pub enum RulesetError {
     RestrictSelf(#[from] RestrictSelfError),
     #[error(transparent)]
     Scope(#[from] ScopeError),
+    /// Error configuring flags passed to `landlock_restrict_self(2)`.
+    /// Distinct from [`Self::RestrictSelf`], which wraps errors from
+    /// the syscall itself (e.g., EINVAL on an unsupported kernel).
+    #[error(transparent)]
+    RestrictSelfFlags(#[from] SyscallFlagError<RestrictSelfFlag>),
 }
 
 #[test]
@@ -49,6 +57,19 @@ where
 pub enum ScopeError {
     #[error(transparent)]
     Compat(#[from] CompatError<Scope>),
+}
+
+/// Identifies errors when configuring a syscall flag.
+///
+/// Generic over the flag type to support different syscall flag categories.
+/// Each flag type implements [`SyscallFlag`].
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum SyscallFlagError<F: SyscallFlag> {
+    /// The requested flag configuration is not supported by the running kernel.
+    #[error("unsupported syscall flag: {flag:?} set to {set}")]
+    #[non_exhaustive]
+    NotSupported { flag: F, set: bool },
 }
 
 #[derive(Debug, Error)]
@@ -304,6 +325,12 @@ fn _test_ruleset_errno(expected_errno: c_int) {
     let create_ruleset_missing_err =
         RulesetError::CreateRuleset(CreateRulesetError::MissingHandledAccess);
     assert_eq!(*Errno::from(create_ruleset_missing_err), libc::EINVAL);
+
+    let restrict_self_flags_err = RulesetError::RestrictSelfFlags(SyscallFlagError::NotSupported {
+        flag: RestrictSelfFlag::LogSameExec,
+        set: false,
+    });
+    assert_eq!(*Errno::from(restrict_self_flags_err), libc::EINVAL);
 }
 
 #[test]
