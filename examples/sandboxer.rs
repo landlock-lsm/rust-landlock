@@ -5,8 +5,9 @@
 
 use anyhow::{anyhow, bail, Context};
 use landlock::{
-    path_beneath_rules, Access, AccessFs, AccessNet, BitFlags, LandlockStatus, NetPort,
-    PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, RulesetStatus, Scope, ABI,
+    path_beneath_rules, Access, AccessFs, AccessNet, BitFlags, CompatLevel, Compatible,
+    LandlockStatus, NetPort, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr,
+    RulesetStatus, Scope, ABI,
 };
 use std::env;
 use std::ffi::OsStr;
@@ -19,6 +20,7 @@ const ENV_FS_RW_NAME: &str = "LL_FS_RW";
 const ENV_TCP_BIND_NAME: &str = "LL_TCP_BIND";
 const ENV_TCP_CONNECT_NAME: &str = "LL_TCP_CONNECT";
 const ENV_SCOPED_NAME: &str = "LL_SCOPED";
+const ENV_FORCE_LOG_NAME: &str = "LL_FORCE_LOG";
 
 struct PathEnv {
     paths: Vec<u8>,
@@ -111,7 +113,11 @@ fn main() -> anyhow::Result<()> {
         eprintln!("  - \"a\" to restrict opening abstract unix sockets");
         eprintln!("  - \"s\" to restrict sending signals");
         eprintln!(
-            "\nExample:\n\
+            "\nA sandboxer should not log denied access requests to avoid spamming logs, \
+            but to test audit we can set {ENV_FORCE_LOG_NAME}=1\n"
+        );
+        eprintln!(
+            "Example:\n\
                 {ENV_FS_RO_NAME}=\"${{PATH}}:/lib:/usr:/proc:/etc:/dev/urandom\" \
                 {ENV_FS_RW_NAME}=\"/dev/null:/dev/full:/dev/zero:/dev/pts:/tmp\" \
                 {ENV_TCP_BIND_NAME}=\"9418\" \
@@ -122,7 +128,7 @@ fn main() -> anyhow::Result<()> {
         anyhow!("Missing command")
     })?;
 
-    let abi = ABI::V6;
+    let abi = ABI::V7;
     let mut ruleset = Ruleset::default().handle_access(AccessFs::from_all(abi))?;
     let ruleset_ref = &mut ruleset;
 
@@ -159,12 +165,23 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
+    // Parse LL_FORCE_LOG into a boolean.  Matches the kernel's sandboxer:
+    // when set, require the feature (error out on unsupported kernels).
+    let force_log = match env::var_os(ENV_FORCE_LOG_NAME) {
+        Some(v) if v == "1" => true,
+        Some(_) => bail!("Unknown value for {ENV_FORCE_LOG_NAME} (only \"1\" is handled)"),
+        None => false,
+    };
+
     let status = ruleset
         .create()?
         .add_rules(PathEnv::new(ENV_FS_RO_NAME, AccessFs::from_read(abi))?.iter())?
         .add_rules(PathEnv::new(ENV_FS_RW_NAME, AccessFs::from_all(abi))?.iter())?
         .add_rules(PortEnv::new(ENV_TCP_BIND_NAME, AccessNet::BindTcp)?.iter())?
         .add_rules(PortEnv::new(ENV_TCP_CONNECT_NAME, AccessNet::ConnectTcp)?.iter())?
+        .set_compatibility(CompatLevel::HardRequirement)
+        .log_new_exec(force_log)?
+        .set_compatibility(CompatLevel::BestEffort)
         .restrict_self()
         .expect("Failed to enforce ruleset");
 
@@ -227,6 +244,8 @@ fn main() -> anyhow::Result<()> {
         .env_remove(ENV_FS_RW_NAME)
         .env_remove(ENV_TCP_BIND_NAME)
         .env_remove(ENV_TCP_CONNECT_NAME)
+        .env_remove(ENV_SCOPED_NAME)
+        .env_remove(ENV_FORCE_LOG_NAME)
         .args(args)
         .exec()
         .into())
