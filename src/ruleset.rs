@@ -968,25 +968,29 @@ fn ruleset_unsupported() {
         }
     );
 
-    // Missing handled access because of the compatibility level.
-    matches!(
+    // Incompatible handled access because of the compatibility level.
+    assert!(matches!(
         Ruleset::from(ABI::Unsupported)
             // HardRequirement for Ruleset.
             .set_compatibility(CompatLevel::HardRequirement)
             .handle_access(AccessFs::Execute)
             .unwrap_err(),
-        RulesetError::CreateRuleset(CreateRulesetError::MissingHandledAccess)
-    );
+        RulesetError::HandleAccesses(HandleAccessesError::Fs(HandleAccessError::Compat(
+            CompatError::Access(AccessError::Incompatible { .. })
+        )))
+    ));
 
-    // Missing scope access because of the compatibility level.
-    matches!(
+    // Incompatible scope because of the compatibility level.
+    assert!(matches!(
         Ruleset::from(ABI::Unsupported)
             // HardRequirement for Ruleset.
             .set_compatibility(CompatLevel::HardRequirement)
             .scope(Scope::Signal)
             .unwrap_err(),
-        RulesetError::CreateRuleset(CreateRulesetError::MissingHandledAccess)
-    );
+        RulesetError::Scope(ScopeError::Compat(CompatError::Access(
+            AccessError::Incompatible { .. }
+        )))
+    ));
 
     assert_eq!(
         Ruleset::from(ABI::Unsupported)
@@ -1168,14 +1172,14 @@ fn ignore_abi_v2_with_abi_v1() {
 
 #[test]
 fn unsupported_handled_access() {
-    matches!(
+    assert!(matches!(
         Ruleset::from(ABI::V3)
             .handle_access(AccessNet::from_all(ABI::V3))
             .unwrap_err(),
         RulesetError::HandleAccesses(HandleAccessesError::Net(HandleAccessError::Compat(
             CompatError::Access(AccessError::Empty)
         )))
-    );
+    ));
 }
 
 #[test]
