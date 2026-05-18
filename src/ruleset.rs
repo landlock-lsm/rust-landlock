@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::compat::private::OptionCompatLevelMut;
+use crate::prctl::try_set_no_new_privs;
 use crate::{
     uapi, AccessFs, AccessNet, AddRuleError, AddRulesError, BitFlags, CompatLevel, CompatState,
     Compatibility, Compatible, CreateRulesetError, HandledAccess, LandlockStatus,
@@ -73,21 +74,6 @@ pub struct RestrictionStatus {
     pub no_new_privs: bool,
     /// Status of Landlock for the running kernel.
     pub landlock: LandlockStatus,
-}
-
-fn prctl_set_no_new_privs() -> Result<(), Error> {
-    match unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } {
-        0 => Ok(()),
-        _ => Err(Error::last_os_error()),
-    }
-}
-
-fn support_no_new_privs() -> bool {
-    // Only Linux < 3.5 or kernel with seccomp filters should return an error.
-    matches!(
-        unsafe { libc::prctl(libc::PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) },
-        0 | 1
-    )
 }
 
 /// Landlock ruleset builder.
@@ -715,9 +701,15 @@ pub trait RulesetCreatedAttr: Sized + AsMut<RulesetCreated> + Compatible {
     ///
     /// This `prctl(2)` call is never ignored, even if an error was encountered on a [`Ruleset`] or
     /// [`RulesetCreated`] method call while [`CompatLevel::SoftRequirement`] was set.
-    fn set_no_new_privs(mut self, no_new_privs: bool) -> Self {
-        <Self as AsMut<RulesetCreated>>::as_mut(&mut self).no_new_privs = no_new_privs;
+    fn no_new_privs(mut self, yes: bool) -> Self {
+        <Self as AsMut<RulesetCreated>>::as_mut(&mut self).no_new_privs = yes;
         self
+    }
+
+    /// Alias for [`no_new_privs()`](Self::no_new_privs).
+    #[deprecated(note = "Use no_new_privs() instead.")]
+    fn set_no_new_privs(self, yes: bool) -> Self {
+        self.no_new_privs(yes)
     }
 }
 
@@ -759,39 +751,7 @@ impl RulesetCreated {
             // that no_new_privs should not be an issue on its own if it is not explicitly
             // deactivated.
             let enforced_nnp = if self.no_new_privs {
-                if let Err(e) = prctl_set_no_new_privs() {
-                    match self.compat.level.into() {
-                        CompatLevel::BestEffort => {}
-                        CompatLevel::SoftRequirement => {
-                            self.compat.update(CompatState::Dummy);
-                        }
-                        CompatLevel::HardRequirement => {
-                            return Err(RestrictSelfError::SetNoNewPrivsCall { source: e });
-                        }
-                    }
-                    // To get a consistent behavior, calls this prctl whether or not
-                    // Landlock is supported by the running kernel.
-                    let support_nnp = support_no_new_privs();
-                    match self.compat.state {
-                        // It should not be an error for kernel (older than 3.5) not supporting
-                        // no_new_privs.
-                        CompatState::Init | CompatState::No | CompatState::Dummy => {
-                            if support_nnp {
-                                // The kernel seems to be between 3.5 (included) and 5.13 (excluded),
-                                // or Landlock is not enabled; no_new_privs should be supported anyway.
-                                return Err(RestrictSelfError::SetNoNewPrivsCall { source: e });
-                            }
-                        }
-                        // A kernel supporting Landlock should also support no_new_privs (unless
-                        // filtered by seccomp).
-                        CompatState::Full | CompatState::Partial => {
-                            return Err(RestrictSelfError::SetNoNewPrivsCall { source: e })
-                        }
-                    }
-                    false
-                } else {
-                    true
-                }
+                try_set_no_new_privs(&mut self.compat)?
             } else {
                 false
             };
@@ -1079,7 +1039,7 @@ fn ruleset_unsupported() {
             .unwrap()
             .create()
             .unwrap()
-            .set_no_new_privs(false)
+            .no_new_privs(false)
             .restrict_self()
             .unwrap(),
         RestrictionStatus {
