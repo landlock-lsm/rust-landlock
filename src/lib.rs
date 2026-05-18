@@ -115,6 +115,7 @@ mod errata;
 mod errors;
 mod fs;
 mod net;
+mod prctl;
 mod ruleset;
 mod scope;
 mod uapi;
@@ -300,7 +301,7 @@ mod tests {
                     .set_compatibility(CompatLevel::BestEffort)
                     .handle_access(AccessFs::from_all(abi))?
                     .create()?
-                    .set_no_new_privs(true)
+                    .no_new_privs(true)
                     .add_rule(PathBeneath::new(PathFd::new("/")?, AccessFs::from_all(abi)))?
                     .restrict_self()?)
             },
