@@ -101,21 +101,93 @@ impl From<ABI> for BitFlags<Erratum> {
     }
 }
 
-/// Returns the set of errata that have not been backported yet for a given ABI.
+/// Extracts the (major, minor, patch, suffix) from /proc/version's
+/// "Linux version X.Y.Z-suffix..." line.
 ///
-/// This is the single source of truth for known backport gaps.  When an
-/// erratum is backported to a kernel version, remove it from the
-/// corresponding match arm.  The CI will catch mismatches.
+/// Returns `None` if the input does not start with "Linux version " or if
+/// the major/minor numbers cannot be parsed.  The patch number defaults to
+/// 0 when absent (e.g., for RC kernels).
 #[cfg(test)]
-fn not_backported_yet(abi: ABI) -> BitFlags<Erratum> {
-    match abi {
-        ABI::Unsupported => BitFlags::empty(),
+fn parse_kernel_version(proc_version: &str) -> Option<(u32, u32, u32, &str)> {
+    let after_prefix = proc_version.strip_prefix("Linux version ")?;
+    let token = after_prefix.split_whitespace().next()?;
+    let first_dot = token.find('.')?;
+    let major: u32 = token[..first_dot].parse().ok()?;
+    let rest = &token[first_dot + 1..];
+    let minor_end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
+    let minor: u32 = rest[..minor_end].parse().ok()?;
+    let after_minor = &rest[minor_end..];
+    // If a second dot follows, parse the patch number; otherwise default to 0.
+    let (patch, suffix) = match after_minor.strip_prefix('.') {
+        Some(after_dot) => {
+            let patch_end = after_dot
+                .find(|c: char| !c.is_ascii_digit())
+                .unwrap_or(after_dot.len());
+            let patch: u32 = after_dot[..patch_end].parse().unwrap_or(0);
+            (patch, &after_dot[patch_end..])
+        }
+        None => (0, after_minor),
+    };
+    Some((major, minor, patch, suffix))
+}
+
+#[test]
+fn parse_kernel_version_cases() {
+    // Distro-suffixed stable release.
+    assert_eq!(
+        parse_kernel_version("Linux version 6.15.0-29-generic (build@host) ..."),
+        Some((6, 15, 0, "-29-generic")),
+    );
+    // Distro-suffixed older stable.
+    assert_eq!(
+        parse_kernel_version("Linux version 5.10.234-1-amd64 (debian) ..."),
+        Some((5, 10, 234, "-1-amd64")),
+    );
+    // Release candidate without patch number.
+    assert_eq!(
+        parse_kernel_version("Linux version 6.15-rc1 (...)"),
+        Some((6, 15, 0, "-rc1")),
+    );
+    // Bare version with no suffix.
+    assert_eq!(
+        parse_kernel_version("Linux version 6.15"),
+        Some((6, 15, 0, "")),
+    );
+    // Stable patch level with no distro suffix.
+    assert_eq!(
+        parse_kernel_version("Linux version 6.12.5"),
+        Some((6, 12, 5, "")),
+    );
+    // Missing prefix.
+    assert_eq!(parse_kernel_version(""), None);
+    assert_eq!(parse_kernel_version("Some other text"), None);
+    // Unparseable version after prefix.
+    assert_eq!(parse_kernel_version("Linux version garbage"), None);
+}
+
+/// Returns the set of errata that have not been backported yet for a given
+/// kernel version.
+///
+/// This is the single source of truth for known backport gaps.  The version
+/// is the (major, minor, patch, suffix) parsed from /proc/version.
+/// Backports are made per kernel version (not per Landlock ABI), so this
+/// lookup is keyed by kernel version.  The patch number and distro suffix
+/// allow narrowing to specific kernel builds when a fix arrives in a stable
+/// patch level or distro-specific backport.  When an erratum is backported
+/// to a kernel version, remove it from the corresponding match arm.  The
+/// CI will catch mismatches.
+#[cfg(test)]
+fn not_backported_yet(version: (u32, u32, u32, &str)) -> BitFlags<Erratum> {
+    match version {
         // TODO: erratum 3 (DisconnectedDirectoryHandling) should be backported.
-        ABI::V1 | ABI::V2 => Erratum::DisconnectedDirectoryHandling.into(),
+        (5, 15, _, _) | (6, 1, _, _) => Erratum::DisconnectedDirectoryHandling.into(),
+
         // 6.4, 6.7, 6.10: EOL, no errata interface on stable.kernel.
-        ABI::V3 | ABI::V4 | ABI::V5 => BitFlags::empty(),
         // 6.12: all errata backported.
-        ABI::V6 => BitFlags::empty(),
+        // Future or unknown kernel: assume all errata backported.
+        _ => BitFlags::empty(),
     }
 }
 
@@ -129,6 +201,10 @@ fn errata_query() {
 fn errata_up_to_date() {
     use crate::compat::{ABI, TEST_ABI, TEST_ABI_ENV_NAME};
 
+    // Print /proc/version for diagnostic info when this test runs in CI.
+    let proc_version = std::fs::read_to_string("/proc/version").unwrap_or_default();
+    eprintln!("/proc/version: {}", proc_version.trim());
+
     // This test requires LANDLOCK_CRATE_TEST_ABI to be explicitly set because
     // the errata assertions are tied to specific CI kernel versions.  Without
     // it, TEST_ABI is auto-detected from the running kernel, but From<i32>
@@ -141,9 +217,13 @@ fn errata_up_to_date() {
         return;
     }
 
+    let kernel_version =
+        parse_kernel_version(&proc_version).expect("Failed to parse /proc/version");
+    eprintln!("Parsed kernel version: {:?}", kernel_version);
+
     let current = Erratum::current();
     let applicable: BitFlags<Erratum> = (*TEST_ABI).into();
-    let expected = applicable & !not_backported_yet(*TEST_ABI);
+    let expected = applicable & !not_backported_yet(kernel_version);
 
     // Kernel must never report errata for features absent from this ABI.
     assert!(
