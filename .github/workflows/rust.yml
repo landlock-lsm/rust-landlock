@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
 
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
       with:
         fetch-depth: 0
 
@@ -78,14 +78,14 @@ jobs:
 
     - name: Cache Linux ${{ fromJSON(matrix.kernel).version}}.y
       id: cache_linux
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: linux-${{ fromJSON(matrix.kernel).version }}
         key: linux-${{ fromJSON(matrix.kernel).commit }}-${{ env.LANDLOCK_TEST_TOOLS_COMMIT }}
 
     - name: Clone Landlock test tools
       if: steps.cache_linux.outputs.cache-hit != 'true'
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         repository: landlock-lsm/landlock-test-tools
         ref: ${{ env.LANDLOCK_TEST_TOOLS_COMMIT }}
@@ -93,7 +93,7 @@ jobs:
 
     - name: Clone Linux ${{ fromJSON(matrix.kernel).version}}.y
       if: steps.cache_linux.outputs.cache-hit != 'true'
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         repository: landlock-lsm/linux
         ref: ${{ fromJSON(matrix.kernel).commit }}
@@ -115,12 +115,12 @@ jobs:
         commit: ${{ fromJSON(needs.commit_list.outputs.commits) }}
     steps:
 
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
       with:
         ref: ${{ matrix.commit }}
 
     - name: Clone Landlock test tools
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         repository: landlock-lsm/landlock-test-tools
         ref: ${{ env.LANDLOCK_TEST_TOOLS_COMMIT }}
@@ -177,7 +177,7 @@ jobs:
         rustup component add rustfmt clippy
         rustup update
 
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
       with:
         ref: ${{ matrix.commit }}
 
@@ -221,20 +221,20 @@ jobs:
         rustup update
 
     - name: Clone Landlock test tools
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         repository: landlock-lsm/landlock-test-tools
         ref: ${{ env.LANDLOCK_TEST_TOOLS_COMMIT }}
         path: landlock-test-tools
 
     - name: Clone rust-landlock
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         ref: ${{ matrix.commit }}
         path: rust-landlock
 
     - name: Get Linux ${{ fromJSON(matrix.kernel).version}}.y
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@v5
       with:
         path: linux-${{ fromJSON(matrix.kernel).version }}
         key: linux-${{ fromJSON(matrix.kernel).commit }}-${{ env.LANDLOCK_TEST_TOOLS_COMMIT }}
