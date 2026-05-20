@@ -1,5 +1,58 @@
 # Landlock changelog
 
+## [v0.4.5](https://github.com/landlock-lsm/rust-landlock/releases/tag/v0.4.5)
+
+### New API
+
+- Added support for [Landlock ABI 7](https://landlock.io/rust-landlock/landlock/enum.ABI.html#variant.V7):
+  control audit logging behavior with
+  [`log_same_exec()`](https://landlock.io/rust-landlock/landlock/trait.RulesetCreatedAttr.html#method.log_same_exec),
+  [`log_new_exec()`](https://landlock.io/rust-landlock/landlock/trait.RulesetCreatedAttr.html#method.log_new_exec)
+  (domain-specific), and
+  [`log_subdomains()`](https://landlock.io/rust-landlock/landlock/trait.RestrictSelfAttr.html#method.log_subdomains)
+  (shared between
+  [`RulesetCreated`](https://landlock.io/rust-landlock/landlock/struct.RulesetCreated.html) and
+  [`RestrictSelf`](https://landlock.io/rust-landlock/landlock/struct.RestrictSelf.html))
+  ([PR #120](https://github.com/landlock-lsm/rust-landlock/pull/120)).
+- Added [`RestrictSelf`](https://landlock.io/rust-landlock/landlock/struct.RestrictSelf.html)
+  builder for calling `landlock_restrict_self()` without creating a
+  Landlock domain (e.g., muting subdomain audit logs).
+- Extended
+  [`RestrictionStatus`](https://landlock.io/rust-landlock/landlock/struct.RestrictionStatus.html)
+  with three new public fields (`log_same_exec`, `log_new_exec`,
+  `log_subdomains`) reporting the effective audit-logging flag state after
+  [`restrict_self()`](https://landlock.io/rust-landlock/landlock/struct.RulesetCreated.html#method.restrict_self)
+  and [`apply()`](https://landlock.io/rust-landlock/landlock/struct.RestrictSelf.html#method.apply).
+- Added [`Erratum`](https://landlock.io/rust-landlock/landlock/enum.Erratum.html)
+  bitflags enum and
+  [`Erratum::current()`](https://landlock.io/rust-landlock/landlock/enum.Erratum.html#method.current)
+  for querying fixed kernel bugs before building a ruleset
+  ([PR #119](https://github.com/landlock-lsm/rust-landlock/pull/119)).
+
+### Deprecated API
+
+Deprecate the [`set_no_new_privs()`](https://landlock.io/rust-landlock/landlock/trait.RulesetCreatedAttr.html#method.set_no_new_privs)
+method and replace it with
+[`no_new_privs()`](https://landlock.io/rust-landlock/landlock/trait.RulesetCreatedAttr.html#method.no_new_privs)
+([PR #122](https://github.com/landlock-lsm/rust-landlock/pull/122)).
+
+### Dependencies
+
+- Bumped MSRV to Rust 1.71.
+
+### Testing
+
+- Extended CI to test against Linux 6.15.
+- Added errata tests verifying the `From<ABI>` mapping matches CI kernel errata.
+- Added `SoftRequirement` test coverage for `scope()` and restrict\_self flags.
+- Added `try_compat_binary()` unit tests for the binary compat dispatch.
+
+### Example
+
+- Synced the sandboxer example with the kernel's `sandboxer.c`:
+  added `LL_FORCE_LOG` environment variable for audit logging
+  ([PR #120](https://github.com/landlock-lsm/rust-landlock/pull/120)).
+
 ## [v0.4.4](https://github.com/landlock-lsm/rust-landlock/releases/tag/v0.4.4)
 
 ### New API
