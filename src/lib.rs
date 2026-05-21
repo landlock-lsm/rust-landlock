@@ -76,6 +76,12 @@
 //! However, applications should only check that no error is returned (i.e. `Ok(_)`)
 //! and optionally log and inform users that the application is not fully sandboxed
 //! because of missing features from the running kernel.
+//!
+//! ## Audit logging
+//!
+//! Landlock ABI v7 adds control over audit logging through boolean setters, especially
+//! [`log_new_exec()`](RulesetCreatedAttr::log_new_exec)) which is useful (but noisy) for sandboxer
+//! tools.
 
 #[cfg(test)]
 #[macro_use]

@@ -842,7 +842,8 @@ pub trait RulesetCreatedAttr:
 
     /// Controls logging of denied accesses for the creating thread and its children
     /// running the same executable (before `execve(2)`).
-    /// Logging is **enabled** by default.
+    /// Logging is **enabled** by default.  See
+    /// [kernel documentation](https://docs.kernel.org/userspace-api/landlock.html#enforcing-a-ruleset).
     ///
     /// Calling with `false` sets the `LANDLOCK_RESTRICT_SELF_LOG_SAME_EXEC_OFF` flag.
     /// Calling with `true` is a no-op (the default behavior).
@@ -851,16 +852,14 @@ pub trait RulesetCreatedAttr:
     ///
     /// On error, returns a wrapped
     /// [`SyscallFlagError<RestrictSelfFlag>`](crate::SyscallFlagError).
-    ///
-    /// See [`RestrictSelfAttr::log_subdomains()`](crate::RestrictSelfAttr::log_subdomains)
-    /// for compat-state behavior when toggling this setter on unsupported kernels.
     fn log_same_exec(mut self, set: bool) -> Result<Self, RulesetError> {
         self.try_set_flag(RestrictSelfFlag::LogSameExec, set)?;
         Ok(self)
     }
 
     /// Controls logging of denied accesses after an `execve(2)` call.
-    /// Logging is **disabled** by default.
+    /// Logging is **disabled** by default.  See
+    /// [kernel documentation](https://docs.kernel.org/userspace-api/landlock.html#enforcing-a-ruleset).
     ///
     /// Calling with `true` sets the `LANDLOCK_RESTRICT_SELF_LOG_NEW_EXEC_ON` flag.
     /// Calling with `false` is a no-op (the default behavior).
@@ -869,9 +868,6 @@ pub trait RulesetCreatedAttr:
     ///
     /// On error, returns a wrapped
     /// [`SyscallFlagError<RestrictSelfFlag>`](crate::SyscallFlagError).
-    ///
-    /// See [`RestrictSelfAttr::log_subdomains()`](crate::RestrictSelfAttr::log_subdomains)
-    /// for compat-state behavior when toggling this setter on unsupported kernels.
     fn log_new_exec(mut self, set: bool) -> Result<Self, RulesetError> {
         self.try_set_flag(RestrictSelfFlag::LogNewExec, set)?;
         Ok(self)
