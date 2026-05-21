@@ -56,15 +56,10 @@ pub(crate) mod private {
 ///
 /// Domain-specific setters (`log_same_exec`, `log_new_exec`) are on
 /// [`RulesetCreatedAttr`](crate::RulesetCreatedAttr).
-///
-/// This trait is sealed and cannot be implemented outside of this crate.
-/// Sealing is done via the `RestrictSelfFlagsState` private supertrait,
-/// which also carries the internal plumbing for this trait's default
-/// methods; unlike [`SyscallFlag`](crate::SyscallFlag) and
-/// [`Access`](crate::Access), no separate `Sealed` marker is needed.
 pub trait RestrictSelfAttr: Sized + private::RestrictSelfFlagsState {
     /// Controls logging of denied accesses from nested Landlock domains.
-    /// Logging is **enabled** by default.
+    /// Logging is **enabled** by default.  See the
+    /// [kernel documentation](https://docs.kernel.org/userspace-api/landlock.html#enforcing-a-ruleset).
     ///
     /// Calling with `false` sets the `LANDLOCK_RESTRICT_SELF_LOG_SUBDOMAINS_OFF` flag.
     /// Setters are last-call-wins: calling again with a different boolean
@@ -80,16 +75,6 @@ pub trait RestrictSelfAttr: Sized + private::RestrictSelfFlagsState {
     ///
     /// On error, returns a wrapped
     /// [`SyscallFlagError<RestrictSelfFlag>`](crate::SyscallFlagError).
-    ///
-    /// # Compat state
-    ///
-    /// Calling this setter with a non-default value on an unsupported
-    /// kernel transitions the compat state away from Full (toward No,
-    /// Dummy, or Partial depending on
-    /// [`CompatLevel`](crate::CompatLevel)).  Reverting by calling
-    /// again with the default value clears the bit but does not reset
-    /// the compat state, so a subsequent enforcement may still report
-    /// less-than-full enforcement.
     fn log_subdomains(mut self, set: bool) -> Result<Self, RulesetError> {
         self.try_set_flag(RestrictSelfFlag::LogSubdomains, set)?;
         Ok(self)
