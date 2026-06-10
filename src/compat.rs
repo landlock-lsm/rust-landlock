@@ -73,6 +73,9 @@ pub enum ABI {
     /// Seventh Landlock ABI, introduced with
     /// [Linux 6.15](https://git.kernel.org/stable/c/72885116069abdd05c245707c3989fc605632970).
     V7 = 7,
+    /// Eighth Landlock ABI, introduced with
+    /// [Linux 6.17](https://git.kernel.org/stable/c/ae388edd4a8f0226f3ef7b102c34f78220756c3d).
+    V8 = 8,
 }
 
 // ABI should not be dynamically created (in other crates) according to the running kernel
@@ -98,8 +101,9 @@ impl From<i32> for ABI {
             4 => ABI::V4,
             5 => ABI::V5,
             6 => ABI::V6,
+            7 => ABI::V7,
             // Returns the greatest known ABI.
-            _ => ABI::V7,
+            _ => ABI::V8,
         }
     }
 }

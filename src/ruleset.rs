@@ -83,6 +83,8 @@ pub struct RestrictionStatus {
     pub log_new_exec: bool,
     /// Subdomain logging is enabled (default: true).
     pub log_subdomains: bool,
+    /// Thread synchronization was requested (default: false).
+    pub tsync: bool,
 }
 
 /// Landlock ruleset builder.
@@ -925,6 +927,7 @@ impl RulesetCreated {
             let log_same_exec = RestrictSelfFlag::LogSameExec.is_set(raw);
             let log_new_exec = RestrictSelfFlag::LogNewExec.is_set(raw);
             let log_subdomains = RestrictSelfFlag::LogSubdomains.is_set(raw);
+            let tsync = RestrictSelfFlag::Tsync.is_set(raw);
 
             match self.compat.state {
                 CompatState::Init | CompatState::No | CompatState::Dummy => Ok(RestrictionStatus {
@@ -934,6 +937,7 @@ impl RulesetCreated {
                     log_same_exec,
                     log_new_exec,
                     log_subdomains,
+                    tsync,
                 }),
                 CompatState::Full | CompatState::Partial => {
                     #[cfg(test)]
@@ -952,6 +956,7 @@ impl RulesetCreated {
                                 log_same_exec,
                                 log_new_exec,
                                 log_subdomains,
+                                tsync,
                             })
                         }
                         // TODO: match specific Landlock restrict self errors
@@ -1055,6 +1060,7 @@ fn ruleset_created_attr() {
             log_same_exec: true,
             log_new_exec: false,
             log_subdomains: true,
+            tsync: false,
         }
     );
 }
@@ -1133,6 +1139,7 @@ fn ruleset_unsupported() {
             log_same_exec: true,
             log_new_exec: false,
             log_subdomains: true,
+            tsync: false,
         }
     );
 
@@ -1154,6 +1161,7 @@ fn ruleset_unsupported() {
             log_same_exec: true,
             log_new_exec: false,
             log_subdomains: true,
+            tsync: false,
         }
     );
 
@@ -1199,6 +1207,7 @@ fn ruleset_unsupported() {
             log_same_exec: true,
             log_new_exec: false,
             log_subdomains: true,
+            tsync: false,
         }
     );
 
@@ -1228,6 +1237,7 @@ fn ruleset_unsupported() {
                 log_same_exec: true,
                 log_new_exec: false,
                 log_subdomains: true,
+                tsync: false,
             }
         );
     }
@@ -1248,6 +1258,7 @@ fn ruleset_unsupported() {
             log_same_exec: true,
             log_new_exec: false,
             log_subdomains: true,
+            tsync: false,
         }
     );
 
@@ -1325,6 +1336,7 @@ fn ruleset_unsupported() {
             log_same_exec: true,
             log_new_exec: false,
             log_subdomains: true,
+            tsync: false,
         }
     );
 
@@ -1404,6 +1416,7 @@ fn ignore_abi_v2_with_abi_v1() {
             log_same_exec: true,
             log_new_exec: false,
             log_subdomains: true,
+            tsync: false,
         }
     );
 }
