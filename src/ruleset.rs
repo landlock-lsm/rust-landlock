@@ -83,6 +83,8 @@ pub struct RestrictionStatus {
     pub log_new_exec: bool,
     /// Subdomain logging is enabled (default: true).
     pub log_subdomains: bool,
+    /// The ruleset was applied to all threads of the process (default: false).
+    pub all_threads: bool,
 }
 
 /// Landlock ruleset builder.
@@ -640,6 +642,59 @@ fn ruleset_created_log_flags() {
     ));
 }
 
+#[test]
+fn ruleset_created_all_threads() {
+    // Uses ABI::Unsupported throughout so create() does not call the real
+    // landlock_create_ruleset() syscall.  The "flag applied" path on a
+    // supported ABI is covered by the RestrictSelf mock test and the forked
+    // integration test.
+
+    // all_threads(true) requested but dropped by BestEffort on an unsupported
+    // ABI: only the calling thread would be restricted.
+    let ruleset_created = Ruleset::from(ABI::Unsupported)
+        .handle_access(AccessFs::Execute)
+        .unwrap()
+        .create()
+        .unwrap()
+        .all_threads(true)
+        .unwrap();
+    assert_eq!(
+        ruleset_created.requested_restrict_self_flags,
+        uapi::LANDLOCK_RESTRICT_SELF_TSYNC
+    );
+    assert_eq!(ruleset_created.actual_restrict_self_flags, 0);
+
+    // all_threads(false) is the default: a no-op that bypasses the compat
+    // check, so it never errors even under HardRequirement on an unsupported
+    // ABI.
+    let ruleset_created = Ruleset::from(ABI::Unsupported)
+        .handle_access(AccessFs::Execute)
+        .unwrap()
+        .create()
+        .unwrap()
+        .set_compatibility(CompatLevel::HardRequirement)
+        .all_threads(false)
+        .unwrap();
+    assert_eq!(ruleset_created.requested_restrict_self_flags, 0);
+    assert_eq!(ruleset_created.actual_restrict_self_flags, 0);
+
+    // HardRequirement errors when all_threads(true) is unsupported.
+    assert!(matches!(
+        Ruleset::from(ABI::Unsupported)
+            .handle_access(AccessFs::Execute)
+            .unwrap()
+            .create()
+            .unwrap()
+            .set_compatibility(CompatLevel::HardRequirement)
+            .all_threads(true)
+            .unwrap_err(),
+        RulesetError::RestrictSelfFlags(SyscallFlagError::NotSupported {
+            flag: RestrictSelfFlag::AllThreads,
+            set: true,
+        })
+    ));
+}
+
 impl OptionCompatLevelMut for RulesetCreated {
     fn as_option_compat_level_mut(&mut self) -> &mut Option<CompatLevel> {
         &mut self.compat.level
@@ -925,6 +980,7 @@ impl RulesetCreated {
             let log_same_exec = RestrictSelfFlag::LogSameExec.is_set(raw);
             let log_new_exec = RestrictSelfFlag::LogNewExec.is_set(raw);
             let log_subdomains = RestrictSelfFlag::LogSubdomains.is_set(raw);
+            let all_threads = RestrictSelfFlag::AllThreads.is_set(raw);
 
             match self.compat.state {
                 CompatState::Init | CompatState::No | CompatState::Dummy => Ok(RestrictionStatus {
@@ -934,6 +990,7 @@ impl RulesetCreated {
                     log_same_exec,
                     log_new_exec,
                     log_subdomains,
+                    all_threads,
                 }),
                 CompatState::Full | CompatState::Partial => {
                     #[cfg(test)]
@@ -952,6 +1009,7 @@ impl RulesetCreated {
                                 log_same_exec,
                                 log_new_exec,
                                 log_subdomains,
+                                all_threads,
                             })
                         }
                         // TODO: match specific Landlock restrict self errors
@@ -1055,6 +1113,7 @@ fn ruleset_created_attr() {
             log_same_exec: true,
             log_new_exec: false,
             log_subdomains: true,
+            all_threads: false,
         }
     );
 }
@@ -1133,6 +1192,7 @@ fn ruleset_unsupported() {
             log_same_exec: true,
             log_new_exec: false,
             log_subdomains: true,
+            all_threads: false,
         }
     );
 
@@ -1154,6 +1214,7 @@ fn ruleset_unsupported() {
             log_same_exec: true,
             log_new_exec: false,
             log_subdomains: true,
+            all_threads: false,
         }
     );
 
@@ -1199,6 +1260,7 @@ fn ruleset_unsupported() {
             log_same_exec: true,
             log_new_exec: false,
             log_subdomains: true,
+            all_threads: false,
         }
     );
 
@@ -1228,6 +1290,7 @@ fn ruleset_unsupported() {
                 log_same_exec: true,
                 log_new_exec: false,
                 log_subdomains: true,
+                all_threads: false,
             }
         );
     }
@@ -1248,6 +1311,7 @@ fn ruleset_unsupported() {
             log_same_exec: true,
             log_new_exec: false,
             log_subdomains: true,
+            all_threads: false,
         }
     );
 
@@ -1325,6 +1389,7 @@ fn ruleset_unsupported() {
             log_same_exec: true,
             log_new_exec: false,
             log_subdomains: true,
+            all_threads: false,
         }
     );
 
@@ -1404,6 +1469,7 @@ fn ignore_abi_v2_with_abi_v1() {
             log_same_exec: true,
             log_new_exec: false,
             log_subdomains: true,
+            all_threads: false,
         }
     );
 }

@@ -73,6 +73,9 @@ pub enum ABI {
     /// Seventh Landlock ABI, introduced with
     /// [Linux 6.15](https://git.kernel.org/stable/c/72885116069abdd05c245707c3989fc605632970).
     V7 = 7,
+    /// Eighth Landlock ABI, introduced with [Linux
+    /// 7.0](https://git.kernel.org/stable/c/c22e26bd0906e9c8325462993f01adb16b8ea2c0).
+    V8 = 8,
 }
 
 // ABI should not be dynamically created (in other crates) according to the running kernel
@@ -98,8 +101,9 @@ impl From<i32> for ABI {
             4 => ABI::V4,
             5 => ABI::V5,
             6 => ABI::V6,
+            7 => ABI::V7,
             // Returns the greatest known ABI.
-            _ => ABI::V7,
+            _ => ABI::V8,
         }
     }
 }
@@ -601,7 +605,7 @@ pub trait Compatible: Sized + private::OptionCompatLevelMut {
     ///         // However, this ruleset may also handle other (future) access rights
     ///         // if they are supported by the running kernel.
     ///         .set_compatibility(CompatLevel::BestEffort)
-    ///         .handle_access(AccessFs::from_all(ABI::V7))?
+    ///         .handle_access(AccessFs::from_all(ABI::V8))?
     ///         .create()?)
     /// }
     /// ```
@@ -630,7 +634,7 @@ pub trait Compatible: Sized + private::OptionCompatLevelMut {
     ///         // if they are supported by the running kernel,
     ///         // but without returning any error otherwise.
     ///         .set_compatibility(CompatLevel::BestEffort)
-    ///         .handle_access(AccessFs::from_all(ABI::V7))?
+    ///         .handle_access(AccessFs::from_all(ABI::V8))?
     ///         .create()?)
     /// }
     /// ```
