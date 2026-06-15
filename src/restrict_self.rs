@@ -3,7 +3,8 @@
 //! Restrict_self flag configuration.
 //!
 //! The [`RestrictSelfAttr`] trait provides the
-//! [`log_subdomains()`](RestrictSelfAttr::log_subdomains) setter shared
+//! [`log_subdomains()`](RestrictSelfAttr::log_subdomains) and
+//! [`all_threads()`](RestrictSelfAttr::all_threads) setters shared
 //! between [`RulesetCreated`](crate::RulesetCreated) (with a domain) and
 //! [`RestrictSelf`] (without a domain).
 //!
@@ -47,8 +48,9 @@ pub(crate) mod private {
 
 /// Trait for types that accept restrict_self flag configuration.
 ///
-/// Provides [`log_subdomains()`](Self::log_subdomains) which works both
-/// with and without a Landlock domain.
+/// Provides [`log_subdomains()`](Self::log_subdomains) and
+/// [`all_threads()`](Self::all_threads) which work both with and without a
+/// Landlock domain.
 ///
 /// Implemented by [`RulesetCreated`](crate::RulesetCreated) (via
 /// [`RulesetCreatedAttr`](crate::RulesetCreatedAttr) supertrait) and
@@ -79,6 +81,55 @@ pub trait RestrictSelfAttr: Sized + private::RestrictSelfFlagsState {
         self.try_set_flag(RestrictSelfFlag::LogSubdomains, set)?;
         Ok(self)
     }
+
+    /// Applies the Landlock configuration to **all threads** of the calling
+    /// process, rather than only the calling thread.  Disabled by default.
+    ///
+    /// Calling with `true` sets the `LANDLOCK_RESTRICT_SELF_TSYNC` flag, which
+    /// atomically enforces the domain and logging configuration on every
+    /// thread of the process.  If the calling thread runs with `no_new_privs`,
+    /// the kernel also enables it on the sibling threads.
+    /// Calling with `false` is a no-op (the default behavior).
+    ///
+    /// When enforcing with a Landlock domain (via
+    /// [`RulesetCreated`](crate::RulesetCreated)), this works on its own.
+    /// On the domain-less [`RestrictSelf`] builder the kernel only accepts
+    /// this flag together with
+    /// [`log_subdomains(false)`](Self::log_subdomains); calling
+    /// [`apply()`](RestrictSelf::apply) with `all_threads(true)` alone returns
+    /// a wrapped [`RestrictSelfError`].  The crate does not pre-check this so
+    /// as not to restrict what the kernel allows.
+    ///
+    /// Setting to the default value never triggers a compatibility check,
+    /// so it cannot error even under
+    /// [`CompatLevel::HardRequirement`](crate::CompatLevel::HardRequirement)
+    /// on an unsupported kernel.
+    ///
+    /// Available since Landlock [ABI v8](crate::ABI::V8).
+    ///
+    /// # Warning
+    ///
+    /// On a kernel older than ABI v8, this flag is not supported.  With the
+    /// default [`CompatLevel::BestEffort`](crate::CompatLevel::BestEffort) it
+    /// is silently dropped.  When enforcing a domain (via
+    /// [`RulesetCreated`](crate::RulesetCreated)) this leaves **only the
+    /// calling thread and its future children restricted, not the sibling and
+    /// parent threads**, a weaker guarantee than requested for a multithreaded
+    /// process.  On the domain-less [`RestrictSelf`] builder the remaining
+    /// configuration (e.g. [`log_subdomains()`](Self::log_subdomains)) then
+    /// applies only to the calling thread, and if this flag was the only
+    /// request the enforcement syscall is skipped entirely.
+    /// Applications that require process-wide enforcement should use
+    /// [`CompatLevel::HardRequirement`](crate::CompatLevel::HardRequirement)
+    /// (which errors on an unsupported kernel) or inspect the `all_threads`
+    /// field of the returned status.
+    ///
+    /// On error, returns a wrapped
+    /// [`SyscallFlagError<RestrictSelfFlag>`](crate::SyscallFlagError).
+    fn all_threads(mut self, set: bool) -> Result<Self, RulesetError> {
+        self.try_set_flag(RestrictSelfFlag::AllThreads, set)?;
+        Ok(self)
+    }
 }
 
 /// Builder for calling `landlock_restrict_self()` without creating a
@@ -88,9 +139,13 @@ pub trait RestrictSelfAttr: Sized + private::RestrictSelfFlagsState {
 /// without creating a ruleset or a Landlock domain (e.g., muting
 /// subdomain audit logs for nested domains).
 ///
-/// Only [`log_subdomains()`](RestrictSelfAttr::log_subdomains) is available
-/// on this builder.  Domain-specific setters
-/// ([`log_same_exec()`](crate::RulesetCreatedAttr::log_same_exec),
+/// [`log_subdomains()`](RestrictSelfAttr::log_subdomains) and
+/// [`all_threads()`](RestrictSelfAttr::all_threads) are available on this
+/// builder.  On this domain-less path, the kernel only accepts
+/// [`all_threads()`](RestrictSelfAttr::all_threads) when paired with
+/// [`log_subdomains(false)`](RestrictSelfAttr::log_subdomains).
+/// Domain-specific
+/// setters ([`log_same_exec()`](crate::RulesetCreatedAttr::log_same_exec),
 /// [`log_new_exec()`](crate::RulesetCreatedAttr::log_new_exec)) require a
 /// Landlock domain via [`RulesetCreated`](crate::RulesetCreated).
 ///
@@ -203,6 +258,9 @@ pub struct RestrictSelfStatus {
     pub no_new_privs: bool,
     /// Subdomain logging is enabled (default: true).
     pub log_subdomains: bool,
+    /// The configuration was applied to all threads of the process (default:
+    /// false).
+    pub all_threads: bool,
 }
 
 impl RestrictSelf {
@@ -238,11 +296,13 @@ impl RestrictSelf {
         };
 
         let log_subdomains = RestrictSelfFlag::LogSubdomains.is_set(self.actual_flags);
+        let all_threads = RestrictSelfFlag::AllThreads.is_set(self.actual_flags);
 
         let status = RestrictSelfStatus {
             landlock: self.compat.status(),
             no_new_privs: enforced_nnp,
             log_subdomains,
+            all_threads,
         };
 
         // Skip the syscall when the compat state indicates no features are
@@ -282,6 +342,7 @@ mod tests {
         // flag states.  The compat state is Init, so no real syscall is made.
         let status = rs.apply().unwrap();
         assert!(status.log_subdomains);
+        assert!(!status.all_threads);
     }
 
     #[test]
@@ -405,6 +466,67 @@ mod tests {
             rs.actual_flags & uapi::LANDLOCK_RESTRICT_SELF_LOG_SUBDOMAINS_OFF,
             0
         );
+    }
+
+    #[test]
+    fn restrict_self_all_threads_applied() {
+        // all_threads(true) is supported since ABI v8; on a mocked V8 the
+        // TSYNC bit is set in the actual flags.  This is a pure flag-composition
+        // check: apply() is not called, so the kernel is not involved.
+        // log_subdomains(false) is set alongside because that is the only flag
+        // combination the kernel would accept on the domain-less path
+        // (ruleset_fd == -1); here it only documents that pairing.
+        let rs = RestrictSelf {
+            requested_flags: 0,
+            actual_flags: 0,
+            no_new_privs: true,
+            compat: ABI::V8.into(),
+        };
+        let rs = rs.log_subdomains(false).unwrap().all_threads(true).unwrap();
+        assert_ne!(rs.actual_flags & uapi::LANDLOCK_RESTRICT_SELF_TSYNC, 0);
+        assert_ne!(
+            rs.actual_flags & uapi::LANDLOCK_RESTRICT_SELF_LOG_SUBDOMAINS_OFF,
+            0
+        );
+    }
+
+    #[test]
+    fn restrict_self_all_threads_best_effort_drops_v7() {
+        // On a kernel that predates ABI v8 (here mocked V7), BestEffort
+        // silently drops all_threads(true): the TSYNC bit is requested but not
+        // applied, so only the calling thread would be restricted.
+        let rs = RestrictSelf {
+            requested_flags: 0,
+            actual_flags: 0,
+            no_new_privs: true,
+            compat: ABI::V7.into(),
+        };
+        let rs = rs.all_threads(true).unwrap();
+        assert_ne!(rs.requested_flags & uapi::LANDLOCK_RESTRICT_SELF_TSYNC, 0);
+        assert_eq!(rs.actual_flags & uapi::LANDLOCK_RESTRICT_SELF_TSYNC, 0);
+        let status = rs.apply().unwrap();
+        assert!(!status.all_threads);
+    }
+
+    #[test]
+    fn restrict_self_all_threads_hard_requirement_v7() {
+        // HardRequirement on a pre-v8 ABI returns an error rather than
+        // silently restricting only the calling thread.
+        let rs = RestrictSelf {
+            requested_flags: 0,
+            actual_flags: 0,
+            no_new_privs: true,
+            compat: ABI::V7.into(),
+        };
+        assert!(matches!(
+            rs.set_compatibility(CompatLevel::HardRequirement)
+                .all_threads(true)
+                .unwrap_err(),
+            RulesetError::RestrictSelfFlags(SyscallFlagError::NotSupported {
+                flag: RestrictSelfFlag::AllThreads,
+                set: true,
+            })
+        ));
     }
 
     #[test]

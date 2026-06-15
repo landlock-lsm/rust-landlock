@@ -29,7 +29,8 @@
 //!
 //! # Current limitations
 //!
-//! This crate exposes the Landlock features available as of Linux 6.15 (Landlock [ABI v7](ABI::V7))
+//! This crate exposes the Landlock features available as of Linux 7.0
+//! (Landlock [ABI v8](ABI::V8))
 //! and then inherits some [kernel limitations](https://www.kernel.org/doc/html/latest/userspace-api/landlock.html#current-limitations)
 //! that will be addressed with future kernel releases
 //! (e.g., arbitrary mounts are always denied).
@@ -82,6 +83,16 @@
 //! Landlock ABI v7 adds control over audit logging through boolean setters, especially
 //! [`log_new_exec()`](RulesetCreatedAttr::log_new_exec)) which is useful (but noisy) for sandboxer
 //! tools.
+//!
+//! ## Multithreaded processes
+//!
+//! By default `landlock_restrict_self()` only restricts the calling thread.
+//! Landlock ABI v8 adds [`all_threads()`](RestrictSelfAttr::all_threads) to
+//! atomically enforce the configuration on every thread of the process.  On
+//! an older kernel this is silently dropped in the default best-effort mode,
+//! leaving sibling and parent threads unrestricted, so multithreaded programs
+//! that need this guarantee should require it (see
+//! [`all_threads()`](RestrictSelfAttr::all_threads)).
 
 #[cfg(test)]
 #[macro_use]
@@ -627,5 +638,131 @@ mod tests {
         check_restrict_self_support(ABI::V7, Some(ABI::V7), move |rs: RestrictSelf| -> _ {
             Ok(rs.log_subdomains(false)?.apply()?)
         });
+    }
+
+    // ABI v8's LANDLOCK_RESTRICT_SELF_TSYNC (exposed as all_threads()) applies
+    // the domain to every thread of the process, not just the calling one.
+    // Enforcing that in the cargo-test runner would restrict every test thread,
+    // so each all_threads() setting runs in its own forked child (restrict_self
+    // is irreversible and, with TSYNC, process-wide) that hosts exactly two
+    // threads: its main thread and one sibling.  Both threads list "/" (which
+    // needs AccessFs::ReadDir, handled by from_all(ABI::V1)) before and after
+    // enforcement.
+    //
+    // Expected outcomes are pinned from TEST_ABI, the running kernel's Landlock
+    // ABI: set per kernel by CI, auto-detected locally, and asserted to match
+    // the kernel by current_kernel_abi().  It is an oracle independent of the
+    // restrict_self() status under test: the calling thread must be denied iff
+    // Landlock is enforced at all, and the sibling must be denied iff TSYNC is
+    // both requested and supported (ABI v8+).  Both the kernel's real behavior
+    // and the crate's reported status are checked against this truth, so a
+    // silently dropped or otherwise ineffective TSYNC is caught on every kernel
+    // in the CI matrix, from unsupported up to v8.
+    #[test]
+    fn abi_v8_all_threads() {
+        use crate::compat::TEST_ABI;
+        use std::sync::{Arc, Barrier};
+        use std::thread;
+
+        // Child exit code: OK, the OR of the mismatched checks, or PANICKED.
+        const OK: i32 = 0;
+        const MAIN_BEFORE_DENIED: i32 = 1 << 0;
+        const SIBLING_BEFORE_DENIED: i32 = 1 << 1;
+        const MAIN_AFTER_MISMATCH: i32 = 1 << 2;
+        const SIBLING_AFTER_MISMATCH: i32 = 1 << 3;
+        const STATUS_RULESET_MISMATCH: i32 = 1 << 4;
+        const STATUS_TSYNC_MISMATCH: i32 = 1 << 5;
+        const PANICKED: i32 = 1 << 6;
+
+        // Listing "/" needs AccessFs::ReadDir: allowed before enforcement,
+        // denied afterwards for every thread the domain covers.
+        fn can_list_root() -> bool {
+            std::fs::read_dir("/").is_ok()
+        }
+
+        // Ground truth for the running kernel, independent of the status object.
+        let landlock_supported = *TEST_ABI != ABI::Unsupported;
+        let tsync_supported = *TEST_ABI >= ABI::V8;
+
+        for all_threads in [false, true] {
+            // The sibling is covered only when TSYNC is requested and supported.
+            let expect_sibling_denied = all_threads && tsync_supported;
+
+            match unsafe { libc::fork() } {
+                -1 => panic!("fork() failed: {}", std::io::Error::last_os_error()),
+                0 => {
+                    // Any panic (builder error, spawn/join failure) becomes a
+                    // non-zero code rather than being swallowed as a pass.
+                    let code = std::panic::catch_unwind(|| {
+                        let barrier = Arc::new(Barrier::new(2));
+                        let sibling = {
+                            let barrier = Arc::clone(&barrier);
+                            thread::spawn(move || {
+                                let before = can_list_root();
+                                // Both threads probed before enforcing.
+                                barrier.wait();
+                                // Main has called restrict_self().
+                                barrier.wait();
+                                (before, can_list_root())
+                            })
+                        };
+
+                        let main_before = can_list_root();
+                        barrier.wait();
+
+                        let status = Ruleset::default()
+                            .handle_access(AccessFs::from_all(ABI::V1))
+                            .unwrap()
+                            .create()
+                            .unwrap()
+                            .all_threads(all_threads)
+                            .unwrap()
+                            .restrict_self()
+                            .unwrap();
+                        barrier.wait();
+
+                        let main_denied = !can_list_root();
+                        let (sibling_before, sibling_after) = sibling.join().unwrap();
+                        let sibling_denied = !sibling_after;
+                        let ruleset_enforced = status.ruleset != RulesetStatus::NotEnforced;
+
+                        let mut code = OK;
+                        // Both threads can list "/" before enforcement.
+                        if !main_before {
+                            code |= MAIN_BEFORE_DENIED;
+                        }
+                        if !sibling_before {
+                            code |= SIBLING_BEFORE_DENIED;
+                        }
+                        // Kernel reality matches the independent expectation.
+                        if main_denied != landlock_supported {
+                            code |= MAIN_AFTER_MISMATCH;
+                        }
+                        if sibling_denied != expect_sibling_denied {
+                            code |= SIBLING_AFTER_MISMATCH;
+                        }
+                        // The crate's reported status matches it too.
+                        if ruleset_enforced != landlock_supported {
+                            code |= STATUS_RULESET_MISMATCH;
+                        }
+                        if status.all_threads != expect_sibling_denied {
+                            code |= STATUS_TSYNC_MISMATCH;
+                        }
+                        code
+                    })
+                    .unwrap_or(PANICKED);
+                    // _exit avoids atexit handlers and destructors inherited from
+                    // the test harness.
+                    unsafe { libc::_exit(code) };
+                }
+                pid => {
+                    let mut wstatus: libc::c_int = 0;
+                    let ret = unsafe { libc::waitpid(pid, &mut wstatus, 0) };
+                    assert_eq!(ret, pid);
+                    assert!(libc::WIFEXITED(wstatus));
+                    assert_eq!(libc::WEXITSTATUS(wstatus), OK, "all_threads({all_threads})");
+                }
+            }
+        }
     }
 }

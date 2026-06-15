@@ -103,7 +103,8 @@ pub(crate) trait SyscallFlagExt: SyscallFlag {
 /// Unlike access rights ([`AccessFs`](crate::AccessFs), [`AccessNet`](crate::AccessNet))
 /// and scopes ([`Scope`](crate::Scope)), these flags are not passed to
 /// `landlock_create_ruleset()` but to `landlock_restrict_self()`.  They control
-/// audit logging behavior rather than access restrictions.
+/// audit logging behavior and thread synchronization rather than access
+/// restrictions.
 ///
 /// Each flag is set through a dedicated boolean method on
 /// [`RulesetCreatedAttr`](crate::RulesetCreatedAttr) or
@@ -112,10 +113,6 @@ pub(crate) trait SyscallFlagExt: SyscallFlag {
 /// is handled internally.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
-// All variants intentionally share the "Log" prefix to match the kernel's
-// LANDLOCK_RESTRICT_SELF_LOG_* naming convention.  Future non-logging flags
-// (e.g., TSYNC) will break the shared prefix, removing the need for this allow.
-#[allow(clippy::enum_variant_names)]
 pub enum RestrictSelfFlag {
     /// Same-exec logging (see [`RulesetCreatedAttr::log_same_exec()`](crate::RulesetCreatedAttr::log_same_exec)).
     LogSameExec,
@@ -123,6 +120,9 @@ pub enum RestrictSelfFlag {
     LogNewExec,
     /// Subdomain logging (see [`RestrictSelfAttr::log_subdomains()`](crate::RestrictSelfAttr::log_subdomains)).
     LogSubdomains,
+    /// Apply the restriction to all threads of the process (see
+    /// [`RestrictSelfAttr::all_threads()`](crate::RestrictSelfAttr::all_threads)).
+    AllThreads,
 }
 
 impl SyscallFlag for RestrictSelfFlag {}
@@ -152,6 +152,8 @@ impl SyscallFlagExt for RestrictSelfFlag {
             Self::LogNewExec => false,
             // Subdomain logging is enabled by default.
             Self::LogSubdomains => true,
+            // Only the calling thread is restricted by default.
+            Self::AllThreads => false,
         }
     }
 
@@ -160,6 +162,7 @@ impl SyscallFlagExt for RestrictSelfFlag {
             Self::LogSameExec => uapi::LANDLOCK_RESTRICT_SELF_LOG_SAME_EXEC_OFF,
             Self::LogNewExec => uapi::LANDLOCK_RESTRICT_SELF_LOG_NEW_EXEC_ON,
             Self::LogSubdomains => uapi::LANDLOCK_RESTRICT_SELF_LOG_SUBDOMAINS_OFF,
+            Self::AllThreads => uapi::LANDLOCK_RESTRICT_SELF_TSYNC,
         }
     }
 
@@ -168,6 +171,7 @@ impl SyscallFlagExt for RestrictSelfFlag {
             Self::LogSameExec => ABI::V7,
             Self::LogNewExec => ABI::V7,
             Self::LogSubdomains => ABI::V7,
+            Self::AllThreads => ABI::V8,
         }
     }
 }
@@ -191,6 +195,10 @@ mod tests {
             RestrictSelfFlag::LogSubdomains.raw_bit(),
             uapi::LANDLOCK_RESTRICT_SELF_LOG_SUBDOMAINS_OFF,
         );
+        assert_eq!(
+            RestrictSelfFlag::AllThreads.raw_bit(),
+            uapi::LANDLOCK_RESTRICT_SELF_TSYNC,
+        );
     }
 
     #[test]
@@ -198,6 +206,7 @@ mod tests {
         assert!(RestrictSelfFlag::LogSameExec.default_value());
         assert!(!RestrictSelfFlag::LogNewExec.default_value());
         assert!(RestrictSelfFlag::LogSubdomains.default_value());
+        assert!(!RestrictSelfFlag::AllThreads.default_value());
     }
 
     #[test]
@@ -205,5 +214,6 @@ mod tests {
         assert_eq!(RestrictSelfFlag::LogSameExec.since(), ABI::V7);
         assert_eq!(RestrictSelfFlag::LogNewExec.since(), ABI::V7);
         assert_eq!(RestrictSelfFlag::LogSubdomains.since(), ABI::V7);
+        assert_eq!(RestrictSelfFlag::AllThreads.since(), ABI::V8);
     }
 }
