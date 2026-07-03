@@ -124,7 +124,7 @@ fn compat_bit_flags() {
     // An error makes the state final.
     assert!(compat.state == CompatState::Dummy);
 
-    let some_unknown_access = unsafe { BitFlags::<AccessFs>::from_bits_unchecked(1 << 63 | 1) };
+    let some_unknown_access = unsafe { BitFlags::<AccessFs>::from_bits_unchecked((1 << 63) | 1) };
     assert!(matches!(
         some_unknown_access.try_compat(compat.abi(), compat.level, &mut compat.state).unwrap_err(),
         CompatError::Access(AccessError::Unknown { access, unknown }) if access == some_unknown_access && unknown == all_unknown_access
