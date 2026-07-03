@@ -1,5 +1,17 @@
 # Landlock changelog
 
+## [v0.4.6](https://github.com/landlock-lsm/rust-landlock/releases/tag/v0.4.6)
+
+### New API
+
+- Added support for [Landlock ABI 8](https://landlock.io/rust-landlock/landlock/enum.ABI.html#variant.V8):
+  atomically apply the sandbox to all threads of the calling process with
+  [`all_threads()`](https://landlock.io/rust-landlock/landlock/trait.RestrictSelfAttr.html#method.all_threads)
+  (shared between
+  [`RulesetCreated`](https://landlock.io/rust-landlock/landlock/struct.RulesetCreated.html) and
+  [`RestrictSelf`](https://landlock.io/rust-landlock/landlock/struct.RestrictSelf.html))
+  ([PR #130](https://github.com/landlock-lsm/rust-landlock/pull/130)).
+
 ## [v0.4.5](https://github.com/landlock-lsm/rust-landlock/releases/tag/v0.4.5)
 
 ### New API
