@@ -112,10 +112,6 @@ pub(crate) trait SyscallFlagExt: SyscallFlag {
 /// is handled internally.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
-// All variants intentionally share the "Log" prefix to match the kernel's
-// LANDLOCK_RESTRICT_SELF_LOG_* naming convention.  Future non-logging flags
-// (e.g., TSYNC) will break the shared prefix, removing the need for this allow.
-#[allow(clippy::enum_variant_names)]
 pub enum RestrictSelfFlag {
     /// Same-exec logging (see [`RulesetCreatedAttr::log_same_exec()`](crate::RulesetCreatedAttr::log_same_exec)).
     LogSameExec,
@@ -123,6 +119,8 @@ pub enum RestrictSelfFlag {
     LogNewExec,
     /// Subdomain logging (see [`RestrictSelfAttr::log_subdomains()`](crate::RestrictSelfAttr::log_subdomains)).
     LogSubdomains,
+    /// Multithreaded `landlock_restrict_self()` (see [`RestrictSelfAttr::tsync()`](crate::RestrictSelfAttr::tsync)).
+    Tsync,
 }
 
 impl SyscallFlag for RestrictSelfFlag {}
@@ -152,6 +150,8 @@ impl SyscallFlagExt for RestrictSelfFlag {
             Self::LogNewExec => false,
             // Subdomain logging is enabled by default.
             Self::LogSubdomains => true,
+            // TSYNC is opt-in; disabled by default.
+            Self::Tsync => false,
         }
     }
 
@@ -160,6 +160,7 @@ impl SyscallFlagExt for RestrictSelfFlag {
             Self::LogSameExec => uapi::LANDLOCK_RESTRICT_SELF_LOG_SAME_EXEC_OFF,
             Self::LogNewExec => uapi::LANDLOCK_RESTRICT_SELF_LOG_NEW_EXEC_ON,
             Self::LogSubdomains => uapi::LANDLOCK_RESTRICT_SELF_LOG_SUBDOMAINS_OFF,
+            Self::Tsync => uapi::LANDLOCK_RESTRICT_SELF_TSYNC,
         }
     }
 
@@ -168,6 +169,7 @@ impl SyscallFlagExt for RestrictSelfFlag {
             Self::LogSameExec => ABI::V7,
             Self::LogNewExec => ABI::V7,
             Self::LogSubdomains => ABI::V7,
+            Self::Tsync => ABI::V8,
         }
     }
 }
@@ -205,5 +207,16 @@ mod tests {
         assert_eq!(RestrictSelfFlag::LogSameExec.since(), ABI::V7);
         assert_eq!(RestrictSelfFlag::LogNewExec.since(), ABI::V7);
         assert_eq!(RestrictSelfFlag::LogSubdomains.since(), ABI::V7);
+        assert_eq!(RestrictSelfFlag::Tsync.since(), ABI::V8);
+    }
+
+    #[test]
+    fn tsync_flag_properties() {
+        assert!(!RestrictSelfFlag::Tsync.default_value());
+        assert_eq!(
+            RestrictSelfFlag::Tsync.raw_bit(),
+            uapi::LANDLOCK_RESTRICT_SELF_TSYNC,
+        );
+        assert_eq!(RestrictSelfFlag::Tsync.since(), ABI::V8);
     }
 }

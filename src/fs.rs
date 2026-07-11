@@ -92,6 +92,9 @@ pub enum AccessFs {
     Truncate = uapi::LANDLOCK_ACCESS_FS_TRUNCATE as u64,
     /// Send IOCL commands to a device file.
     IoctlDev = uapi::LANDLOCK_ACCESS_FS_IOCTL_DEV as u64,
+    /// Restrict UNIX socket access based on path names (just like read or write).
+    /// Requires Linux 7.1 (Landlock ABI V9).
+    ResolveUnix = uapi::LANDLOCK_ACCESS_FS_RESOLVE_UNIX as u64,
 }
 
 impl Access for AccessFs {
@@ -112,13 +115,14 @@ impl AccessFs {
     pub fn from_read(abi: ABI) -> BitFlags<Self> {
         match abi {
             ABI::Unsupported => BitFlags::EMPTY,
-            ABI::V1 | ABI::V2 | ABI::V3 | ABI::V4 | ABI::V5 | ABI::V6 | ABI::V7 => {
+            ABI::V1 | ABI::V2 | ABI::V3 | ABI::V4 | ABI::V5 | ABI::V6 | ABI::V7 | ABI::V8 => {
                 make_bitflags!(AccessFs::{
                     Execute
                     | ReadFile
                     | ReadDir
                 })
             }
+            ABI::V9 => Self::from_read(ABI::V8) | AccessFs::ResolveUnix,
         }
     }
 
@@ -142,7 +146,8 @@ impl AccessFs {
             }),
             ABI::V2 => Self::from_write(ABI::V1) | AccessFs::Refer,
             ABI::V3 | ABI::V4 => Self::from_write(ABI::V2) | AccessFs::Truncate,
-            ABI::V5 | ABI::V6 | ABI::V7 => Self::from_write(ABI::V4) | AccessFs::IoctlDev,
+            ABI::V5 | ABI::V6 | ABI::V7 | ABI::V8 => Self::from_write(ABI::V4) | AccessFs::IoctlDev,
+            ABI::V9 => Self::from_write(ABI::V8) | AccessFs::ResolveUnix,
         }
     }
 
@@ -162,6 +167,15 @@ fn consistent_access_fs_rw() {
         assert_eq!(access_read, !access_write & access_all);
         assert_eq!(access_read | access_write, access_all);
         assert_eq!(access_file, access_all & ACCESS_FILE);
+    }
+}
+
+#[test]
+fn resolve_unix_access() {
+    // ResolveUnix is only available starting from V9.
+    for abi in ABI::iter() {
+        let has = AccessFs::from_all(abi).contains(AccessFs::ResolveUnix);
+        assert_eq!(has, abi >= ABI::V9);
     }
 }
 

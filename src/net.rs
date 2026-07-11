@@ -57,7 +57,9 @@ impl Access for AccessNet {
     fn from_all(abi: ABI) -> BitFlags<Self> {
         match abi {
             ABI::Unsupported | ABI::V1 | ABI::V2 | ABI::V3 => BitFlags::EMPTY,
-            ABI::V4 | ABI::V5 | ABI::V6 | ABI::V7 => AccessNet::BindTcp | AccessNet::ConnectTcp,
+            ABI::V4 | ABI::V5 | ABI::V6 | ABI::V7 | ABI::V8 | ABI::V9 => {
+                AccessNet::BindTcp | AccessNet::ConnectTcp
+            }
         }
     }
 }

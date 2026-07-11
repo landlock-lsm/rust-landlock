@@ -79,6 +79,21 @@ pub trait RestrictSelfAttr: Sized + private::RestrictSelfFlagsState {
         self.try_set_flag(RestrictSelfFlag::LogSubdomains, set)?;
         Ok(self)
     }
+
+    /// Allows `landlock_restrict_self()` to be called by any thread in the
+    /// process, not just the one that created the ruleset.
+    ///
+    /// Calling with `true` sets the `LANDLOCK_RESTRICT_SELF_TSYNC` flag.
+    /// Calling with `false` is a no-op (the default behavior).
+    ///
+    /// Available since Landlock [ABI v8](crate::ABI::V8).
+    ///
+    /// On error, returns a wrapped
+    /// [`SyscallFlagError<RestrictSelfFlag>`](crate::SyscallFlagError).
+    fn tsync(mut self, set: bool) -> Result<Self, RulesetError> {
+        self.try_set_flag(RestrictSelfFlag::Tsync, set)?;
+        Ok(self)
+    }
 }
 
 /// Builder for calling `landlock_restrict_self()` without creating a
@@ -203,6 +218,8 @@ pub struct RestrictSelfStatus {
     pub no_new_privs: bool,
     /// Subdomain logging is enabled (default: true).
     pub log_subdomains: bool,
+    /// TSYNC was requested (default: false).
+    pub tsync: bool,
 }
 
 impl RestrictSelf {
@@ -238,11 +255,13 @@ impl RestrictSelf {
         };
 
         let log_subdomains = RestrictSelfFlag::LogSubdomains.is_set(self.actual_flags);
+        let tsync = RestrictSelfFlag::Tsync.is_set(self.actual_flags);
 
         let status = RestrictSelfStatus {
             landlock: self.compat.status(),
             no_new_privs: enforced_nnp,
             log_subdomains,
+            tsync,
         };
 
         // Skip the syscall when the compat state indicates no features are
