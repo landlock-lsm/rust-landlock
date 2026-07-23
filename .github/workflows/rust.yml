@@ -12,7 +12,7 @@ env:
   CARGO_TERM_COLOR: always
   RUSTDOCFLAGS: -D warnings
   RUSTFLAGS: -D warnings
-  LANDLOCK_TEST_TOOLS_COMMIT: fad769c39b42183fb2a2e1263fe00dfa5b9f2bda
+  LANDLOCK_TEST_TOOLS_COMMIT: 1dd31a0f7961cd7107b78497859d593849f30008
 
 # Ubuntu versions: https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners#supported-runners-and-hardware-resources
 
@@ -103,7 +103,7 @@ jobs:
       if: steps.cache_linux.outputs.cache-hit != 'true'
       working-directory: linux
       run: |
-        O=. ../landlock-test-tools/check-linux.sh build_light
+        O=. BUILD_FLAVOR=light ../landlock-test-tools/check-linux.sh build
         mv linux ../linux-${{ fromJSON(matrix.kernel).version}}
 
   ubuntu_24_rust_msrv:
