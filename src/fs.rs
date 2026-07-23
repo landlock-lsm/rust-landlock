@@ -92,6 +92,8 @@ pub enum AccessFs {
     Truncate = uapi::LANDLOCK_ACCESS_FS_TRUNCATE as u64,
     /// Send IOCL commands to a device file.
     IoctlDev = uapi::LANDLOCK_ACCESS_FS_IOCTL_DEV as u64,
+    /// Connect to a pathname UNIX domain socket with `connect(2)` or `sendmsg(2)`.
+    ResolveUnix = uapi::LANDLOCK_ACCESS_FS_RESOLVE_UNIX as u64,
 }
 
 impl Access for AccessFs {
@@ -112,7 +114,15 @@ impl AccessFs {
     pub fn from_read(abi: ABI) -> BitFlags<Self> {
         match abi {
             ABI::Unsupported => BitFlags::EMPTY,
-            ABI::V1 | ABI::V2 | ABI::V3 | ABI::V4 | ABI::V5 | ABI::V6 | ABI::V7 | ABI::V8 => {
+            ABI::V1
+            | ABI::V2
+            | ABI::V3
+            | ABI::V4
+            | ABI::V5
+            | ABI::V6
+            | ABI::V7
+            | ABI::V8
+            | ABI::V9 => {
                 make_bitflags!(AccessFs::{
                     Execute
                     | ReadFile
@@ -143,6 +153,7 @@ impl AccessFs {
             ABI::V2 => Self::from_write(ABI::V1) | AccessFs::Refer,
             ABI::V3 | ABI::V4 => Self::from_write(ABI::V2) | AccessFs::Truncate,
             ABI::V5 | ABI::V6 | ABI::V7 | ABI::V8 => Self::from_write(ABI::V4) | AccessFs::IoctlDev,
+            ABI::V9 => Self::from_write(ABI::V8) | AccessFs::ResolveUnix,
         }
     }
 
@@ -200,7 +211,7 @@ impl PrivateHandledAccess for AccessFs {
 // TODO: Make ACCESS_FILE a property of AccessFs.
 // TODO: Add tests for ACCESS_FILE.
 const ACCESS_FILE: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
-    ReadFile | WriteFile | Execute | Truncate | IoctlDev
+    ReadFile | WriteFile | Execute | Truncate | IoctlDev | ResolveUnix
 });
 
 // XXX: What should we do when a stat call failed?
