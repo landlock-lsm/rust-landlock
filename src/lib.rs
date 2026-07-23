@@ -29,8 +29,8 @@
 //!
 //! # Current limitations
 //!
-//! This crate exposes the Landlock features available as of Linux 7.0
-//! (Landlock [ABI v8](ABI::V8))
+//! This crate exposes the Landlock features available as of Linux 7.1
+//! (Landlock [ABI v9](ABI::V9))
 //! and then inherits some [kernel limitations](https://www.kernel.org/doc/html/latest/userspace-api/landlock.html#current-limitations)
 //! that will be addressed with future kernel releases
 //! (e.g., arbitrary mounts are always denied).
@@ -764,5 +764,37 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn abi_v9_resolve_unix() {
+        // ResolveUnix is the only access right added in ABI v9, and ABI v8 added
+        // no filesystem access right, so there is no access from a lower ABI to
+        // combine it with while keeping `partial` and `full` adjacent.  It is
+        // therefore tested on its own with partial == full == V9, like
+        // abi_v2_refer_only.  Pairing it with a non-adjacent lower right (e.g.
+        // IoctlDev from V5) would leave mocked ABIs V6..=V8 where only that lower
+        // right is enforced (PartiallyEnforced); can_emulate() expects an error
+        // whenever the runner kernel's ABI is below the mocked one, so such a
+        // test would pass or fail depending on the runner kernel.
+        //
+        // For a mocked ABI below V9, ResolveUnix is dropped by best-effort
+        // compatibility: no access is handled, create() builds no kernel ruleset
+        // and add_rule() is a no-op, so restrict_self() reports NotEnforced (not
+        // an error).  At mocked ABI V9 the ruleset is fully enforced on a v9
+        // kernel, or the create()/add_rule() syscall is rejected on an older one
+        // (asserted through can_emulate()'s error path).
+        check_ruleset_support(
+            ABI::V9,
+            Some(ABI::V9),
+            move |ruleset: Ruleset| -> _ {
+                Ok(ruleset
+                    .handle_access(AccessFs::ResolveUnix)?
+                    .create()?
+                    .add_rule(PathBeneath::new(PathFd::new("/")?, AccessFs::ResolveUnix))?
+                    .restrict_self()?)
+            },
+            false,
+        );
     }
 }
