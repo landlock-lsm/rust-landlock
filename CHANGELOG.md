@@ -1,5 +1,14 @@
 # Landlock changelog
 
+## [v0.4.7](https://github.com/landlock-lsm/rust-landlock/releases/tag/v0.4.7)
+
+### New API
+
+- Added support for [Landlock ABI 9](https://landlock.io/rust-landlock/landlock/enum.ABI.html#variant.V9):
+  control connections to pathname UNIX domain sockets with the new
+  [`AccessFs::ResolveUnix`](https://landlock.io/rust-landlock/landlock/enum.AccessFs.html#variant.ResolveUnix)
+  right ([PR #135](https://github.com/landlock-lsm/rust-landlock/pull/135)).
+
 ## [v0.4.6](https://github.com/landlock-lsm/rust-landlock/releases/tag/v0.4.6)
 
 ### New API
