@@ -2,8 +2,8 @@
 
 use crate::{
     private, AccessError, AddRuleError, AddRulesError, BitFlags, CompatError, CompatResult,
-    Compatibility, HandleAccessError, HandleAccessesError, Ruleset, TailoredCompatLevel, TryCompat,
-    ABI,
+    Compatibility, HandleAccessError, HandleAccessesError, Ruleset, RulesetCreated,
+    TailoredCompatLevel, TryCompat, ABI,
 };
 use enumflags2::BitFlag;
 use std::marker::PhantomData;
@@ -35,6 +35,7 @@ where
     /// The handled access mask, or the scoped mask when `A` is
     /// [`Scope`](crate::Scope).
     pub(crate) access: BitFlags<A>,
+    pub(crate) quiet: BitFlags<A>,
     _state: PhantomData<S>,
 }
 
@@ -46,6 +47,7 @@ where
         // Ruleset masks must start empty independently of BitFlags' customizable default.
         Self {
             access: BitFlags::EMPTY,
+            quiet: BitFlags::EMPTY,
             _state: PhantomData,
         }
     }
@@ -55,6 +57,12 @@ impl<A> RulesetMasks<A, Requested>
 where
     A: Access,
 {
+    const QUIET_SINCE: ABI = ABI::V10;
+
+    pub(crate) fn supports_quiet(abi: ABI) -> bool {
+        abi >= Self::QUIET_SINCE
+    }
+
     pub(crate) fn request(
         &mut self,
         access: BitFlags<A>,
@@ -67,30 +75,73 @@ where
         Ok(())
     }
 
+    pub(crate) fn request_quiet(
+        &mut self,
+        access: BitFlags<A>,
+        compat: &mut Compatibility,
+    ) -> Result<(), CompatError<A>> {
+        self.quiet |= access;
+        // Keep both checks for their compatibility-state transitions and errors.
+        let _ = access.try_compat(compat.abi(), compat.level, &mut compat.state)?;
+        let _ = compat.try_compat_binary(Self::supports_quiet(compat.abi()), || {
+            CompatError::<A>::QuietNotSupported
+        })?;
+        Ok(())
+    }
+
     pub(crate) fn resolve(self, abi: ABI) -> RulesetMasks<A, Effective> {
         let effective_access = self.access & A::from_all(abi);
         RulesetMasks {
             access: effective_access,
+            quiet: if Self::supports_quiet(abi) {
+                self.quiet & effective_access
+            } else {
+                BitFlags::EMPTY
+            },
             _state: PhantomData,
         }
+    }
+
+    pub(crate) fn incompatible_quiet(self) -> BitFlags<A> {
+        self.quiet & !self.access
     }
 }
 
 #[test]
 fn ruleset_masks_resolve() {
+    let supports_quiet = RulesetMasks::<AccessFs, Requested>::supports_quiet;
+    assert!(!supports_quiet(ABI::V9));
+    assert!(supports_quiet(ABI::V10));
+
     let requested_masks = RulesetMasks::<_, Requested> {
         access: make_bitflags!(AccessFs::{Execute | Refer}),
+        quiet: AccessFs::Execute.into(),
         _state: PhantomData,
     };
-    for (abi, expected_access) in [
-        (ABI::Unsupported, BitFlags::EMPTY),
-        (ABI::V1, AccessFs::Execute.into()),
-        (ABI::V2, make_bitflags!(AccessFs::{Execute | Refer})),
+    for (abi, expected_access, expected_quiet) in [
+        (ABI::Unsupported, BitFlags::EMPTY, BitFlags::EMPTY),
+        (ABI::V1, AccessFs::Execute.into(), BitFlags::EMPTY),
+        (
+            ABI::V2,
+            make_bitflags!(AccessFs::{Execute | Refer}),
+            BitFlags::EMPTY,
+        ),
+        (
+            ABI::V9,
+            make_bitflags!(AccessFs::{Execute | Refer}),
+            BitFlags::EMPTY,
+        ),
+        (
+            ABI::V10,
+            make_bitflags!(AccessFs::{Execute | Refer}),
+            AccessFs::Execute.into(),
+        ),
     ] {
         assert_eq!(
             requested_masks.resolve(abi),
             RulesetMasks::<_, Effective> {
                 access: expected_access,
+                quiet: expected_quiet,
                 _state: PhantomData,
             }
         );
@@ -104,6 +155,15 @@ pub trait PrivateHandledAccess: HandledAccess {
     ) -> Result<(), HandleAccessesError>
     where
         Self: Access;
+
+    fn ruleset_quiet_access(
+        ruleset: &mut Ruleset,
+        access: BitFlags<Self>,
+    ) -> Result<(), HandleAccessesError>
+    where
+        Self: Access;
+
+    fn ruleset_has_effective_quiet_access(ruleset: &RulesetCreated, abi: ABI) -> bool;
 
     fn into_add_rules_error(error: AddRuleError<Self>) -> AddRulesError
     where
