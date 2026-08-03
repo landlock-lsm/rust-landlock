@@ -2,7 +2,8 @@
 
 use crate::{
     private, AccessError, AddRuleError, AddRulesError, BitFlags, CompatError, CompatResult,
-    HandleAccessError, HandleAccessesError, Ruleset, TailoredCompatLevel, TryCompat, ABI,
+    HandleAccessError, HandleAccessesError, Ruleset, RulesetCreated, TailoredCompatLevel,
+    TryCompat, ABI,
 };
 use enumflags2::BitFlag;
 
@@ -24,6 +25,15 @@ pub trait PrivateHandledAccess: HandledAccess {
     ) -> Result<(), HandleAccessesError>
     where
         Self: Access;
+
+    fn ruleset_quiet_access(
+        ruleset: &mut Ruleset,
+        access: BitFlags<Self>,
+    ) -> Result<(), HandleAccessesError>
+    where
+        Self: Access;
+
+    fn ruleset_has_actual_quiet_access(ruleset: &RulesetCreated) -> bool;
 
     fn into_add_rules_error(error: AddRuleError<Self>) -> AddRulesError
     where

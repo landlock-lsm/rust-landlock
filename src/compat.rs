@@ -437,6 +437,34 @@ fn try_compat_binary_states() {
     assert_eq!(compat.try_compat_binary(false, || "err"), Err("err"));
 }
 
+pub(crate) fn try_compat_binary<E, F, L>(
+    supported: bool,
+    level: L,
+    state: &mut CompatState,
+    make_error: F,
+) -> Result<bool, E>
+where
+    F: FnOnce() -> E,
+    L: Into<CompatLevel>,
+{
+    if supported {
+        state.update(CompatState::Full);
+        Ok(true)
+    } else {
+        match level.into() {
+            CompatLevel::BestEffort => {
+                state.update(CompatState::No);
+                Ok(false)
+            }
+            CompatLevel::SoftRequirement => {
+                state.update(CompatState::Dummy);
+                Ok(false)
+            }
+            CompatLevel::HardRequirement => Err(make_error()),
+        }
+    }
+}
+
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Copy, Clone, Debug)]
 pub(crate) struct Compatibility {
@@ -501,22 +529,7 @@ impl Compatibility {
     where
         F: FnOnce() -> E,
     {
-        if supported {
-            self.state.update(CompatState::Full);
-            Ok(true)
-        } else {
-            match self.level.into() {
-                CompatLevel::BestEffort => {
-                    self.state.update(CompatState::No);
-                    Ok(false)
-                }
-                CompatLevel::SoftRequirement => {
-                    self.state.update(CompatState::Dummy);
-                    Ok(false)
-                }
-                CompatLevel::HardRequirement => Err(make_error()),
-            }
-        }
+        try_compat_binary(supported, self.level, &mut self.state, make_error)
     }
 }
 
