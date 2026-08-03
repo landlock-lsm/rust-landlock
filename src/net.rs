@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::compat::private::OptionCompatLevelMut;
+use crate::compat::{private::OptionCompatLevelMut, try_compat_binary};
+use crate::ruleset::QuietRuleCompatibility;
 use crate::{
     uapi, Access, AddRuleError, AddRulesError, CompatError, CompatLevel, CompatResult, CompatState,
     Compatible, HandleAccessError, HandleAccessesError, HandledAccess, PrivateHandledAccess,
@@ -111,6 +112,21 @@ impl PrivateHandledAccess for AccessNet {
         Ok(())
     }
 
+    fn ruleset_quiet_access(
+        ruleset: &mut Ruleset,
+        access: BitFlags<Self>,
+    ) -> Result<(), HandleAccessesError> {
+        ruleset
+            .net
+            .request_quiet(access, &mut ruleset.compat)
+            .map_err(HandleAccessError::Compat)?;
+        Ok(())
+    }
+
+    fn ruleset_has_effective_quiet_access(ruleset: &RulesetCreated, abi: ABI) -> bool {
+        !ruleset.net.resolve(abi).quiet.is_empty()
+    }
+
     fn into_add_rules_error(error: AddRuleError<Self>) -> AddRulesError {
         AddRulesError::Net(error)
     }
@@ -138,6 +154,8 @@ pub struct NetPort {
     port: u16,
     allowed_access: BitFlags<AccessNet>,
     compat_level: Option<CompatLevel>,
+    quiet: bool,
+    quiet_compatibility: QuietRuleCompatibility,
 }
 
 // If we need support for 32 or 64 ports, we'll add a new_32() or a new_64() method returning a
@@ -157,6 +175,8 @@ impl NetPort {
             port,
             allowed_access: access.into(),
             compat_level: None,
+            quiet: false,
+            quiet_compatibility: QuietRuleCompatibility::Unsupported,
         }
     }
 }
@@ -177,16 +197,119 @@ impl PrivateRule<AccessNet> for NetPort {
         // ruleset.  This check is about requested but not ABI-resolved access rights.
         // Indeed, we want to get a deterministic behavior, i.e. not based on the running kernel
         // (which is handled by Ruleset and RulesetCreated).
-        if ruleset.net.access.contains(self.allowed_access) {
-            Ok(())
-        } else {
-            Err(AddRuleError::UnhandledAccess {
+        if !ruleset.net.access.contains(self.allowed_access) {
+            return Err(AddRuleError::UnhandledAccess {
                 access: self.allowed_access,
                 incompatible: self.allowed_access & !ruleset.net.access,
             }
-            .into())
+            .into());
+        }
+        if self.quiet && ruleset.net.quiet.is_empty() {
+            return Err(AddRuleError::<AccessNet>::MissingQuietAccess.into());
+        }
+        Ok(())
+    }
+
+    fn set_quiet(&mut self, quiet: bool) {
+        self.quiet = quiet;
+    }
+
+    fn set_quiet_compatibility(&mut self, compatibility: QuietRuleCompatibility) {
+        self.quiet_compatibility = compatibility;
+    }
+
+    fn add_rule_flags(&self) -> u32 {
+        if self.quiet {
+            uapi::LANDLOCK_ADD_RULE_QUIET
+        } else {
+            0
         }
     }
+}
+
+#[test]
+fn quiet_net_port_compatibility() {
+    use crate::*;
+
+    let mut state = CompatState::Init;
+    let mut rule = NetPort::new(80, BitFlags::<AccessNet>::EMPTY).quiet(true);
+    rule.set_quiet_compatibility(QuietRuleCompatibility::SupportedEffective);
+    let rule = rule
+        .try_compat(ABI::V10, CompatLevel::BestEffort, &mut state)
+        .unwrap()
+        .unwrap();
+    assert_eq!(rule.add_rule_flags(), uapi::LANDLOCK_ADD_RULE_QUIET);
+    assert_eq!(state, CompatState::Full);
+
+    // Models a future access right unsupported by a kernel that supports quiet rules.
+    let mut state = CompatState::Init;
+    let mut rule = NetPort::new(80, AccessNet::BindUdp).quiet(true);
+    rule.set_quiet_compatibility(QuietRuleCompatibility::SupportedEffective);
+    let rule = rule
+        .try_compat(ABI::V9, CompatLevel::BestEffort, &mut state)
+        .unwrap()
+        .unwrap();
+    assert!(rule.allowed_access.is_empty());
+    assert_eq!(rule.add_rule_flags(), uapi::LANDLOCK_ADD_RULE_QUIET);
+    assert_eq!(state, CompatState::Partial);
+
+    // Quiet support is distinct from whether this ruleset has an effective
+    // quiet mask for the rule category.
+    let mut state = CompatState::Partial;
+    let mut rule = NetPort::new(80, BitFlags::<AccessNet>::EMPTY).quiet(true);
+    rule.set_quiet_compatibility(QuietRuleCompatibility::SupportedIneffective);
+    assert!(rule
+        .try_compat(ABI::V10, CompatLevel::HardRequirement, &mut state)
+        .unwrap()
+        .is_none());
+    assert_eq!(state, CompatState::Partial);
+
+    let mut state = CompatState::Partial;
+    let mut rule = NetPort::new(80, AccessNet::BindTcp).quiet(true);
+    rule.set_quiet_compatibility(QuietRuleCompatibility::SupportedIneffective);
+    let rule = rule
+        .try_compat(ABI::V10, CompatLevel::HardRequirement, &mut state)
+        .unwrap()
+        .unwrap();
+    assert_eq!(rule.add_rule_flags(), 0);
+    assert_eq!(state, CompatState::Partial);
+
+    let mut state = CompatState::Dummy;
+    let mut rule = NetPort::new(80, BitFlags::<AccessNet>::EMPTY).quiet(true);
+    rule.set_quiet_compatibility(QuietRuleCompatibility::SupportedIneffective);
+    assert!(rule
+        .try_compat(ABI::V10, CompatLevel::SoftRequirement, &mut state)
+        .unwrap()
+        .is_none());
+    assert_eq!(state, CompatState::Dummy);
+
+    let mut state = CompatState::Init;
+    let mut rule = NetPort::new(80, BitFlags::<AccessNet>::EMPTY).quiet(true);
+    rule.set_quiet_compatibility(QuietRuleCompatibility::Unsupported);
+    assert!(rule
+        .try_compat(ABI::V9, CompatLevel::SoftRequirement, &mut state)
+        .unwrap()
+        .is_none());
+    assert_eq!(state, CompatState::Dummy);
+
+    let mut state = CompatState::Init;
+    let mut rule = NetPort::new(80, AccessNet::BindTcp).quiet(true);
+    rule.set_quiet_compatibility(QuietRuleCompatibility::Unsupported);
+    let rule = rule
+        .try_compat(ABI::V9, CompatLevel::BestEffort, &mut state)
+        .unwrap()
+        .unwrap();
+    assert_eq!(rule.add_rule_flags(), 0);
+    assert_eq!(state, CompatState::Partial);
+
+    let mut state = CompatState::Init;
+    let mut rule = NetPort::new(80, BitFlags::<AccessNet>::EMPTY).quiet(true);
+    rule.set_quiet_compatibility(QuietRuleCompatibility::Unsupported);
+    assert!(matches!(
+        rule.try_compat(ABI::V9, CompatLevel::HardRequirement, &mut state),
+        Err(CompatError::QuietNotSupported)
+    ));
+    assert_eq!(state, CompatState::Full);
 }
 
 #[test]
@@ -219,13 +342,32 @@ impl TryCompat<AccessNet> for NetPort {
     where
         L: Into<CompatLevel>,
     {
+        let level = self.tailored_compat_level(parent_level);
+        let requested_quiet = self.quiet;
+        if self.quiet {
+            let (supported, effective) = match self.quiet_compatibility {
+                QuietRuleCompatibility::Unsupported => (false, false),
+                QuietRuleCompatibility::SupportedIneffective => (true, false),
+                QuietRuleCompatibility::SupportedEffective => (true, true),
+            };
+            self.quiet = try_compat_binary(supported, level, compat_state, || {
+                CompatError::<AccessNet>::QuietNotSupported
+            })?;
+            // Quiet may be supported but have no effect after every quiet
+            // access in this rule category has degraded away.  The ruleset
+            // compatibility state already records that degradation.
+            if self.quiet && !effective {
+                self.quiet = false;
+            }
+        }
+        // Empty allowed access is meaningful only while the rule remains quiet.
+        if requested_quiet && self.allowed_access.is_empty() {
+            return Ok(self.quiet.then_some(self));
+        }
         // Checks with our own compatibility level, if any.
-        self.allowed_access = match self.allowed_access.try_compat(
-            abi,
-            self.tailored_compat_level(parent_level),
-            compat_state,
-        )? {
+        self.allowed_access = match self.allowed_access.try_compat(abi, level, compat_state)? {
             Some(a) => a,
+            None if self.quiet => BitFlags::EMPTY,
             None => return Ok(None),
         };
         Ok(Some(self))

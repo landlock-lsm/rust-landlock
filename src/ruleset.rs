@@ -18,11 +18,31 @@ use std::os::unix::io::{AsRawFd, FromRawFd, OwnedFd};
 #[cfg(test)]
 use crate::*;
 
-// Public interface without methods and which is impossible to implement outside this crate.
+/// A rule that can be added to a Landlock ruleset.
+///
+/// This trait is sealed and cannot be implemented outside of this crate.
 pub trait Rule<T>: PrivateRule<T>
 where
     T: HandledAccess,
 {
+    /// Configures whether denials related to this rule should be omitted from audit logs.
+    ///
+    /// Quiet rules require a non-empty quiet access mask for the corresponding rule category,
+    /// configured with [`RulesetAttr::quiet_access()`].  This is supported since Landlock ABI v10.
+    /// If compatibility handling removes every quiet access in the category, quieting has no
+    /// effect and a rule without allowed accesses is ignored.
+    fn quiet(mut self, quiet: bool) -> Self {
+        self.set_quiet(quiet);
+        self
+    }
+}
+
+/// Kernel support and ruleset effectiveness for quiet rules.
+#[derive(Clone, Copy, Debug)]
+pub enum QuietRuleCompatibility {
+    Unsupported,
+    SupportedIneffective,
+    SupportedEffective,
 }
 
 // PrivateRule is not public outside this crate.
@@ -40,6 +60,12 @@ where
     fn as_ptr(&mut self) -> *const libc::c_void;
 
     fn check_consistency(&self, ruleset: &RulesetCreated) -> Result<(), AddRulesError>;
+
+    fn set_quiet(&mut self, quiet: bool);
+
+    fn set_quiet_compatibility(&mut self, compatibility: QuietRuleCompatibility);
+
+    fn add_rule_flags(&self) -> u32;
 }
 
 /// Enforcement status of a ruleset.
@@ -214,6 +240,106 @@ fn ruleset_add_rule_iter() {
     ));
 }
 
+#[test]
+fn quiet_rule_requires_category_mask() {
+    let ruleset = Ruleset::from(ABI::V10)
+        .handle_access(AccessFs::ReadFile)
+        .unwrap();
+    assert!(matches!(
+        RulesetCreated::new(ruleset, None)
+            .add_rule(
+                PathBeneath::new(PathFd::new("/").unwrap(), BitFlags::<AccessFs>::EMPTY)
+                    .quiet(true)
+            )
+            .unwrap_err(),
+        RulesetError::AddRules(AddRulesError::Fs(AddRuleError::MissingQuietAccess))
+    ));
+
+    let ruleset = Ruleset::from(ABI::V10)
+        .handle_access(AccessNet::BindUdp)
+        .unwrap();
+    assert!(matches!(
+        RulesetCreated::new(ruleset, None)
+            .add_rule(NetPort::new(0, BitFlags::<AccessNet>::EMPTY).quiet(true))
+            .unwrap_err(),
+        RulesetError::AddRules(AddRulesError::Net(AddRuleError::MissingQuietAccess))
+    ));
+}
+
+#[test]
+fn quiet_rule_uses_effective_mask() {
+    let mut ruleset = Ruleset::from(ABI::V10)
+        .handle_access(AccessFs::ReadFile)
+        .unwrap()
+        .quiet_access(AccessFs::ReadFile)
+        .unwrap();
+    // Exercise effective quiet-rule compatibility without issuing a syscall.
+    ruleset.compat.state = CompatState::Dummy;
+    let ruleset_created = RulesetCreated::new(ruleset, None)
+        .add_rule(
+            PathBeneath::new(PathFd::new("/").unwrap(), BitFlags::<AccessFs>::EMPTY).quiet(true),
+        )
+        .unwrap();
+    assert_eq!(ruleset_created.compat.state, CompatState::Dummy);
+
+    let ruleset = Ruleset::from(ABI::V9)
+        .handle_access(AccessFs::ReadFile)
+        .unwrap()
+        .quiet_access(AccessFs::ReadFile)
+        .unwrap();
+    let ruleset_created = RulesetCreated::new(ruleset, None)
+        .add_rule(
+            PathBeneath::new(PathFd::new("/").unwrap(), BitFlags::<AccessFs>::EMPTY).quiet(true),
+        )
+        .unwrap();
+    assert_eq!(ruleset_created.compat.state, CompatState::Partial);
+
+    let ruleset = Ruleset::from(ABI::V9)
+        .handle_access(AccessFs::ReadFile)
+        .unwrap()
+        .quiet_access(AccessFs::ReadFile)
+        .unwrap();
+    assert!(matches!(
+        RulesetCreated::new(ruleset, None)
+            .set_compatibility(CompatLevel::HardRequirement)
+            .add_rule(
+                PathBeneath::new(PathFd::new("/").unwrap(), BitFlags::<AccessFs>::EMPTY)
+                    .quiet(true)
+            )
+            .unwrap_err(),
+        RulesetError::AddRules(AddRulesError::Fs(AddRuleError::Compat(
+            CompatError::QuietNotSupported
+        )))
+    ));
+
+    // Models a future access right that degrades away on an ABI-v10 kernel,
+    // which still supports quiet rules.  The unknown bit stands in for a
+    // future enum variant while bypassing today's public compatibility check.
+    let future_fs = unsafe { BitFlags::<AccessFs>::from_bits_unchecked(1 << 63) };
+    let mut ruleset = Ruleset::from(ABI::V10);
+    ruleset.fs.access = future_fs;
+    ruleset.fs.quiet = future_fs;
+    ruleset.compat.state = CompatState::Partial;
+    let ruleset_created = RulesetCreated::new(ruleset, None)
+        .set_compatibility(CompatLevel::HardRequirement)
+        .add_rule(
+            PathBeneath::new(PathFd::new("/").unwrap(), BitFlags::<AccessFs>::EMPTY).quiet(true),
+        )
+        .unwrap();
+    assert_eq!(ruleset_created.compat.state, CompatState::Partial);
+
+    let future_net = unsafe { BitFlags::<AccessNet>::from_bits_unchecked(1 << 63) };
+    let mut ruleset = Ruleset::from(ABI::V10);
+    ruleset.net.access = future_net;
+    ruleset.net.quiet = future_net;
+    ruleset.compat.state = CompatState::Partial;
+    let ruleset_created = RulesetCreated::new(ruleset, None)
+        .set_compatibility(CompatLevel::HardRequirement)
+        .add_rule(NetPort::new(0, BitFlags::<AccessNet>::EMPTY).quiet(true))
+        .unwrap();
+    assert_eq!(ruleset_created.compat.state, CompatState::Partial);
+}
+
 impl Default for Ruleset {
     /// Returns a new `Ruleset`.
     /// This call automatically probes the running kernel to know if it supports Landlock.
@@ -231,6 +357,33 @@ impl Default for Ruleset {
 }
 
 impl Ruleset {
+    fn validate_quiet_masks(&self) -> Result<(), CreateRulesetError> {
+        let incompatible_fs = self.fs.incompatible_quiet();
+        if !incompatible_fs.is_empty() {
+            return Err(CreateRulesetError::UnhandledQuietAccessFs {
+                access: self.fs.quiet,
+                incompatible: incompatible_fs,
+            });
+        }
+
+        let incompatible_net = self.net.incompatible_quiet();
+        if !incompatible_net.is_empty() {
+            return Err(CreateRulesetError::UnhandledQuietAccessNet {
+                access: self.net.quiet,
+                incompatible: incompatible_net,
+            });
+        }
+
+        let incompatible_scoped = self.scoped.incompatible_quiet();
+        if !incompatible_scoped.is_empty() {
+            return Err(CreateRulesetError::UnhandledQuietScope {
+                access: self.scoped.quiet,
+                incompatible: incompatible_scoped,
+            });
+        }
+        Ok(())
+    }
+
     #[allow(clippy::new_without_default)]
     #[deprecated(note = "Use Ruleset::default() instead")]
     pub fn new() -> Self {
@@ -243,6 +396,7 @@ impl Ruleset {
     /// On error, returns a wrapped [`CreateRulesetError`].
     pub fn create(mut self) -> Result<RulesetCreated, RulesetError> {
         let body = || -> Result<RulesetCreated, CreateRulesetError> {
+            self.validate_quiet_masks()?;
             match self.compat.state {
                 CompatState::Init => {
                     // Checks that there is at least one requested access: one
@@ -281,15 +435,13 @@ impl Ruleset {
                             || !effective_scoped.access.is_empty()
                     );
 
-                    // Quiet fields are not exposed yet.  They must remain zero so kernels
-                    // predating ABI v10 accept the unknown trailing fields.
                     let attr = uapi::landlock_ruleset_attr {
                         handled_access_fs: effective_fs.access.bits(),
                         handled_access_net: effective_net.access.bits(),
                         scoped: effective_scoped.access.bits(),
-                        quiet_access_fs: 0,
-                        quiet_access_net: 0,
-                        quiet_scoped: 0,
+                        quiet_access_fs: effective_fs.quiet.bits(),
+                        quiet_access_net: effective_net.quiet.bits(),
+                        quiet_scoped: effective_scoped.quiet.bits(),
                     };
                     match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) } {
                         fd if fd >= 0 => Ok(RulesetCreated::new(
@@ -360,6 +512,23 @@ pub trait RulesetAttr: Sized + AsMut<Ruleset> + Compatible {
         Ok(self)
     }
 
+    /// Selects handled access rights whose denials may be omitted from audit logs.
+    ///
+    /// The selected rights must also be configured with [`handle_access()`](Self::handle_access),
+    /// but the two methods may be called in either order.  Filesystem and network quieting apply
+    /// only to objects marked with [`Rule::quiet()`].  This is supported since Landlock ABI v10.
+    ///
+    /// Consecutive calls are interpreted as logical ORs.  On error, returns a wrapped
+    /// [`HandleAccessesError`](crate::HandleAccessesError).
+    fn quiet_access<T, U>(mut self, access: T) -> Result<Self, RulesetError>
+    where
+        T: Into<BitFlags<U>>,
+        U: HandledAccess + PrivateHandledAccess,
+    {
+        U::ruleset_quiet_access(self.as_mut(), access.into())?;
+        Ok(self)
+    }
+
     /// Attempts to add a set of scopes that will be supported by this ruleset.
     /// Consecutive calls to `scope()` will be interpreted as logical ORs
     /// with the previous scopes.
@@ -375,6 +544,27 @@ pub trait RulesetAttr: Sized + AsMut<Ruleset> + Compatible {
         ruleset
             .scoped
             .request(scope, &mut ruleset.compat)
+            .map_err(ScopeError::Compat)?;
+        Ok(self)
+    }
+
+    /// Selects scoped accesses whose denials should be omitted from audit logs.
+    ///
+    /// The selected scopes must also be configured with [`scope()`](Self::scope), but the two
+    /// methods may be called in either order.  Unlike filesystem and network quiet accesses,
+    /// scopes do not use per-object rules.  This is supported since Landlock ABI v10.
+    ///
+    /// Consecutive calls are interpreted as logical ORs.  On error, returns a wrapped
+    /// [`ScopeError`](crate::ScopeError).
+    fn quiet_scope<T>(mut self, scope: T) -> Result<Self, RulesetError>
+    where
+        T: Into<BitFlags<Scope>>,
+    {
+        let scope = scope.into();
+        let ruleset = self.as_mut();
+        ruleset
+            .scoped
+            .request_quiet(scope, &mut ruleset.compat)
             .map_err(ScopeError::Compat)?;
         Ok(self)
     }
@@ -523,6 +713,155 @@ fn ruleset_created_scope() {
         RulesetError::Scope(ScopeError::Compat(
             CompatError::Access(AccessError::Incompatible { access })
         )) if access == Scope::Signal
+    ));
+}
+
+#[test]
+fn ruleset_quiet_masks() {
+    let ruleset = Ruleset::from(ABI::V10)
+        .quiet_access(AccessFs::ReadFile)
+        .unwrap()
+        .handle_access(AccessFs::ReadFile | AccessFs::WriteFile)
+        .unwrap()
+        .quiet_access(AccessNet::BindUdp)
+        .unwrap()
+        .handle_access(AccessNet::BindUdp)
+        .unwrap()
+        .quiet_scope(Scope::Signal)
+        .unwrap()
+        .scope(Scope::Signal)
+        .unwrap();
+    assert_eq!(ruleset.fs.quiet, AccessFs::ReadFile);
+    assert_eq!(ruleset.fs.resolve(ABI::V10).quiet, AccessFs::ReadFile);
+    assert_eq!(ruleset.net.quiet, AccessNet::BindUdp);
+    assert_eq!(ruleset.net.resolve(ABI::V10).quiet, AccessNet::BindUdp);
+    assert_eq!(ruleset.scoped.quiet, Scope::Signal);
+    assert_eq!(ruleset.scoped.resolve(ABI::V10).quiet, Scope::Signal);
+    ruleset.validate_quiet_masks().unwrap();
+    let ruleset_created = RulesetCreated::new(ruleset, None).try_clone().unwrap();
+    assert_eq!(ruleset_created.fs.quiet, AccessFs::ReadFile);
+    assert_eq!(
+        ruleset_created.fs.resolve(ABI::V10).quiet,
+        AccessFs::ReadFile
+    );
+    assert_eq!(ruleset_created.net.quiet, AccessNet::BindUdp);
+    assert_eq!(
+        ruleset_created.net.resolve(ABI::V10).quiet,
+        AccessNet::BindUdp
+    );
+
+    let ruleset = Ruleset::from(ABI::V9)
+        .handle_access(AccessFs::ReadFile)
+        .unwrap()
+        .quiet_access(AccessFs::ReadFile)
+        .unwrap();
+    assert_eq!(ruleset.fs.quiet, AccessFs::ReadFile);
+    assert_eq!(ruleset.fs.resolve(ABI::V9).quiet, BitFlags::EMPTY);
+    assert_eq!(ruleset.compat.state, CompatState::Partial);
+
+    let ruleset = Ruleset::from(ABI::V9)
+        .handle_access(AccessFs::ReadFile)
+        .unwrap()
+        .set_compatibility(CompatLevel::SoftRequirement)
+        .quiet_access(AccessFs::ReadFile)
+        .unwrap();
+    assert_eq!(ruleset.compat.state, CompatState::Dummy);
+
+    assert!(matches!(
+        Ruleset::from(ABI::V9)
+            .handle_access(AccessFs::ReadFile)
+            .unwrap()
+            .set_compatibility(CompatLevel::HardRequirement)
+            .quiet_access(AccessFs::ReadFile)
+            .unwrap_err(),
+        RulesetError::HandleAccesses(HandleAccessesError::Fs(HandleAccessError::Compat(
+            CompatError::QuietNotSupported
+        )))
+    ));
+
+    assert!(matches!(
+        Ruleset::from(ABI::V9)
+            .handle_access(AccessNet::BindTcp)
+            .unwrap()
+            .set_compatibility(CompatLevel::HardRequirement)
+            .quiet_access(AccessNet::BindTcp)
+            .unwrap_err(),
+        RulesetError::HandleAccesses(HandleAccessesError::Net(HandleAccessError::Compat(
+            CompatError::QuietNotSupported
+        )))
+    ));
+
+    assert!(matches!(
+        Ruleset::from(ABI::V9)
+            .scope(Scope::Signal)
+            .unwrap()
+            .set_compatibility(CompatLevel::HardRequirement)
+            .quiet_scope(Scope::Signal)
+            .unwrap_err(),
+        RulesetError::Scope(ScopeError::Compat(CompatError::QuietNotSupported))
+    ));
+
+    assert!(matches!(
+        Ruleset::from(ABI::V10)
+            .quiet_access(BitFlags::<AccessFs>::EMPTY)
+            .unwrap_err(),
+        RulesetError::HandleAccesses(HandleAccessesError::Fs(HandleAccessError::Compat(
+            CompatError::Access(AccessError::Empty)
+        )))
+    ));
+    assert!(matches!(
+        Ruleset::from(ABI::V10)
+            .quiet_scope(BitFlags::<Scope>::EMPTY)
+            .unwrap_err(),
+        RulesetError::Scope(ScopeError::Compat(CompatError::Access(AccessError::Empty)))
+    ));
+}
+
+#[test]
+fn quiet_mask_validation() {
+    let access_fs = AccessFs::ReadFile | AccessFs::WriteFile;
+    assert!(matches!(
+        Ruleset::from(ABI::V10)
+            .handle_access(AccessFs::ReadFile)
+            .unwrap()
+            .quiet_access(access_fs)
+            .unwrap()
+            .create()
+            .unwrap_err(),
+        RulesetError::CreateRuleset(CreateRulesetError::UnhandledQuietAccessFs {
+            access,
+            incompatible,
+        }) if access == access_fs && incompatible == AccessFs::WriteFile
+    ));
+
+    let access_net = AccessNet::BindTcp | AccessNet::BindUdp;
+    assert!(matches!(
+        Ruleset::from(ABI::V10)
+            .handle_access(AccessNet::BindTcp)
+            .unwrap()
+            .quiet_access(access_net)
+            .unwrap()
+            .create()
+            .unwrap_err(),
+        RulesetError::CreateRuleset(CreateRulesetError::UnhandledQuietAccessNet {
+            access,
+            incompatible,
+        }) if access == access_net && incompatible == AccessNet::BindUdp
+    ));
+
+    let scopes = Scope::AbstractUnixSocket | Scope::Signal;
+    assert!(matches!(
+        Ruleset::from(ABI::V10)
+            .scope(Scope::Signal)
+            .unwrap()
+            .quiet_scope(scopes)
+            .unwrap()
+            .create()
+            .unwrap_err(),
+        RulesetError::CreateRuleset(CreateRulesetError::UnhandledQuietScope {
+            access,
+            incompatible,
+        }) if access == scopes && incompatible == Scope::AbstractUnixSocket
     ));
 }
 
@@ -758,7 +1097,7 @@ pub trait RulesetCreatedAttr:
     /// Attempts to add a new rule to the ruleset.
     ///
     /// On error, returns a wrapped [`AddRulesError`].
-    fn add_rule<T, U>(mut self, rule: T) -> Result<Self, RulesetError>
+    fn add_rule<T, U>(mut self, mut rule: T) -> Result<Self, RulesetError>
     where
         T: Rule<U>,
         U: HandledAccess + PrivateHandledAccess,
@@ -766,12 +1105,19 @@ pub trait RulesetCreatedAttr:
         let body = || -> Result<Self, AddRulesError> {
             let self_ref = self.as_mut();
             rule.check_consistency(self_ref)?;
+            let abi = self_ref.compat.abi();
+            let quiet_compatibility = if RulesetMasks::<U, Requested>::supports_quiet(abi) {
+                if U::ruleset_has_effective_quiet_access(self_ref, abi) {
+                    QuietRuleCompatibility::SupportedEffective
+                } else {
+                    QuietRuleCompatibility::SupportedIneffective
+                }
+            } else {
+                QuietRuleCompatibility::Unsupported
+            };
+            rule.set_quiet_compatibility(quiet_compatibility);
             let mut compat_rule = match rule
-                .try_compat(
-                    self_ref.compat.abi(),
-                    self_ref.compat.level,
-                    &mut self_ref.compat.state,
-                )
+                .try_compat(abi, self_ref.compat.level, &mut self_ref.compat.state)
                 .map_err(AddRuleError::Compat)?
             {
                 Some(r) => r,
@@ -784,7 +1130,12 @@ pub trait RulesetCreatedAttr:
                     assert!(self_ref.fd.is_some());
                     let fd = self_ref.fd.as_ref().map(|f| f.as_raw_fd()).unwrap_or(-1);
                     match unsafe {
-                        uapi::landlock_add_rule(fd, T::TYPE_ID, compat_rule.as_ptr(), 0)
+                        uapi::landlock_add_rule(
+                            fd,
+                            T::TYPE_ID,
+                            compat_rule.as_ptr(),
+                            compat_rule.add_rule_flags(),
+                        )
                     } {
                         0 => Ok(self),
                         _ => Err(AddRuleError::<U>::AddRuleCall {
@@ -951,7 +1302,11 @@ impl RulesetCreated {
     pub(crate) fn new(ruleset: Ruleset, fd: Option<OwnedFd>) -> Self {
         // The compatibility state is initialized by Ruleset::create().
         #[cfg(test)]
-        assert!(!matches!(ruleset.compat.state, CompatState::Init));
+        {
+            assert!(!matches!(ruleset.compat.state, CompatState::Init));
+            assert!(ruleset.fs.access.contains(ruleset.fs.quiet));
+            assert!(ruleset.net.access.contains(ruleset.net.quiet));
+        }
 
         RulesetCreated {
             fd,
