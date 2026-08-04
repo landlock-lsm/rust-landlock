@@ -286,6 +286,9 @@ impl Ruleset {
                         handled_access_fs: self.actual_handled_fs.bits(),
                         handled_access_net: self.actual_handled_net.bits(),
                         scoped: self.actual_scoped.bits(),
+                        quiet_access_fs: 0,
+                        quiet_access_net: 0,
+                        quiet_scoped: 0,
                     };
                     match unsafe { uapi::landlock_create_ruleset(&attr, size_of_val(&attr), 0) } {
                         fd if fd >= 0 => Ok(RulesetCreated::new(
