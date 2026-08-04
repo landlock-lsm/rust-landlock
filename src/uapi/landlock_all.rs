@@ -2,6 +2,7 @@
 
 pub const LANDLOCK_CREATE_RULESET_VERSION: u32 = 1;
 pub const LANDLOCK_CREATE_RULESET_ERRATA: u32 = 2;
+pub const LANDLOCK_ADD_RULE_QUIET: u32 = 1;
 pub const LANDLOCK_RESTRICT_SELF_LOG_SAME_EXEC_OFF: u32 = 1;
 pub const LANDLOCK_RESTRICT_SELF_LOG_NEW_EXEC_ON: u32 = 2;
 pub const LANDLOCK_RESTRICT_SELF_LOG_SUBDOMAINS_OFF: u32 = 4;
@@ -25,6 +26,8 @@ pub const LANDLOCK_ACCESS_FS_IOCTL_DEV: u32 = 32768;
 pub const LANDLOCK_ACCESS_FS_RESOLVE_UNIX: u32 = 65536;
 pub const LANDLOCK_ACCESS_NET_BIND_TCP: u32 = 1;
 pub const LANDLOCK_ACCESS_NET_CONNECT_TCP: u32 = 2;
+pub const LANDLOCK_ACCESS_NET_BIND_UDP: u32 = 4;
+pub const LANDLOCK_ACCESS_NET_CONNECT_SEND_UDP: u32 = 8;
 pub const LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET: u32 = 1;
 pub const LANDLOCK_SCOPE_SIGNAL: u32 = 2;
 pub type __s32 = ::std::os::raw::c_int;
@@ -35,6 +38,9 @@ pub struct landlock_ruleset_attr {
     pub handled_access_fs: __u64,
     pub handled_access_net: __u64,
     pub scoped: __u64,
+    pub quiet_access_fs: __u64,
+    pub quiet_access_net: __u64,
+    pub quiet_scoped: __u64,
 }
 pub const landlock_rule_type_LANDLOCK_RULE_PATH_BENEATH: landlock_rule_type = 1;
 pub const landlock_rule_type_LANDLOCK_RULE_NET_PORT: landlock_rule_type = 2;

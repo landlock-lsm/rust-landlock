@@ -2,6 +2,7 @@
 
 pub const LANDLOCK_CREATE_RULESET_VERSION: u32 = 1;
 pub const LANDLOCK_CREATE_RULESET_ERRATA: u32 = 2;
+pub const LANDLOCK_ADD_RULE_QUIET: u32 = 1;
 pub const LANDLOCK_RESTRICT_SELF_LOG_SAME_EXEC_OFF: u32 = 1;
 pub const LANDLOCK_RESTRICT_SELF_LOG_NEW_EXEC_ON: u32 = 2;
 pub const LANDLOCK_RESTRICT_SELF_LOG_SUBDOMAINS_OFF: u32 = 4;
@@ -25,6 +26,8 @@ pub const LANDLOCK_ACCESS_FS_IOCTL_DEV: u32 = 32768;
 pub const LANDLOCK_ACCESS_FS_RESOLVE_UNIX: u32 = 65536;
 pub const LANDLOCK_ACCESS_NET_BIND_TCP: u32 = 1;
 pub const LANDLOCK_ACCESS_NET_CONNECT_TCP: u32 = 2;
+pub const LANDLOCK_ACCESS_NET_BIND_UDP: u32 = 4;
+pub const LANDLOCK_ACCESS_NET_CONNECT_SEND_UDP: u32 = 8;
 pub const LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET: u32 = 1;
 pub const LANDLOCK_SCOPE_SIGNAL: u32 = 2;
 pub type __s32 = ::std::os::raw::c_int;
@@ -35,6 +38,9 @@ pub struct landlock_ruleset_attr {
     pub handled_access_fs: __u64,
     pub handled_access_net: __u64,
     pub scoped: __u64,
+    pub quiet_access_fs: __u64,
+    pub quiet_access_net: __u64,
+    pub quiet_scoped: __u64,
 }
 #[test]
 fn bindgen_test_layout_landlock_ruleset_attr() {
@@ -43,7 +49,7 @@ fn bindgen_test_layout_landlock_ruleset_attr() {
     let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::std::mem::size_of::<landlock_ruleset_attr>(),
-        24usize,
+        48usize,
         "Size of landlock_ruleset_attr"
     );
     assert_eq!(
@@ -65,6 +71,21 @@ fn bindgen_test_layout_landlock_ruleset_attr() {
         unsafe { ::std::ptr::addr_of!((*ptr).scoped) as usize - ptr as usize },
         16usize,
         "Offset of field: landlock_ruleset_attr::scoped"
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).quiet_access_fs) as usize - ptr as usize },
+        24usize,
+        "Offset of field: landlock_ruleset_attr::quiet_access_fs"
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).quiet_access_net) as usize - ptr as usize },
+        32usize,
+        "Offset of field: landlock_ruleset_attr::quiet_access_net"
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).quiet_scoped) as usize - ptr as usize },
+        40usize,
+        "Offset of field: landlock_ruleset_attr::quiet_scoped"
     );
 }
 pub const landlock_rule_type_LANDLOCK_RULE_PATH_BENEATH: landlock_rule_type = 1;
