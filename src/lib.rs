@@ -29,9 +29,10 @@
 //!
 //! # Current limitations
 //!
-//! This crate exposes the Landlock features available as of Linux 7.1
-//! (Landlock [ABI v9](ABI::V9))
-//! and then inherits some [kernel limitations](https://www.kernel.org/doc/html/latest/userspace-api/landlock.html#current-limitations)
+//! This crate exposes the Landlock features available as of Linux 7.2
+//! (Landlock [ABI v10](ABI::V10)), except for the quiet-logging flag
+//! (`LANDLOCK_ADD_RULE_QUIET`), which is not exposed by this crate yet.
+//! It then inherits some [kernel limitations](https://www.kernel.org/doc/html/latest/userspace-api/landlock.html#current-limitations)
 //! that will be addressed with future kernel releases
 //! (e.g., arbitrary mounts are always denied).
 //!
@@ -792,6 +793,32 @@ mod tests {
                     .handle_access(AccessFs::ResolveUnix)?
                     .create()?
                     .add_rule(PathBeneath::new(PathFd::new("/")?, AccessFs::ResolveUnix))?
+                    .restrict_self()?)
+            },
+            false,
+        );
+    }
+
+    #[test]
+    fn abi_v10_udp() {
+        // Unlike abi_v9_resolve_unix, the UDP rights added in ABI v10 can be
+        // paired with an adjacent lower right: ResolveUnix from V9.  This
+        // follows abi_v4_tcp, which pairs the V4 TCP rights with Truncate from
+        // V3, so mocked ABI V9 is PartiallyEnforced (only ResolveUnix handled)
+        // and mocked ABI V10 is FullyEnforced.
+        //
+        // The rule grants ConnectSendUdp on port 1 only, so it never depends on
+        // the auto-bind behaviour documented on AccessNet::ConnectSendUdp: no
+        // socket is created here, only the ruleset is built and enforced.
+        check_ruleset_support(
+            ABI::V9,
+            Some(ABI::V10),
+            move |ruleset: Ruleset| -> _ {
+                Ok(ruleset
+                    .handle_access(AccessFs::ResolveUnix)?
+                    .handle_access(AccessNet::BindUdp | AccessNet::ConnectSendUdp)?
+                    .create()?
+                    .add_rule(NetPort::new(1, AccessNet::ConnectSendUdp))?
                     .restrict_self()?)
             },
             false,

@@ -122,7 +122,8 @@ impl AccessFs {
             | ABI::V6
             | ABI::V7
             | ABI::V8
-            | ABI::V9 => {
+            | ABI::V9
+            | ABI::V10 => {
                 make_bitflags!(AccessFs::{
                     Execute
                     | ReadFile
@@ -153,7 +154,7 @@ impl AccessFs {
             ABI::V2 => Self::from_write(ABI::V1) | AccessFs::Refer,
             ABI::V3 | ABI::V4 => Self::from_write(ABI::V2) | AccessFs::Truncate,
             ABI::V5 | ABI::V6 | ABI::V7 | ABI::V8 => Self::from_write(ABI::V4) | AccessFs::IoctlDev,
-            ABI::V9 => Self::from_write(ABI::V8) | AccessFs::ResolveUnix,
+            ABI::V9 | ABI::V10 => Self::from_write(ABI::V8) | AccessFs::ResolveUnix,
         }
     }
 
