@@ -96,7 +96,7 @@ impl From<ABI> for BitFlags<Erratum> {
             ABI::V4 | ABI::V5 => Self::from(ABI::V3) | Erratum::TcpSocketIdentification,
             // Erratum 2: scoped signal handling (scopes, ABI 6+).
             // When adding a new ABI version without new errata, append it here.
-            ABI::V6 | ABI::V7 | ABI::V8 | ABI::V9 => {
+            ABI::V6 | ABI::V7 | ABI::V8 | ABI::V9 | ABI::V10 => {
                 Self::from(ABI::V5) | Erratum::ScopedSignalHandling
             }
         }
@@ -194,6 +194,7 @@ fn not_backported_yet(version: (u32, u32, u32, &str)) -> BitFlags<Erratum> {
         // 6.12: all errata backported.
         // 7.0: all errata backported (erratum 3 fix landed via errata/abi-1.h).
         // 7.1: all errata backported (no new errata in ABI v9).
+        // 7.2: all errata backported (no new errata in ABI v10).
         // Future or unknown kernel: assume all errata backported.
         _ => BitFlags::empty(),
     }
@@ -246,6 +247,6 @@ fn errata_up_to_date() {
         ABI::V1 | ABI::V2 => assert_eq!(current, expected),
         // 6.4, 6.7, 6.10: EOL, no errata interface on stable.kernel.
         ABI::V3 | ABI::V4 | ABI::V5 => {}
-        ABI::V6 | ABI::V7 | ABI::V8 | ABI::V9 => assert_eq!(current, expected),
+        ABI::V6 | ABI::V7 | ABI::V8 | ABI::V9 | ABI::V10 => assert_eq!(current, expected),
     }
 }

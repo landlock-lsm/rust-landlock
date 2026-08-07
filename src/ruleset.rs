@@ -282,6 +282,12 @@ impl Ruleset {
                             || !self.actual_scoped.is_empty()
                     );
 
+                    // The quiet_* fields were added to struct landlock_ruleset_attr
+                    // in ABI v10 and are not exposed by this crate yet.  Leaving
+                    // them zeroed keeps the syscall valid on every kernel: a v10+
+                    // kernel reads them as "no quieted access", and an older kernel
+                    // accepts the larger attribute because copy_struct_from_user()
+                    // only rejects a trailing area that is not all zeros.
                     let attr = uapi::landlock_ruleset_attr {
                         handled_access_fs: self.actual_handled_fs.bits(),
                         handled_access_net: self.actual_handled_net.bits(),
