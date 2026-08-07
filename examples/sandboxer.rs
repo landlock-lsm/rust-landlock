@@ -19,6 +19,8 @@ const ENV_FS_RO_NAME: &str = "LL_FS_RO";
 const ENV_FS_RW_NAME: &str = "LL_FS_RW";
 const ENV_TCP_BIND_NAME: &str = "LL_TCP_BIND";
 const ENV_TCP_CONNECT_NAME: &str = "LL_TCP_CONNECT";
+const ENV_UDP_BIND_NAME: &str = "LL_UDP_BIND";
+const ENV_UDP_CONNECT_SEND_NAME: &str = "LL_UDP_CONNECT_SEND";
 const ENV_SCOPED_NAME: &str = "LL_SCOPED";
 const ENV_FORCE_LOG_NAME: &str = "LL_FORCE_LOG";
 
@@ -109,6 +111,10 @@ fn main() -> anyhow::Result<()> {
         eprintln!("Optional settings (when not set, their associated access check is always allowed, which is different from an empty string which means an empty list):");
         eprintln!("* {ENV_TCP_BIND_NAME}: ports allowed to bind (server)");
         eprintln!("* {ENV_TCP_CONNECT_NAME}: ports allowed to connect (client)");
+        eprintln!("* {ENV_UDP_BIND_NAME}: local UDP ports allowed to bind (server: prepare to receive on port / client: set as source port)");
+        eprintln!("  (0 = any ephemeral port)");
+        eprintln!("* {ENV_UDP_CONNECT_SEND_NAME}: remote UDP ports allowed to connect or send to (client: use as destination port / server: receive only from it)");
+        eprintln!("  (requires {ENV_UDP_BIND_NAME} to grant a local source port)");
         eprintln!("* {ENV_SCOPED_NAME}: actions denied on the outside of the Landlock domain:");
         eprintln!("  - \"a\" to restrict opening abstract unix sockets");
         eprintln!("  - \"s\" to restrict sending signals");
@@ -122,13 +128,15 @@ fn main() -> anyhow::Result<()> {
                 {ENV_FS_RW_NAME}=\"/dev/null:/dev/full:/dev/zero:/dev/pts:/tmp\" \
                 {ENV_TCP_BIND_NAME}=\"9418\" \
                 {ENV_TCP_CONNECT_NAME}=\"80:443\" \
+                {ENV_UDP_BIND_NAME}=\"0\" \
+                {ENV_UDP_CONNECT_SEND_NAME}=\"53\" \
                 {ENV_SCOPED_NAME}=\"a:s\" \
                 {program_name} bash -i\n"
         );
         anyhow!("Missing command")
     })?;
 
-    let abi = ABI::V9;
+    let abi = ABI::V10;
     let mut ruleset = Ruleset::default().handle_access(AccessFs::from_all(abi))?;
     let ruleset_ref = &mut ruleset;
 
@@ -137,6 +145,12 @@ fn main() -> anyhow::Result<()> {
     }
     if env::var_os(ENV_TCP_CONNECT_NAME).is_some() {
         ruleset_ref.handle_access(AccessNet::ConnectTcp)?;
+    }
+    if env::var_os(ENV_UDP_BIND_NAME).is_some() {
+        ruleset_ref.handle_access(AccessNet::BindUdp)?;
+    }
+    if env::var_os(ENV_UDP_CONNECT_SEND_NAME).is_some() {
+        ruleset_ref.handle_access(AccessNet::ConnectSendUdp)?;
     }
 
     if let Some(scoped) = env::var_os(ENV_SCOPED_NAME) {
@@ -179,6 +193,8 @@ fn main() -> anyhow::Result<()> {
         .add_rules(PathEnv::new(ENV_FS_RW_NAME, AccessFs::from_all(abi))?.iter())?
         .add_rules(PortEnv::new(ENV_TCP_BIND_NAME, AccessNet::BindTcp)?.iter())?
         .add_rules(PortEnv::new(ENV_TCP_CONNECT_NAME, AccessNet::ConnectTcp)?.iter())?
+        .add_rules(PortEnv::new(ENV_UDP_BIND_NAME, AccessNet::BindUdp)?.iter())?
+        .add_rules(PortEnv::new(ENV_UDP_CONNECT_SEND_NAME, AccessNet::ConnectSendUdp)?.iter())?
         .set_compatibility(CompatLevel::HardRequirement)
         .log_new_exec(force_log)?
         .set_compatibility(CompatLevel::BestEffort)
@@ -244,6 +260,8 @@ fn main() -> anyhow::Result<()> {
         .env_remove(ENV_FS_RW_NAME)
         .env_remove(ENV_TCP_BIND_NAME)
         .env_remove(ENV_TCP_CONNECT_NAME)
+        .env_remove(ENV_UDP_BIND_NAME)
+        .env_remove(ENV_UDP_CONNECT_SEND_NAME)
         .env_remove(ENV_SCOPED_NAME)
         .env_remove(ENV_FORCE_LOG_NAME)
         .args(args)
