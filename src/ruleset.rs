@@ -282,6 +282,8 @@ impl Ruleset {
                             || !self.actual_scoped.is_empty()
                     );
 
+                    // Quiet fields are not exposed yet.  They must remain zero so kernels
+                    // predating ABI v10 accept the unknown trailing fields.
                     let attr = uapi::landlock_ruleset_attr {
                         handled_access_fs: self.actual_handled_fs.bits(),
                         handled_access_net: self.actual_handled_net.bits(),
