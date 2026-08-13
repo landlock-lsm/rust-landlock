@@ -1049,6 +1049,38 @@ impl From<RulesetCreated> for Option<OwnedFd> {
     }
 }
 
+/// Wraps a Landlock ruleset file descriptor, e.g. received from another
+/// process over a Unix socket with `SCM_RIGHTS`.
+///
+/// This is the reverse of `From<RulesetCreated> for Option<OwnedFd>` and
+/// enables a broker pattern: one process builds a ruleset and passes its file
+/// descriptor to another process, which restricts itself with
+/// [`restrict_self()`](RulesetCreated::restrict_self) without knowing the
+/// policy.
+///
+/// The returned `RulesetCreated` is only useful to restrict the calling
+/// thread(s): the handled accesses are not carried by the file descriptor,
+/// so rules cannot be added to it. If the descriptor does not reference a
+/// Landlock ruleset, [`restrict_self()`](RulesetCreated::restrict_self)
+/// returns the kernel's error.
+impl From<OwnedFd> for RulesetCreated {
+    fn from(fd: OwnedFd) -> Self {
+        let mut compat = Compatibility::new();
+        // The descriptor exists, hence the sending process created it on the
+        // running kernel, which then supports Landlock.
+        compat.update(CompatState::Full);
+        RulesetCreated {
+            fd: Some(fd),
+            no_new_privs: true,
+            requested_handled_fs: BitFlags::EMPTY,
+            requested_handled_net: BitFlags::EMPTY,
+            requested_restrict_self_flags: 0,
+            actual_restrict_self_flags: 0,
+            compat,
+        }
+    }
+}
+
 #[test]
 fn ruleset_created_ownedfd_none() {
     let ruleset = Ruleset::from(ABI::Unsupported)
@@ -1058,6 +1090,28 @@ fn ruleset_created_ownedfd_none() {
         .unwrap();
     let fd: Option<OwnedFd> = ruleset.into();
     assert!(fd.is_none());
+}
+
+#[test]
+fn ruleset_created_from_ownedfd_restricts() {
+    let ruleset = Ruleset::default()
+        .handle_access(AccessFs::Execute)
+        .unwrap()
+        .create()
+        .unwrap();
+    let fd: Option<OwnedFd> = ruleset.into();
+    let Some(fd) = fd else {
+        // The running kernel has no Landlock: there is no descriptor to wrap.
+        return;
+    };
+    let restored = RulesetCreated::from(fd);
+    // A dedicated thread, to not restrict the other tests.
+    std::thread::spawn(move || {
+        let status = restored.restrict_self().unwrap();
+        assert_eq!(status.ruleset, RulesetStatus::FullyEnforced);
+    })
+    .join()
+    .unwrap();
 }
 
 impl AsMut<RulesetCreated> for RulesetCreated {
