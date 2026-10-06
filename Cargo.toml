@@ -2,7 +2,7 @@
 name = "landlock"
 version = "0.4.7"
 edition = "2021"
-rust-version = "1.71"
+rust-version = "1.77"
 description = "Landlock LSM helpers"
 homepage = "https://landlock.io"
 repository = "https://github.com/landlock-lsm/rust-landlock"
