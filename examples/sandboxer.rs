@@ -6,7 +6,7 @@
 use anyhow::{anyhow, bail, Context};
 use landlock::{
     path_beneath_rules, Access, AccessFs, AccessNet, BitFlags, CompatLevel, Compatible,
-    LandlockStatus, NetPort, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr,
+    LandlockStatus, NetPort, PathBeneath, PathFd, Rule, Ruleset, RulesetAttr, RulesetCreatedAttr,
     RulesetStatus, Scope, ABI,
 };
 use std::env;
@@ -17,11 +17,14 @@ use std::process::Command;
 
 const ENV_FS_RO_NAME: &str = "LL_FS_RO";
 const ENV_FS_RW_NAME: &str = "LL_FS_RW";
+const ENV_FS_QUIET_NAME: &str = "LL_FS_QUIET";
 const ENV_TCP_BIND_NAME: &str = "LL_TCP_BIND";
 const ENV_TCP_CONNECT_NAME: &str = "LL_TCP_CONNECT";
 const ENV_UDP_BIND_NAME: &str = "LL_UDP_BIND";
 const ENV_UDP_CONNECT_SEND_NAME: &str = "LL_UDP_CONNECT_SEND";
+const ENV_NET_QUIET_NAME: &str = "LL_NET_QUIET";
 const ENV_SCOPED_NAME: &str = "LL_SCOPED";
+const ENV_QUIET_ACCESS_NAME: &str = "LL_QUIET_ACCESS";
 const ENV_FORCE_LOG_NAME: &str = "LL_FORCE_LOG";
 
 struct PathEnv {
@@ -63,14 +66,17 @@ impl PathEnv {
 
 struct PortEnv {
     ports: Vec<u8>,
-    access: AccessNet,
+    access: BitFlags<AccessNet>,
 }
 
 impl PortEnv {
-    fn new<'a>(name: &'a str, access: AccessNet) -> anyhow::Result<Self> {
+    fn new<A>(name: &str, access: A) -> anyhow::Result<Self>
+    where
+        A: Into<BitFlags<AccessNet>>,
+    {
         Ok(Self {
             ports: env::var_os(name).unwrap_or_default().into_vec(),
-            access,
+            access: access.into(),
         })
     }
 
@@ -89,6 +95,51 @@ impl PortEnv {
                     .context("failed to convert port to 16-bit integer")?;
                 Ok(NetPort::new(port, self.access))
             })
+    }
+}
+
+#[derive(Default)]
+struct QuietAccess {
+    fs: BitFlags<AccessFs>,
+    net: BitFlags<AccessNet>,
+    scoped: BitFlags<Scope>,
+}
+
+impl QuietAccess {
+    fn from_env(
+        abi: ABI,
+        handled_net: BitFlags<AccessNet>,
+        scoped: BitFlags<Scope>,
+    ) -> anyhow::Result<Self> {
+        let mut quiet = Self::default();
+        let Some(value) = env::var_os(ENV_QUIET_ACCESS_NAME) else {
+            return Ok(quiet);
+        };
+        let handled_fs = AccessFs::from_all(abi);
+        let read_fs = AccessFs::from_read(abi);
+        let write_fs = handled_fs & !read_fs;
+        for access in value.to_string_lossy().split(':').filter(|v| !v.is_empty()) {
+            match access {
+                "all" => {
+                    quiet.fs = handled_fs;
+                    quiet.net = handled_net;
+                    quiet.scoped = scoped;
+                }
+                "read" => quiet.fs |= read_fs,
+                "write" => quiet.fs |= write_fs,
+                "tcp_bind" => quiet.net |= AccessNet::BindTcp,
+                "tcp_connect" => quiet.net |= AccessNet::ConnectTcp,
+                "udp_bind" => quiet.net |= AccessNet::BindUdp,
+                "udp_connect" => quiet.net |= AccessNet::ConnectSendUdp,
+                "abstract_unix_socket" => quiet.scoped |= Scope::AbstractUnixSocket,
+                "signal" => quiet.scoped |= Scope::Signal,
+                _ => bail!("Unknown quiet access \"{access}\""),
+            }
+        }
+        quiet.fs &= handled_fs;
+        quiet.net &= handled_net;
+        quiet.scoped &= scoped;
+        Ok(quiet)
     }
 }
 
@@ -120,8 +171,19 @@ fn main() -> anyhow::Result<()> {
         eprintln!("  - \"s\" to restrict sending signals");
         eprintln!(
             "\nA sandboxer should not log denied access requests to avoid spamming logs, \
-            but to test audit we can set {ENV_FORCE_LOG_NAME}=1\n"
+            but to test audit we can set {ENV_FORCE_LOG_NAME}=1"
         );
+        eprintln!("{ENV_FS_QUIET_NAME} and {ENV_NET_QUIET_NAME} can list denied paths or network ports that should not trigger audit logging.");
+        eprintln!("{ENV_QUIET_ACCESS_NAME} selects which accesses should be quieted and is required when either quiet object list is set:");
+        eprintln!("  - \"all\" to quiet all of the accesses below");
+        eprintln!("  - \"read\" to quiet all file/directory read accesses");
+        eprintln!("  - \"write\" to quiet all file/directory write accesses");
+        eprintln!("  - \"tcp_bind\" to quiet TCP bind denials");
+        eprintln!("  - \"tcp_connect\" to quiet TCP connect denials");
+        eprintln!("  - \"udp_bind\" to quiet UDP bind denials");
+        eprintln!("  - \"udp_connect\" to quiet UDP connect/send denials");
+        eprintln!("  - \"abstract_unix_socket\" to quiet abstract UNIX socket denials");
+        eprintln!("  - \"signal\" to quiet signal denials\n");
         eprintln!(
             "Example:\n\
                 {ENV_FS_RO_NAME}=\"${{PATH}}:/lib:/usr:/proc:/etc:/dev/urandom\" \
@@ -139,20 +201,26 @@ fn main() -> anyhow::Result<()> {
     let abi = ABI::V10;
     let mut ruleset = Ruleset::default().handle_access(AccessFs::from_all(abi))?;
     let ruleset_ref = &mut ruleset;
+    let mut handled_net = BitFlags::<AccessNet>::EMPTY;
 
     if env::var_os(ENV_TCP_BIND_NAME).is_some() {
+        handled_net |= AccessNet::BindTcp;
         ruleset_ref.handle_access(AccessNet::BindTcp)?;
     }
     if env::var_os(ENV_TCP_CONNECT_NAME).is_some() {
+        handled_net |= AccessNet::ConnectTcp;
         ruleset_ref.handle_access(AccessNet::ConnectTcp)?;
     }
     if env::var_os(ENV_UDP_BIND_NAME).is_some() {
+        handled_net |= AccessNet::BindUdp;
         ruleset_ref.handle_access(AccessNet::BindUdp)?;
     }
     if env::var_os(ENV_UDP_CONNECT_SEND_NAME).is_some() {
+        handled_net |= AccessNet::ConnectSendUdp;
         ruleset_ref.handle_access(AccessNet::ConnectSendUdp)?;
     }
 
+    let mut scoped_access = BitFlags::<Scope>::EMPTY;
     if let Some(scoped) = env::var_os(ENV_SCOPED_NAME) {
         let mut abstract_scoping = false;
         let mut signal_scoping = false;
@@ -164,6 +232,7 @@ fn main() -> anyhow::Result<()> {
                     if abstract_scoping {
                         bail!("Duplicate scope 'a'");
                     }
+                    scoped_access |= Scope::AbstractUnixSocket;
                     ruleset_ref.scope(Scope::AbstractUnixSocket)?;
                     abstract_scoping = true;
                 }
@@ -171,6 +240,7 @@ fn main() -> anyhow::Result<()> {
                     if signal_scoping {
                         bail!("Duplicate scope 's'");
                     }
+                    scoped_access |= Scope::Signal;
                     ruleset_ref.scope(Scope::Signal)?;
                     signal_scoping = true;
                 }
@@ -178,6 +248,39 @@ fn main() -> anyhow::Result<()> {
             }
         }
     }
+
+    if (env::var_os(ENV_FS_QUIET_NAME).is_some() || env::var_os(ENV_NET_QUIET_NAME).is_some())
+        && env::var_os(ENV_QUIET_ACCESS_NAME).is_none()
+    {
+        bail!(
+            "{ENV_QUIET_ACCESS_NAME} must be set (e.g. to \"all\") when \
+             {ENV_FS_QUIET_NAME} or {ENV_NET_QUIET_NAME} is used"
+        );
+    }
+    let quiet = QuietAccess::from_env(abi, handled_net, scoped_access)?;
+    if env::var_os(ENV_QUIET_ACCESS_NAME).is_some()
+        && quiet.fs.is_empty()
+        && quiet.net.is_empty()
+        && quiet.scoped.is_empty()
+    {
+        // The kernel sample rejects any quiet setting before ABI v10, even when
+        // intersecting it with the configured accesses produces empty masks.
+        Ruleset::default()
+            .set_compatibility(CompatLevel::HardRequirement)
+            .handle_access(AccessFs::Execute)?
+            .quiet_access(AccessFs::Execute)?;
+    }
+    ruleset_ref.set_compatibility(CompatLevel::HardRequirement);
+    if !quiet.fs.is_empty() {
+        ruleset_ref.quiet_access(quiet.fs)?;
+    }
+    if !quiet.net.is_empty() {
+        ruleset_ref.quiet_access(quiet.net)?;
+    }
+    if !quiet.scoped.is_empty() {
+        ruleset_ref.quiet_scope(quiet.scoped)?;
+    }
+    ruleset_ref.set_compatibility(CompatLevel::BestEffort);
 
     // Parse LL_FORCE_LOG into a boolean.  Matches the kernel's sandboxer:
     // when set, require the feature (error out on unsupported kernels).
@@ -187,14 +290,29 @@ fn main() -> anyhow::Result<()> {
         None => false,
     };
 
-    let status = ruleset
+    let mut ruleset_created = ruleset
         .create()?
         .add_rules(PathEnv::new(ENV_FS_RO_NAME, AccessFs::from_read(abi))?.iter())?
-        .add_rules(PathEnv::new(ENV_FS_RW_NAME, AccessFs::from_all(abi))?.iter())?
+        .add_rules(PathEnv::new(ENV_FS_RW_NAME, AccessFs::from_all(abi))?.iter())?;
+    if env::var_os(ENV_FS_QUIET_NAME).is_some() {
+        ruleset_created = ruleset_created.add_rules(
+            PathEnv::new(ENV_FS_QUIET_NAME, BitFlags::<AccessFs>::EMPTY)?
+                .iter()
+                .map(|rule| rule.map(|rule| rule.quiet(true))),
+        )?;
+    }
+    ruleset_created = ruleset_created
         .add_rules(PortEnv::new(ENV_TCP_BIND_NAME, AccessNet::BindTcp)?.iter())?
         .add_rules(PortEnv::new(ENV_TCP_CONNECT_NAME, AccessNet::ConnectTcp)?.iter())?
         .add_rules(PortEnv::new(ENV_UDP_BIND_NAME, AccessNet::BindUdp)?.iter())?
         .add_rules(PortEnv::new(ENV_UDP_CONNECT_SEND_NAME, AccessNet::ConnectSendUdp)?.iter())?
+        .add_rules(
+            PortEnv::new(ENV_NET_QUIET_NAME, BitFlags::<AccessNet>::EMPTY)?
+                .iter()
+                .map(|rule| rule.map(|rule| rule.quiet(true))),
+        )?;
+
+    let status = ruleset_created
         .set_compatibility(CompatLevel::HardRequirement)
         .log_new_exec(force_log)?
         .set_compatibility(CompatLevel::BestEffort)
@@ -258,11 +376,14 @@ fn main() -> anyhow::Result<()> {
     Err(Command::new(cmd_name)
         .env_remove(ENV_FS_RO_NAME)
         .env_remove(ENV_FS_RW_NAME)
+        .env_remove(ENV_FS_QUIET_NAME)
         .env_remove(ENV_TCP_BIND_NAME)
         .env_remove(ENV_TCP_CONNECT_NAME)
         .env_remove(ENV_UDP_BIND_NAME)
         .env_remove(ENV_UDP_CONNECT_SEND_NAME)
+        .env_remove(ENV_NET_QUIET_NAME)
         .env_remove(ENV_SCOPED_NAME)
+        .env_remove(ENV_QUIET_ACCESS_NAME)
         .env_remove(ENV_FORCE_LOG_NAME)
         .args(args)
         .exec()
