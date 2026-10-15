@@ -111,7 +111,7 @@ impl AccessFs {
     // Roughly read (i.e. not all FS actions are handled).
     /// Gets the access rights identified as read-only according to a specific ABI.
     /// Exclusive with [`from_write()`](AccessFs::from_write).
-    pub fn from_read(abi: ABI) -> BitFlags<Self> {
+    pub const fn from_read(abi: ABI) -> BitFlags<Self> {
         match abi {
             ABI::Unsupported => BitFlags::EMPTY,
             ABI::V1
@@ -135,7 +135,7 @@ impl AccessFs {
     // Roughly write (i.e. not all FS actions are handled).
     /// Gets the access rights identified as write-only according to a specific ABI.
     /// Exclusive with [`from_read()`](AccessFs::from_read).
-    pub fn from_write(abi: ABI) -> BitFlags<Self> {
+    pub const fn from_write(abi: ABI) -> BitFlags<Self> {
         match abi {
             ABI::Unsupported => BitFlags::EMPTY,
             ABI::V1 => make_bitflags!(AccessFs::{
@@ -150,16 +150,22 @@ impl AccessFs {
                 | MakeBlock
                 | MakeSym
             }),
-            ABI::V2 => Self::from_write(ABI::V1) | AccessFs::Refer,
-            ABI::V3 | ABI::V4 => Self::from_write(ABI::V2) | AccessFs::Truncate,
-            ABI::V5 | ABI::V6 | ABI::V7 | ABI::V8 => Self::from_write(ABI::V4) | AccessFs::IoctlDev,
-            ABI::V9 => Self::from_write(ABI::V8) | AccessFs::ResolveUnix,
+            ABI::V2 => Self::from_write(ABI::V1).union_c(make_bitflags!(AccessFs::Refer)),
+            ABI::V3 | ABI::V4 => {
+                Self::from_write(ABI::V2).union_c(make_bitflags!(AccessFs::Truncate))
+            }
+            ABI::V5 | ABI::V6 | ABI::V7 | ABI::V8 => {
+                Self::from_write(ABI::V4).union_c(make_bitflags!(AccessFs::IoctlDev))
+            }
+            ABI::V9 => Self::from_write(ABI::V8).union_c(make_bitflags!(AccessFs::ResolveUnix)),
         }
     }
 
     /// Gets the access rights legitimate for non-directory files.
-    pub fn from_file(abi: ABI) -> BitFlags<Self> {
-        Self::from_all(abi) & ACCESS_FILE
+    pub const fn from_file(abi: ABI) -> BitFlags<Self> {
+        Self::from_read(abi)
+            .union_c(Self::from_write(abi))
+            .intersection_c(ACCESS_FILE)
     }
 }
 
