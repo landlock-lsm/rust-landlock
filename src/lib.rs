@@ -797,4 +797,151 @@ mod tests {
             false,
         );
     }
+
+    // Checks that a PathBeneath rule on a file grants exactly that file: with
+    // ReadFile handled, an allowed file stays readable while a sibling file in
+    // the same directory is denied.  Status-only tests cannot see this because
+    // RestrictionStatus is computed by the crate, not observed from the kernel.
+    //
+    // Expected outcomes are pinned from TEST_ABI (see abi_v8_all_threads), never
+    // from the restrict_self() status under test.  Without TSYNC, restrict_self()
+    // only restricts the calling thread, so a dedicated thread is enough.
+    #[test]
+    fn path_beneath_read_file() {
+        use crate::compat::TEST_ABI;
+        use std::fs::{self, DirBuilder, OpenOptions};
+        use std::io::{ErrorKind, Write};
+        use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+        use std::path::PathBuf;
+        use std::thread;
+
+        const ALLOWED: &[u8] = b"landlock allowed file\n";
+        const DENIED: &[u8] = b"landlock denied file\n";
+
+        // Removes the fixture directory on normal completion and on unwinding.
+        // A cleanup error fails the test, except while already panicking.
+        struct TempDir(PathBuf);
+
+        impl Drop for TempDir {
+            fn drop(&mut self) {
+                if let Err(e) = fs::remove_dir_all(&self.0) {
+                    let msg = format!("failed to remove {}: {e}", self.0.display());
+                    if thread::panicking() {
+                        eprintln!("{msg}");
+                    } else {
+                        panic!("{msg}");
+                    }
+                }
+            }
+        }
+
+        // mkdir(2) is atomic: an existing directory is never reused.
+        let dir = {
+            let base = std::env::temp_dir();
+            let mut attempt = 0;
+            loop {
+                let path = base.join(format!(
+                    "landlock-path-beneath-read-file-{}-{attempt}",
+                    std::process::id()
+                ));
+                match DirBuilder::new().mode(0o700).create(&path) {
+                    Ok(()) => break TempDir(path),
+                    Err(e) if e.kind() == ErrorKind::AlreadyExists && attempt < 15 => {
+                        attempt += 1;
+                    }
+                    Err(e) => panic!("failed to create {}: {e}", path.display()),
+                }
+            }
+        };
+
+        let write_new = |name: &str, content: &[u8]| -> PathBuf {
+            let path = dir.0.join(name);
+            OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&path)
+                .and_then(|mut file| file.write_all(content))
+                .unwrap_or_else(|e| panic!("failed to write {}: {e}", path.display()));
+            path
+        };
+        let allowed = write_new("allowed", ALLOWED);
+        let denied = write_new("denied", DENIED);
+
+        let (before_allowed, before_denied, status, after_allowed, after_denied) = {
+            let allowed = allowed.clone();
+            let denied = denied.clone();
+            thread::spawn(move || {
+                let before_allowed = fs::read(&allowed);
+                let before_denied = fs::read(&denied);
+
+                let status = Ruleset::default()
+                    .handle_access(AccessFs::ReadFile)
+                    .unwrap()
+                    .create()
+                    .unwrap()
+                    .add_rule(PathBeneath::new(
+                        PathFd::new(&allowed).unwrap(),
+                        AccessFs::ReadFile,
+                    ))
+                    .unwrap()
+                    .restrict_self()
+                    .unwrap();
+
+                // Fresh opens: Landlock checks access when a file is opened.
+                (
+                    before_allowed,
+                    before_denied,
+                    status,
+                    fs::read(&allowed),
+                    fs::read(&denied),
+                )
+            })
+            .join()
+            .unwrap()
+        };
+
+        // Ground truth for the running kernel, independent of the status object.
+        let landlock_supported = *TEST_ABI != ABI::Unsupported;
+
+        // Both files are readable before enforcement.
+        assert_eq!(before_allowed.unwrap(), ALLOWED);
+        assert_eq!(before_denied.unwrap(), DENIED);
+
+        // The crate's reported status matches the expectation.
+        assert!(status.no_new_privs);
+        assert!(!status.all_threads);
+        assert_eq!(
+            status.ruleset,
+            if landlock_supported {
+                RulesetStatus::FullyEnforced
+            } else {
+                RulesetStatus::NotEnforced
+            }
+        );
+
+        // Kernel reality matches it too: the allowed file stays readable...
+        match after_allowed {
+            Ok(content) => assert_eq!(content, ALLOWED),
+            Err(e) => panic!("allowed file not readable after restriction: {e}"),
+        }
+        // ...and the sibling file is denied iff Landlock is enforced.
+        match after_denied {
+            Ok(content) => {
+                assert!(
+                    !landlock_supported,
+                    "denied file readable after restriction"
+                );
+                assert_eq!(content, DENIED);
+            }
+            Err(e) => {
+                assert!(landlock_supported, "denied file not readable: {e}");
+                assert_eq!(e.raw_os_error(), Some(libc::EACCES), "{e}");
+            }
+        }
+
+        // The restriction did not leak to the parent thread.
+        assert_eq!(fs::read(&allowed).unwrap(), ALLOWED);
+        assert_eq!(fs::read(&denied).unwrap(), DENIED);
+    }
 }
