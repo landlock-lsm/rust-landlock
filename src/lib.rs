@@ -155,6 +155,7 @@ mod private {
 #[cfg(test)]
 mod tests {
     use crate::*;
+    use std::ops::Range;
 
     // These integration tests exercise the full builder-to-syscall path via
     // check_ruleset_support().  Other tests in compat.rs and errata.rs make
@@ -163,12 +164,35 @@ mod tests {
     // Ruleset::from(ABI) to exercise the builder logic and compatibility
     // engine without kernel interaction.
 
+    // A range means that, after compatibility filtering, every mocked ABI in
+    // the range sends syscall arguments accepted since the range start.
+    trait IntoPartialSupport {
+        fn into_partial_support(self) -> (ABI, Option<ABI>);
+    }
+
+    impl IntoPartialSupport for ABI {
+        fn into_partial_support(self) -> (ABI, Option<ABI>) {
+            (self, None)
+        }
+    }
+
+    impl IntoPartialSupport for Range<ABI> {
+        fn into_partial_support(self) -> (ABI, Option<ABI>) {
+            assert!(
+                self.start < self.end,
+                "partial-support range must be non-empty"
+            );
+            (self.start, Some(self.end))
+        }
+    }
+
     // Emulate old kernel supports.  Iterates each ABI variant, mocks the
     // builder via B::from(abi), runs the closure on a dedicated thread, and
     // dispatches to the caller's assertion closures based on whether the
     // mocked ABI is emulatable on the running kernel.
     fn check_support<B, S, F, OkFn, ErrFn>(
         partial: ABI,
+        plateau_end: Option<ABI>,
         full: Option<ABI>,
         check: F,
         assert_ok: OkFn,
@@ -180,8 +204,11 @@ mod tests {
         OkFn: Fn(ABI, Result<S, TestRulesetError>),
         ErrFn: Fn(Result<S, TestRulesetError>),
     {
-        // If there is no partial support, it means that `full == partial`.
+        // Full support cannot precede partial support.
         assert!(partial <= full.unwrap_or(partial));
+        if let Some(end) = plateau_end {
+            assert!(end <= full.expect("a partial-support range requires full support"));
+        }
         for abi in ABI::iter() {
             // Ensures restrict_self() is called on a dedicated thread to avoid inconsistent tests.
             let ret = std::thread::spawn(move || check(B::from(abi)))
@@ -190,7 +217,12 @@ mod tests {
 
             // Useful for failed tests and with cargo test -- --show-output
             println!("Checking ABI {abi:?}: received {ret:#?}");
-            if can_emulate(abi, partial, full) {
+            let emulation_full = if plateau_end.is_some_and(|end| partial <= abi && abi < end) {
+                Some(partial)
+            } else {
+                full
+            };
+            if can_emulate(abi, partial, emulation_full) {
                 assert_ok(abi, ret);
             } else {
                 assert_err(ret);
@@ -198,16 +230,19 @@ mod tests {
         }
     }
 
-    fn check_ruleset_support<F>(
-        partial: ABI,
+    fn check_ruleset_support<P, F>(
+        partial: P,
         full: Option<ABI>,
         check: F,
         error_if_abi_lt_partial: bool,
     ) where
+        P: IntoPartialSupport,
         F: Fn(Ruleset) -> Result<RestrictionStatus, TestRulesetError> + Send + Copy + 'static,
     {
+        let (partial, plateau_end) = partial.into_partial_support();
         check_support(
             partial,
+            plateau_end,
             full,
             check,
             |abi, ret| {
@@ -284,6 +319,7 @@ mod tests {
     {
         check_support(
             partial,
+            None,
             full,
             check,
             |abi, ret| {
