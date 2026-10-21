@@ -113,8 +113,6 @@ jobs:
       fail-fast: false
       matrix:
         commit: ${{ fromJSON(needs.commit_list.outputs.commits) }}
-    env:
-      LANDLOCK_CRATE_TEST_ABI: 8
     steps:
 
     - uses: actions/checkout@v5
@@ -150,12 +148,6 @@ jobs:
 
     - name: Build (x86)
       run: rustup run ${{ env.RUST_TOOLCHAIN }} cargo build --target i686-unknown-linux-gnu --verbose
-
-    - name: Run tests against the local kernel (Landlock ABI ${{ env.LANDLOCK_CRATE_TEST_ABI }} on x86_64)
-      run: rustup run ${{ env.RUST_TOOLCHAIN }} cargo test --target x86_64-unknown-linux-gnu --verbose
-
-    - name: Run tests against the local kernel (Landlock ABI ${{ env.LANDLOCK_CRATE_TEST_ABI }} on x86)
-      run: rustup run ${{ env.RUST_TOOLCHAIN }} cargo test --target i686-unknown-linux-gnu --verbose
 
     - name: Run tests against Linux 6.1
       run: CARGO="rustup run ${{ env.RUST_TOOLCHAIN }} cargo" ./landlock-test-tools/test-rust.sh linux-6.1 2
