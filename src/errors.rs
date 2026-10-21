@@ -104,6 +104,27 @@ pub enum CreateRulesetError {
     /// or [`RulesetAttr::scope()`](crate::RulesetAttr::scope).
     #[error("missing access")]
     MissingHandledAccess,
+    /// Filesystem accesses selected for quieting are not all handled by the ruleset.
+    #[error("quiet filesystem access-rights not handled by the ruleset: {incompatible:?}")]
+    #[non_exhaustive]
+    UnhandledQuietAccessFs {
+        access: BitFlags<AccessFs>,
+        incompatible: BitFlags<AccessFs>,
+    },
+    /// Network accesses selected for quieting are not all handled by the ruleset.
+    #[error("quiet network access-rights not handled by the ruleset: {incompatible:?}")]
+    #[non_exhaustive]
+    UnhandledQuietAccessNet {
+        access: BitFlags<AccessNet>,
+        incompatible: BitFlags<AccessNet>,
+    },
+    /// Scopes selected for quieting are not all configured by the ruleset.
+    #[error("quiet scopes not configured by the ruleset: {incompatible:?}")]
+    #[non_exhaustive]
+    UnhandledQuietScope {
+        access: BitFlags<Scope>,
+        incompatible: BitFlags<Scope>,
+    },
 }
 
 /// Identifies errors when adding a rule to a ruleset.
@@ -123,6 +144,9 @@ where
         access: BitFlags<T>,
         incompatible: BitFlags<T>,
     },
+    /// The rule is marked quiet, but its ruleset has no quiet access mask for this rule category.
+    #[error("missing quiet access mask for rule category")]
+    MissingQuietAccess,
     #[error(transparent)]
     Compat(#[from] CompatError<T>),
 }
@@ -159,6 +183,9 @@ where
     PathBeneath(#[from] PathBeneathError),
     #[error(transparent)]
     Access(#[from] AccessError<T>),
+    /// Quiet access masks or quiet rules are not supported by the running kernel.
+    #[error("quiet access is not supported by the kernel")]
+    QuietNotSupported,
 }
 
 #[derive(Debug, Error)]
@@ -325,6 +352,36 @@ fn _test_ruleset_errno(expected_errno: c_int) {
     let create_ruleset_missing_err =
         RulesetError::CreateRuleset(CreateRulesetError::MissingHandledAccess);
     assert_eq!(*Errno::from(create_ruleset_missing_err), libc::EINVAL);
+
+    let create_ruleset_quiet_fs_err =
+        RulesetError::CreateRuleset(CreateRulesetError::UnhandledQuietAccessFs {
+            access: AccessFs::Execute.into(),
+            incompatible: AccessFs::Execute.into(),
+        });
+    assert_eq!(*Errno::from(create_ruleset_quiet_fs_err), libc::EINVAL);
+
+    let create_ruleset_quiet_net_err =
+        RulesetError::CreateRuleset(CreateRulesetError::UnhandledQuietAccessNet {
+            access: AccessNet::BindTcp.into(),
+            incompatible: AccessNet::BindTcp.into(),
+        });
+    assert_eq!(*Errno::from(create_ruleset_quiet_net_err), libc::EINVAL);
+
+    let create_ruleset_quiet_scope_err =
+        RulesetError::CreateRuleset(CreateRulesetError::UnhandledQuietScope {
+            access: Scope::Signal.into(),
+            incompatible: Scope::Signal.into(),
+        });
+    assert_eq!(*Errno::from(create_ruleset_quiet_scope_err), libc::EINVAL);
+
+    let add_rules_quiet_err =
+        RulesetError::AddRules(AddRulesError::Fs(AddRuleError::MissingQuietAccess));
+    assert_eq!(*Errno::from(add_rules_quiet_err), libc::EINVAL);
+
+    let quiet_compat_err = RulesetError::HandleAccesses(HandleAccessesError::Fs(
+        HandleAccessError::Compat(CompatError::<AccessFs>::QuietNotSupported),
+    ));
+    assert_eq!(*Errno::from(quiet_compat_err), libc::EINVAL);
 
     let restrict_self_flags_err = RulesetError::RestrictSelfFlags(SyscallFlagError::NotSupported {
         flag: RestrictSelfFlag::LogSameExec,
