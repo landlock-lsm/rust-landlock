@@ -104,6 +104,11 @@ pub enum CreateRulesetError {
     /// or [`RulesetAttr::scope()`](crate::RulesetAttr::scope).
     #[error("missing access")]
     MissingHandledAccess,
+    /// The file descriptor passed to the `TryFrom<OwnedFd>` implementation of
+    /// [`RulesetCreated`](crate::RulesetCreated) does not refer to a Landlock ruleset.
+    #[error("not a Landlock ruleset: {source}")]
+    #[non_exhaustive]
+    NotRuleset { source: io::Error },
 }
 
 /// Identifies errors when adding a rule to a ruleset.
@@ -123,6 +128,11 @@ where
         access: BitFlags<T>,
         incompatible: BitFlags<T>,
     },
+    /// The ruleset was built from a file descriptor with the `TryFrom<OwnedFd>` implementation of
+    /// [`RulesetCreated`](crate::RulesetCreated), so its handled access-rights are unknown and no
+    /// rule can be checked against them.
+    #[error("cannot add a rule to a ruleset built from a file descriptor")]
+    RulesetFromFd,
     #[error(transparent)]
     Compat(#[from] CompatError<T>),
 }
@@ -325,6 +335,11 @@ fn _test_ruleset_errno(expected_errno: c_int) {
     let create_ruleset_missing_err =
         RulesetError::CreateRuleset(CreateRulesetError::MissingHandledAccess);
     assert_eq!(*Errno::from(create_ruleset_missing_err), libc::EINVAL);
+
+    let not_ruleset_err = RulesetError::CreateRuleset(CreateRulesetError::NotRuleset {
+        source: Error::from_raw_os_error(expected_errno),
+    });
+    assert_eq!(*Errno::from(not_ruleset_err), expected_errno);
 
     let restrict_self_flags_err = RulesetError::RestrictSelfFlags(SyscallFlagError::NotSupported {
         flag: RestrictSelfFlag::LogSameExec,

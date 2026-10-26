@@ -635,6 +635,66 @@ mod tests {
     }
 
     #[test]
+    fn ruleset_created_try_from_ownedfd() {
+        use std::os::unix::io::OwnedFd;
+
+        check_ruleset_support(
+            ABI::V1,
+            Some(ABI::V1),
+            move |ruleset: Ruleset| -> _ {
+                // Same emulated ABI as the ruleset sending its file descriptor.
+                let compat = ruleset.compat;
+                let ruleset = ruleset.handle_access(AccessFs::Execute)?.create()?;
+                let fd: Option<OwnedFd> = ruleset.try_clone()?.into();
+                let Some(fd) = fd else {
+                    // Unsupported (emulated) ABI: there is no file descriptor to wrap.
+                    return Ok(ruleset.restrict_self()?);
+                };
+                let restored = RulesetCreated::from_fd(compat, fd)?;
+                assert!(matches!(
+                    restored
+                        .try_clone()?
+                        .add_rule(PathBeneath::new(PathFd::new("/")?, AccessFs::Execute)),
+                    Err(RulesetError::AddRules(AddRulesError::Fs(
+                        AddRuleError::RulesetFromFd
+                    )))
+                ));
+                Ok(restored.restrict_self()?)
+            },
+            false,
+        );
+    }
+
+    #[test]
+    fn ruleset_created_try_from_ownedfd_not_ruleset() {
+        use std::os::unix::io::OwnedFd;
+
+        check_ruleset_support(
+            ABI::V1,
+            Some(ABI::V1),
+            move |ruleset: Ruleset| -> _ {
+                let not_ruleset = OwnedFd::from(std::fs::File::open("/")?);
+                let err = RulesetCreated::try_from(not_ruleset).unwrap_err();
+                let RulesetError::CreateRuleset(CreateRulesetError::NotRuleset { ref source }) =
+                    err
+                else {
+                    panic!("unexpected error: {err:?}");
+                };
+                // EBADFD on a kernel supporting Landlock, ENOSYS or EOPNOTSUPP otherwise.
+                assert!(matches!(
+                    source.raw_os_error(),
+                    Some(libc::EBADFD | libc::ENOSYS | libc::EOPNOTSUPP)
+                ));
+                Ok(ruleset
+                    .handle_access(AccessFs::Execute)?
+                    .create()?
+                    .restrict_self()?)
+            },
+            false,
+        );
+    }
+
+    #[test]
     fn restrict_self_log_subdomains() {
         check_restrict_self_support(ABI::V7, Some(ABI::V7), move |rs: RestrictSelf| -> _ {
             Ok(rs.log_subdomains(false)?.apply()?)

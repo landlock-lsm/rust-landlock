@@ -764,6 +764,9 @@ pub trait RulesetCreatedAttr:
     {
         let body = || -> Result<Self, AddRulesError> {
             let self_ref = self.as_mut();
+            if self_ref.from_fd {
+                return Err(AddRuleError::<U>::RulesetFromFd.into());
+            }
             rule.check_consistency(self_ref)?;
             let mut compat_rule = match rule
                 .try_compat(
@@ -938,6 +941,8 @@ pub trait RulesetCreatedAttr:
 #[derive(Debug)]
 pub struct RulesetCreated {
     fd: Option<OwnedFd>,
+    // Built from a foreign file descriptor: the requested handled accesses are unknown.
+    from_fd: bool,
     no_new_privs: bool,
     pub(crate) requested_handled_fs: BitFlags<AccessFs>,
     pub(crate) requested_handled_net: BitFlags<AccessNet>,
@@ -954,6 +959,7 @@ impl RulesetCreated {
 
         RulesetCreated {
             fd,
+            from_fd: false,
             no_new_privs: true,
             requested_handled_fs: ruleset.requested_handled_fs,
             requested_handled_net: ruleset.requested_handled_net,
@@ -1035,6 +1041,7 @@ impl RulesetCreated {
     pub fn try_clone(&self) -> std::io::Result<Self> {
         Ok(RulesetCreated {
             fd: self.fd.as_ref().map(|f| f.try_clone()).transpose()?,
+            from_fd: self.from_fd,
             no_new_privs: self.no_new_privs,
             requested_handled_fs: self.requested_handled_fs,
             requested_handled_net: self.requested_handled_net,
@@ -1048,6 +1055,67 @@ impl RulesetCreated {
 impl From<RulesetCreated> for Option<OwnedFd> {
     fn from(ruleset: RulesetCreated) -> Self {
         ruleset.fd
+    }
+}
+
+/// Wraps a Landlock ruleset file descriptor, e.g. received from another
+/// process over a Unix socket with `SCM_RIGHTS`.
+///
+/// This is the reverse of `From<RulesetCreated> for Option<OwnedFd>` and
+/// enables a broker pattern: one process builds a ruleset and passes its file
+/// descriptor to another process, which restricts itself with
+/// [`restrict_self()`](RulesetCreated::restrict_self) without knowing the
+/// policy.
+///
+/// The handled access-rights are not carried by the file descriptor, so the
+/// returned `RulesetCreated` does not reflect the content of the ruleset and
+/// [`add_rule()`](RulesetCreatedAttr::add_rule) always returns
+/// [`AddRuleError::RulesetFromFd`].
+///
+/// On error, returns a wrapped [`CreateRulesetError::NotRuleset`] if the file
+/// descriptor does not refer to a Landlock ruleset.
+impl TryFrom<OwnedFd> for RulesetCreated {
+    type Error = RulesetError;
+
+    fn try_from(fd: OwnedFd) -> Result<Self, Self::Error> {
+        RulesetCreated::from_fd(Compatibility::new(), fd)
+    }
+}
+
+impl RulesetCreated {
+    // Takes the compatibility from the caller to enable tests to emulate an ABI.
+    pub(crate) fn from_fd(compat: Compatibility, fd: OwnedFd) -> Result<Self, RulesetError> {
+        // An empty allowed_access is always invalid and makes the kernel return ENOMSG, but only
+        // after checking that the file descriptor is a writable Landlock ruleset (see
+        // landlock_add_rule() in security/landlock/syscalls.c).  No rule is then added.
+        let attr = uapi::landlock_path_beneath_attr {
+            allowed_access: 0,
+            parent_fd: -1,
+        };
+        let ret = unsafe {
+            uapi::landlock_add_rule(
+                fd.as_raw_fd(),
+                uapi::landlock_rule_type_LANDLOCK_RULE_PATH_BENEATH,
+                &attr as *const _ as _,
+                0,
+            )
+        };
+        if ret != 0 {
+            let source = Error::last_os_error();
+            if matches!(
+                source.raw_os_error(),
+                Some(libc::EBADF | libc::EBADFD | libc::EPERM | libc::ENOSYS | libc::EOPNOTSUPP)
+            ) {
+                return Err(CreateRulesetError::NotRuleset { source }.into());
+            }
+        }
+
+        let mut ruleset = Ruleset::from(compat);
+        // The file descriptor is a ruleset, hence the running kernel supports Landlock.
+        ruleset.compat.update(CompatState::Full);
+        let mut created = RulesetCreated::new(ruleset, Some(fd));
+        created.from_fd = true;
+        Ok(created)
     }
 }
 
