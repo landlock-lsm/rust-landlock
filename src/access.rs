@@ -2,12 +2,14 @@
 
 use crate::{
     private, AccessError, AddRuleError, AddRulesError, BitFlags, CompatError, CompatResult,
-    HandleAccessError, HandleAccessesError, Ruleset, TailoredCompatLevel, TryCompat, ABI,
+    Compatibility, HandleAccessError, HandleAccessesError, Ruleset, TailoredCompatLevel, TryCompat,
+    ABI,
 };
 use enumflags2::BitFlag;
+use std::marker::PhantomData;
 
 #[cfg(test)]
-use crate::{make_bitflags, AccessFs, CompatLevel, CompatState, Compatibility};
+use crate::{make_bitflags, AccessFs, CompatLevel, CompatState};
 
 pub trait Access: BitFlag + private::Sealed {
     /// Gets the access rights defined by a specific [`ABI`].
@@ -16,6 +18,84 @@ pub trait Access: BitFlag + private::Sealed {
 
 // This HandledAccess trait is useful to document the API.
 pub trait HandledAccess: Access {}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Requested {}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Effective {}
+
+/// Requested or ABI-resolved ruleset attribute masks for one
+/// [`Access`] category.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct RulesetMasks<A, S>
+where
+    A: Access,
+{
+    /// The handled access mask, or the scoped mask when `A` is
+    /// [`Scope`](crate::Scope).
+    pub(crate) access: BitFlags<A>,
+    _state: PhantomData<S>,
+}
+
+impl<A> Default for RulesetMasks<A, Requested>
+where
+    A: Access,
+{
+    fn default() -> Self {
+        // Ruleset masks must start empty independently of BitFlags' customizable default.
+        Self {
+            access: BitFlags::EMPTY,
+            _state: PhantomData,
+        }
+    }
+}
+
+impl<A> RulesetMasks<A, Requested>
+where
+    A: Access,
+{
+    pub(crate) fn request(
+        &mut self,
+        access: BitFlags<A>,
+        compat: &mut Compatibility,
+    ) -> Result<(), CompatError<A>> {
+        self.access |= access;
+        // Keep this call for validation, compatibility-state transitions, and errors.
+        // Its filtered mask is redundant: resolve() derives it from the ruleset mask and ABI.
+        let _ = access.try_compat(compat.abi(), compat.level, &mut compat.state)?;
+        Ok(())
+    }
+
+    pub(crate) fn resolve(self, abi: ABI) -> RulesetMasks<A, Effective> {
+        let effective_access = self.access & A::from_all(abi);
+        RulesetMasks {
+            access: effective_access,
+            _state: PhantomData,
+        }
+    }
+}
+
+#[test]
+fn ruleset_masks_resolve() {
+    let requested_masks = RulesetMasks::<_, Requested> {
+        access: make_bitflags!(AccessFs::{Execute | Refer}),
+        _state: PhantomData,
+    };
+    for (abi, expected_access) in [
+        (ABI::Unsupported, BitFlags::EMPTY),
+        (ABI::V1, AccessFs::Execute.into()),
+        (ABI::V2, make_bitflags!(AccessFs::{Execute | Refer})),
+    ] {
+        assert_eq!(
+            requested_masks.resolve(abi),
+            RulesetMasks::<_, Effective> {
+                access: expected_access,
+                _state: PhantomData,
+            }
+        );
+    }
+}
 
 pub trait PrivateHandledAccess: HandledAccess {
     fn ruleset_handle_access(
