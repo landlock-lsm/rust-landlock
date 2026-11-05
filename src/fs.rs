@@ -184,19 +184,10 @@ impl PrivateHandledAccess for AccessFs {
         ruleset: &mut Ruleset,
         access: BitFlags<Self>,
     ) -> Result<(), HandleAccessesError> {
-        // We need to record the requested accesses for PrivateRule::check_consistency().
-        ruleset.requested_handled_fs |= access;
-        ruleset.actual_handled_fs |= match access
-            .try_compat(
-                ruleset.compat.abi(),
-                ruleset.compat.level,
-                &mut ruleset.compat.state,
-            )
-            .map_err(HandleAccessError::Compat)?
-        {
-            Some(a) => a,
-            None => return Ok(()),
-        };
+        ruleset
+            .fs
+            .request(access, &mut ruleset.compat)
+            .map_err(HandleAccessError::Compat)?;
         Ok(())
     }
 
@@ -463,15 +454,15 @@ where
 
     fn check_consistency(&self, ruleset: &RulesetCreated) -> Result<(), AddRulesError> {
         // Checks that this rule doesn't contain a superset of the access-rights handled by the
-        // ruleset.  This check is about requested access-rights but not actual access-rights.
+        // ruleset.  This check is about requested but not ABI-resolved access rights.
         // Indeed, we want to get a deterministic behavior, i.e. not based on the running kernel
         // (which is handled by Ruleset and RulesetCreated).
-        if ruleset.requested_handled_fs.contains(self.allowed_access) {
+        if ruleset.fs.access.contains(self.allowed_access) {
             Ok(())
         } else {
             Err(AddRuleError::UnhandledAccess {
                 access: self.allowed_access,
-                incompatible: self.allowed_access & !ruleset.requested_handled_fs,
+                incompatible: self.allowed_access & !ruleset.fs.access,
             }
             .into())
         }
