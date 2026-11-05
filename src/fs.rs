@@ -8,11 +8,11 @@ use crate::{
     TailoredCompatLevel, TryCompat, ABI,
 };
 use enumflags2::{bitflags, make_bitflags, BitFlags};
-use std::fs::OpenOptions;
-use std::io::Error;
+use std::ffi::CString;
+use std::io::{Error, ErrorKind};
 use std::mem::zeroed;
-use std::os::unix::fs::OpenOptionsExt;
-use std::os::unix::io::{AsFd, AsRawFd, BorrowedFd, OwnedFd};
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::io::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::path::Path;
 
 #[cfg(test)]
@@ -526,17 +526,31 @@ impl PathFd {
     where
         T: AsRef<Path>,
     {
+        let open = || -> Result<OwnedFd, Error> {
+            let path = CString::new(path.as_ref().as_os_str().as_bytes())?;
+            // std masks O_ACCMODE out of custom_flags, and musl includes O_PATH in O_ACCMODE.
+            // Linux kernels before 2.6.39 ignore O_PATH.
+            // This retry mirrors Rust's cvt_r() implementation:
+            // https://github.com/rust-lang/rust/blob/1.77.2/library/std/src/sys/pal/unix/mod.rs#L318-L329
+            let fd = loop {
+                // SAFETY: path is NUL-terminated, and these flags do not require a mode argument.
+                let fd = unsafe { libc::open(path.as_ptr(), libc::O_PATH | libc::O_CLOEXEC) };
+                if fd >= 0 {
+                    break fd;
+                }
+                let error = Error::last_os_error();
+                if error.kind() != ErrorKind::Interrupted {
+                    return Err(error);
+                }
+            };
+            // SAFETY: fd is valid, newly opened, and uniquely owned.
+            Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+        };
         Ok(PathFd {
-            fd: OpenOptions::new()
-                .read(true)
-                // If the O_PATH is not supported, it is automatically ignored (Linux < 2.6.39).
-                .custom_flags(libc::O_PATH | libc::O_CLOEXEC)
-                .open(path.as_ref())
-                .map_err(|e| PathFdError::OpenCall {
-                    source: e,
-                    path: path.as_ref().into(),
-                })?
-                .into(),
+            fd: open().map_err(|e| PathFdError::OpenCall {
+                source: e,
+                path: path.as_ref().into(),
+            })?,
         })
     }
 }
@@ -557,9 +571,10 @@ fn path_fd() {
 
     let mut buffer = [0; 1];
     // Checks that PathFd really returns an FD opened with O_PATH (Bad file descriptor error).
-    File::from(PathFd::new("/etc/passwd").unwrap().fd)
+    let error = File::from(PathFd::new("/etc/passwd").unwrap().fd)
         .read(&mut buffer)
         .unwrap_err();
+    assert_eq!(error.raw_os_error(), Some(libc::EBADF));
 }
 
 /// Helper to quickly create an iterator of PathBeneath rules.
