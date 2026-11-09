@@ -237,3 +237,30 @@ jobs:
     - name: Run tests against Linux ${{ fromJSON(matrix.kernel).version }}.y
       working-directory: rust-landlock
       run: ../landlock-test-tools/test-rust.sh ../linux-${{ fromJSON(matrix.kernel).version }} ${{ fromJSON(matrix.kernel).abi }}
+
+  ubuntu_24_musl:
+    runs-on: ubuntu-24.04
+    needs: commit_list
+    strategy:
+      fail-fast: false
+      matrix:
+        commit: ${{ fromJSON(needs.commit_list.outputs.commits) }}
+    steps:
+
+    - uses: actions/checkout@v5
+      with:
+        ref: ${{ matrix.commit }}
+
+    - name: Get MSRV
+      run: sed -n 's/^rust-version = "\([0-9.]\+\)"$/RUST_TOOLCHAIN=\1/p' Cargo.toml >> $GITHUB_ENV
+
+    - name: Install Rust MSRV with musl target
+      run: |
+        rustup toolchain install "$RUST_TOOLCHAIN" \
+          --profile minimal \
+          --target x86_64-unknown-linux-musl
+
+    - name: Run tests with musl
+      run: |
+        rustup run "$RUST_TOOLCHAIN" cargo test \
+          --target x86_64-unknown-linux-musl
