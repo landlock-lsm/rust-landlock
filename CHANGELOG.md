@@ -1,5 +1,45 @@
 # Landlock changelog
 
+## [v0.4.8](https://github.com/landlock-lsm/rust-landlock/releases/tag/v0.4.8)
+
+### New API
+
+- Added support for [Landlock ABI 10](https://landlock.io/rust-landlock/landlock/enum.ABI.html#variant.V10):
+  control UDP binding, connection, and sending with the new
+  [`AccessNet::BindUdp`](https://landlock.io/rust-landlock/landlock/enum.AccessNet.html#variant.BindUdp) and
+  [`AccessNet::ConnectSendUdp`](https://landlock.io/rust-landlock/landlock/enum.AccessNet.html#variant.ConnectSendUdp)
+  rights ([PR #140](https://github.com/landlock-lsm/rust-landlock/pull/140)).
+- Added controls to suppress audit records for denied accesses with
+  [`quiet_access()`](https://landlock.io/rust-landlock/landlock/trait.RulesetAttr.html#method.quiet_access),
+  [`quiet_scope()`](https://landlock.io/rust-landlock/landlock/trait.RulesetAttr.html#method.quiet_scope), and
+  [`Rule::quiet()`](https://landlock.io/rust-landlock/landlock/trait.Rule.html#method.quiet)
+  ([PR #144](https://github.com/landlock-lsm/rust-landlock/pull/144)).
+
+### Compatibility management
+
+Fixed
+[`PathFd::new()`](https://landlock.io/rust-landlock/landlock/struct.PathFd.html#method.new)
+to reliably open descriptors with `O_PATH` on musl
+([PR #150](https://github.com/landlock-lsm/rust-landlock/pull/150)).
+
+### Dependencies
+
+- Bumped MSRV to Rust 1.77
+  ([PR #148](https://github.com/landlock-lsm/rust-landlock/pull/148)).
+
+### Testing
+
+- Extended CI to test Linux 7.2 / Landlock ABI 10 and the native musl target
+  ([PR #140](https://github.com/landlock-lsm/rust-landlock/pull/140) and
+  [PR #150](https://github.com/landlock-lsm/rust-landlock/pull/150)).
+
+### Example
+
+- Synced the sandboxer example with the kernel's `sandboxer.c`: added UDP and
+  quiet access controls
+  ([PR #140](https://github.com/landlock-lsm/rust-landlock/pull/140) and
+  [PR #144](https://github.com/landlock-lsm/rust-landlock/pull/144)).
+
 ## [v0.4.7](https://github.com/landlock-lsm/rust-landlock/releases/tag/v0.4.7)
 
 ### New API
