@@ -50,6 +50,14 @@ pub enum Erratum {
     ///
     /// See [erratum 3](https://docs.kernel.org/userspace-api/landlock.html#erratum-3-disconnected-directory-handling).
     DisconnectedDirectoryHandling = 1 << 2,
+    /// Erratum 4 (ABI 1): creating OverlayFS whiteout objects through
+    /// `mknod(2)`, `renameat2(2)` or `link(2)` is now guarded by
+    /// `LANDLOCK_ACCESS_FS_MAKE_REG` instead of `LANDLOCK_ACCESS_FS_MAKE_CHAR`.
+    ///
+    /// Affects [`crate::AccessFs::MakeChar`] and [`crate::AccessFs::MakeReg`].
+    ///
+    /// See [erratum 4](https://docs.kernel.org/userspace-api/landlock.html#erratum-4-creation-of-whiteout-objects).
+    WhiteoutCreation = 1 << 3,
 }
 
 impl Erratum {
@@ -107,7 +115,10 @@ impl From<ABI> for BitFlags<Erratum> {
         match abi {
             ABI::Unsupported => BitFlags::empty(),
             // Erratum 3: disconnected directory handling (FS, ABI 1+).
-            ABI::V1 | ABI::V2 | ABI::V3 => Erratum::DisconnectedDirectoryHandling.into(),
+            // Erratum 4: whiteout creation (FS, ABI 1+).
+            ABI::V1 | ABI::V2 | ABI::V3 => {
+                Erratum::DisconnectedDirectoryHandling | Erratum::WhiteoutCreation
+            }
             // Erratum 1: TCP socket identification (net, ABI 4+).
             ABI::V4 | ABI::V5 => Self::from(ABI::V3) | Erratum::TcpSocketIdentification,
             // Erratum 2: scoped signal handling (scopes, ABI 6+).
@@ -194,23 +205,32 @@ fn parse_kernel_version_cases() {
 /// lookup is keyed by kernel version.  The patch number and distro suffix
 /// allow narrowing to specific kernel builds when a fix arrives in a stable
 /// patch level or distro-specific backport.  When an erratum is backported
-/// to a kernel version, remove it from the corresponding match arm.  The
-/// CI will catch mismatches.
+/// to a kernel version, remove it from the corresponding match arm.  When
+/// it is backported in a stable patch level, end the arm's patch range
+/// before that level.  The CI will catch mismatches.
 #[cfg(test)]
 fn not_backported_yet(version: (u32, u32, u32, &str)) -> BitFlags<Erratum> {
     match version {
-        // TODO: erratum 3 (DisconnectedDirectoryHandling) should be backported.
-        (5, 15, _, _) | (6, 1, _, _) => Erratum::DisconnectedDirectoryHandling.into(),
+        // TODO: erratum 3 (DisconnectedDirectoryHandling) should be backported to 5.15.
+        // 5.15 before 5.15.222 and 6.1 before 6.1.188: errata 3 and 4 not backported yet.
+        (5, 15, 0..=221, _) | (6, 1, 0..=187, _) => {
+            Erratum::DisconnectedDirectoryHandling | Erratum::WhiteoutCreation
+        }
+        // 5.15.222 and later, 6.1.188: erratum 4 backported.  Erratum 3 reached 6.1.189.
+        (5, 15, _, _) | (6, 1, 188, _) => Erratum::DisconnectedDirectoryHandling.into(),
 
-        // 6.15: errata 1 and 2 backported.
-        // TODO: erratum 3 (DisconnectedDirectoryHandling) should be backported.
-        (6, 15, _, _) => Erratum::DisconnectedDirectoryHandling.into(),
+        // 6.15: EOL, errata 1 and 2 backported.
+        (6, 15, _, _) => Erratum::DisconnectedDirectoryHandling | Erratum::WhiteoutCreation,
+
+        // 6.12: errata 1 and 2 since 6.12.24, erratum 3 since 6.12.80, erratum 4 since 6.12.110.
+        // Releases before 6.12.80 are not tracked.
+        // 7.2: errata 1, 2 and 3 fixed, erratum 4 since 7.2.4.
+        (6, 12, 0..=109, _) | (7, 2, 0..=3, _) => Erratum::WhiteoutCreation.into(),
+
+        // 7.0, 7.1: EOL, errata 1, 2 and 3 fixed (erratum 3 fix landed via errata/abi-1.h).
+        (7, 0, _, _) | (7, 1, _, _) => Erratum::WhiteoutCreation.into(),
 
         // 6.4, 6.7, 6.10: EOL, no errata interface on stable.kernel.
-        // 6.12: all errata backported.
-        // 7.0: all errata backported (erratum 3 fix landed via errata/abi-1.h).
-        // 7.1: all errata backported (no new errata in ABI v9).
-        // 7.2: all errata backported (no new errata in ABI v10).
         // Future or unknown kernel: assume all errata backported.
         _ => BitFlags::empty(),
     }
