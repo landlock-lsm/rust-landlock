@@ -56,20 +56,36 @@ impl Erratum {
     /// Queries the running kernel for fixed errata.
     ///
     /// Returns a bitmask of errata that have been fixed in the running
-    /// kernel.  Unknown errata bits from newer kernels are preserved.
-    /// Returns empty if the kernel doesn't support the errata interface.
+    /// kernel.  Errata reported by the kernel but unknown to this crate
+    /// version are ignored.  Returns empty if the kernel doesn't support the
+    /// errata interface.
     pub fn current() -> BitFlags<Self> {
-        let ret = unsafe {
-            uapi::landlock_create_ruleset(std::ptr::null(), 0, uapi::LANDLOCK_CREATE_RULESET_ERRATA)
-        };
-        if ret >= 0 {
-            // SAFETY: The kernel may return bits unknown to this crate version.
-            // Using from_bits_unchecked to preserve them.
-            unsafe { BitFlags::from_bits_unchecked(ret as u32) }
-        } else {
-            BitFlags::empty()
-        }
+        from_kernel_bits(current_raw())
     }
+}
+
+/// Queries the running kernel for the raw bitmask of fixed errata.
+///
+/// Unlike [`Erratum::current()`], the bitmask includes errata unknown to
+/// this crate version.  Returns 0 if the kernel doesn't support the errata
+/// interface.
+fn current_raw() -> u32 {
+    let ret = unsafe {
+        uapi::landlock_create_ruleset(std::ptr::null(), 0, uapi::LANDLOCK_CREATE_RULESET_ERRATA)
+    };
+    if ret >= 0 {
+        ret as u32
+    } else {
+        0
+    }
+}
+
+/// Converts the kernel's errata bitmask into known errata.
+///
+/// The kernel may report errata unknown to this crate version.  `BitFlags`
+/// cannot hold them soundly, so they are dropped.
+fn from_kernel_bits(raw: u32) -> BitFlags<Erratum> {
+    BitFlags::from_bits_truncate(raw)
 }
 
 /// Converts an [`ABI`] version into the set of errata applicable to that ABI.
@@ -207,6 +223,16 @@ fn errata_query() {
 }
 
 #[test]
+fn errata_unknown_bits_dropped() {
+    // Verifies that errata unknown to this crate are dropped.
+    let known = BitFlags::<Erratum>::all();
+    let unknown = 1 << 31;
+    assert_eq!(from_kernel_bits(known.bits() | unknown), known);
+    assert!(from_kernel_bits(unknown).is_empty());
+    assert_eq!(from_kernel_bits(u32::MAX), known);
+}
+
+#[test]
 fn errata_up_to_date() {
     use crate::compat::{ABI, TEST_ABI, TEST_ABI_ENV_NAME};
 
@@ -233,6 +259,14 @@ fn errata_up_to_date() {
     let current = Erratum::current();
     let applicable: BitFlags<Erratum> = (*TEST_ABI).into();
     let expected = applicable & !not_backported_yet(kernel_version);
+
+    // This crate must know every erratum reported by the kernel.
+    let unknown = current_raw() & !BitFlags::<Erratum>::all().bits();
+    assert!(
+        unknown == 0,
+        "kernel reported errata unknown to this crate: {:#x}",
+        unknown,
+    );
 
     // Kernel must never report errata for features absent from this ABI.
     assert!(
